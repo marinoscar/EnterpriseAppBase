@@ -563,7 +563,11 @@ export type { DeployPlanStep } from './deploy/steps/plan.js';
 export {
   binaryCapability,
   evaluateCapabilities,
+  httpServiceCapability,
+  listCapabilityProbes,
+  moduleCapability,
   probeCapabilities,
+  registerCapabilityProbe,
   registerJobRequirement,
   registerProbedBinary,
   runStartupSelfTest,
@@ -572,12 +576,45 @@ export type {
   Capability,
   CapabilityGap,
   CapabilityProbe,
+  CapabilityProbeContext,
+  CapabilityProbeEntry,
+  CapabilityProbeDefinition,
+  CapabilityProbeResult,
+  CapabilityState,
+  HttpServiceCapabilityOptions,
+  ModuleCapabilityOptions,
   JobRequirementInput,
   JobTypeRequirements,
   ProbedBinaryOptions,
   SelfTestOptions,
   SelfTestResult,
 } from './node/capabilities.js';
+export {
+  detectDistro,
+  ensureAptPackages,
+  ensureDockerContainer,
+  listInstallSteps,
+  registerInstallStep,
+  runWithSudoAnnounced,
+} from './node/install-deps.js';
+export type {
+  DistroInfo,
+  DockerContainerSpec,
+  InstallContext,
+  InstallStep,
+  RegisteredInstallStep,
+} from './node/install-deps.js';
+export {
+  listModelArtifacts,
+  modelArtifactPath,
+  pullModels,
+  registerModelArtifact,
+  resolveModelsDir,
+  verifyModel,
+  verifyModels,
+  withheldTypesFor,
+} from './node/models.js';
+export type { ModelArtifact, ModelPullResult, ModelStatus, ModelVerification, PullModelsOptions } from './node/models.js';
 export { sanitizeExtraVitals } from './node/node-vitals.js';
 export { ExecutorRegistry } from './node/executors/index.js';
 export type { ExecutorNodeApi, JobExecutionContext, JobExecutor, JobInputMode } from './node/executors/index.js';

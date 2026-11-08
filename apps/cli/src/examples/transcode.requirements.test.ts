@@ -17,13 +17,13 @@ beforeEach(() => {
 afterEach(() => resetCliForTests());
 
 describe('declareTranscodeRequirements', () => {
-  it('stops a node without ffmpeg from claiming example.transcode, naming the type and the tool', () => {
+  it('stops a node without ffmpeg from claiming example.transcode, naming the type and the tool', async () => {
     declareTranscodeRequirements();
     const failures: string[] = [];
 
-    const result = runStartupSelfTest({
+    const result = await runStartupSelfTest({
       types: ['example.transcode'],
-      probe: probeCapabilities({ hasBinary: () => false }),
+      probe: await probeCapabilities({ hasBinary: () => false }),
       fail: (message) => failures.push(message),
     });
 
@@ -32,13 +32,13 @@ describe('declareTranscodeRequirements', () => {
     expect(failures.join('\n')).toContain(binaryCapability('ffmpeg'));
   });
 
-  it('lets a node with ffmpeg claim it, and only warns when the degradable exiftool is missing', () => {
+  it('lets a node with ffmpeg claim it, and only warns when the degradable exiftool is missing', async () => {
     declareTranscodeRequirements();
     const warnings: string[] = [];
 
-    const result = runStartupSelfTest({
+    const result = await runStartupSelfTest({
       types: ['example.transcode'],
-      probe: probeCapabilities({ hasBinary: (name) => name === 'ffmpeg' }),
+      probe: await probeCapabilities({ hasBinary: (name) => name === 'ffmpeg' }),
       warn: (message) => warnings.push(message),
     });
 
@@ -46,16 +46,16 @@ describe('declareTranscodeRequirements', () => {
     expect(warnings.join('\n')).toContain('binary:exiftool');
   });
 
-  it('captures the ffmpeg version banner when the machine reports one', () => {
+  it('captures the ffmpeg version banner when the machine reports one', async () => {
     declareTranscodeRequirements();
 
-    const probe = probeCapabilities({ hasBinary: (name) => name === 'ffmpeg', readVersion: () => 'ffmpeg version 6.1' });
+    const probe = await probeCapabilities({ hasBinary: (name) => name === 'ffmpeg', readVersion: () => 'ffmpeg version 6.1' });
 
     expect(probe.versions).toEqual({ ffmpeg: 'ffmpeg version 6.1' });
     expect(evaluateCapabilities(['example.transcode'], probe).ok).toBe(true);
   });
 
-  it('declares nothing until it is called: a stock node claims types without ffmpeg', () => {
-    expect(runStartupSelfTest({ types: ['example.transcode'], probe: probeCapabilities({ hasBinary: () => false }) }).ok).toBe(true);
+  it('declares nothing until it is called: a stock node claims types without ffmpeg', async () => {
+    expect((await runStartupSelfTest({ types: ['example.transcode'], probe: await probeCapabilities({ hasBinary: () => false }) })).ok).toBe(true);
   });
 });

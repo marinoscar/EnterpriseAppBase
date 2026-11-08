@@ -1,6 +1,8 @@
 import { execFileSync } from 'node:child_process';
-import { accessSync, constants } from 'node:fs';
+import { accessSync, constants, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { arch, cpus, freemem, platform, totalmem } from 'node:os';
+import { join } from 'node:path';
 
 // =============================================================================
 // Capability probe and the startup self-test  (issue #276, epic #254)
@@ -199,8 +201,10 @@ export function registerProbedBinary(name: string, options: ProbedBinaryOptions 
  * Declares what a job type needs from the machine, for the startup self-test
  * and `node doctor`. A missing REQUIRED capability stops the node naming the
  * type; a missing degradable one only warns. Every `binary:<name>` capability
- * named here is registered as a probed binary (without a version command) so
- * the requirement can be satisfied at all.
+ * named here is registered as a probed binary (without a version command), and
+ * every `module:<name>` as a {@link moduleCapability} probe, so the requirement
+ * can be satisfied at all. A `service:<id>` key needs
+ * {@link registerCapabilityProbe}`(`{@link httpServiceCapability}`(...))`.
  *
  * @param type - the job type, as the server's handler declares it.
  * @param requirement - the required and degradable capability keys.
@@ -226,14 +230,384 @@ export function registerJobRequirement(type: string, requirement: JobRequirement
     if (key.startsWith('binary:') && !BINARY_NAME_PATTERN.test(key.slice('binary:'.length))) {
       throw new Error(`registerJobRequirement("${type}"): "${key}" does not name a bare command.`);
     }
+    if (key.startsWith('module:') && !MODULE_NAME_PATTERN.test(key.slice('module:'.length))) {
+      throw new Error(`registerJobRequirement("${type}"): "${key}" does not name an npm package.`);
+    }
   }
   for (const key of [...required, ...degradable]) {
     if (key.startsWith('binary:')) {
       const name = key.slice('binary:'.length);
       if (!PROBED_BINARIES.includes(name)) registerProbedBinary(name);
     }
+    // A `module:<name>` key is satisfiable without any further call: the module
+    // is resolved (never imported). A `service:<id>` key needs its URL, so the
+    // app registers `httpServiceCapability(...)` itself.
+    if (key.startsWith('module:') && !capabilityProbes.has(key)) {
+      registerCapabilityProbe(moduleCapability(key.slice('module:'.length)));
+      autoRegisteredProbes.add(key);
+    }
   }
   JOB_TYPE_REQUIREMENTS[type] = { required, degradable };
+}
+
+// =============================================================================
+// Capabilities beyond binaries: modules and services  (RETRO-G2.4, #1074)
+// =============================================================================
+//
+// A worker can be unable to do its work for reasons `which` cannot see: a
+// native npm module that is not installed (or installed but unable to load), a
+// sidecar service that is not answering. `registerCapabilityProbe` lets an app
+// declare such a capability under a `module:<name>` or `service:<id>` key, and
+// `registerJobRequirement` then accepts the key in `required` / `degradable`
+// like a `binary:` key.
+//
+// THREE STATES, NOT TWO. `available` is operational; `missing` is absent;
+// `installed` is the one a binary probe cannot express: present but not working
+// (a module that resolves yet fails its self-test, a service that answers with
+// an error). It is NOT in the satisfied capability set, so a REQUIRED one
+// blocks startup exactly like a missing one, while the message says which of
+// the two it is. A degradable one only warns.
+// =============================================================================
+
+/**
+ * How well one non-binary capability works here.
+ *
+ * - `available`: present and working.
+ * - `installed`: present but not operational (resolves but fails its check; answers with an error).
+ * - `missing`: absent, unreachable, timed out or the probe threw.
+ *
+ * @stability experimental
+ */
+export type CapabilityState = 'available' | 'installed' | 'missing';
+
+/**
+ * What a capability probe reports.
+ *
+ * @stability experimental
+ */
+export interface CapabilityProbeResult {
+  /** How well the capability works here. */
+  status: CapabilityState;
+  /** One line explaining the status. Cut to 200 printable characters. */
+  detail?: string | undefined;
+  /** A version string when the probe can read one. Cut to 80 printable characters. */
+  version?: string | undefined;
+}
+
+/**
+ * What a probe function receives.
+ *
+ * @stability experimental
+ */
+export interface CapabilityProbeContext {
+  /** The environment the worker runs with. */
+  env: NodeJS.ProcessEnv;
+  /** Aborted when the probe's time budget is spent; honour it in any I/O. */
+  signal: AbortSignal;
+}
+
+/**
+ * A registered probe for one capability key.
+ *
+ * @stability experimental
+ */
+export interface CapabilityProbeDefinition {
+  /** The capability key: `module:<name>`, `service:<id>` or any other `<kind>:<name>` an app invents. `binary:` is reserved. */
+  key: Capability;
+  /** Shown by `node doctor`. */
+  label: string;
+  /** Decides the status. Throwing or exceeding the budget means `missing`. */
+  probe(context: CapabilityProbeContext): CapabilityProbeResult | Promise<CapabilityProbeResult>;
+  /** Time budget in milliseconds. Default 5000. */
+  timeoutMs?: number | undefined;
+  /**
+   * How long a heartbeat refresh may reuse this probe's last result, in
+   * milliseconds. Default 0 (always probe). Startup and `node doctor` never use
+   * the cache.
+   */
+  cacheMs?: number | undefined;
+}
+
+/**
+ * One probe's outcome as recorded in {@link CapabilityProbe.probes}.
+ *
+ * @stability experimental
+ */
+export interface CapabilityProbeEntry extends CapabilityProbeResult {
+  /** The probe's label, as `node doctor` shows it. */
+  label: string;
+}
+
+const CAPABILITY_KEY_PATTERN = /^[a-z][a-z0-9-]{0,31}:[A-Za-z0-9@][A-Za-z0-9@/._+-]{0,127}$/;
+const MODULE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]{0,127}$/;
+const SERVICE_ID_PATTERN = /^[a-z][a-z0-9._-]{0,63}$/;
+const DEFAULT_PROBE_TIMEOUT_MS = 5000;
+const MAX_PROBE_DETAIL_LENGTH = 200;
+
+const capabilityProbes = new Map<Capability, CapabilityProbeDefinition>();
+/** Keys `registerJobRequirement` registered on its own; an explicit registration replaces them. */
+const autoRegisteredProbes = new Set<Capability>();
+const probeCache = new Map<Capability, { at: number; result: CapabilityProbeResult }>();
+
+/**
+ * Declares a capability the platform cannot probe on its own (a native module,
+ * a sidecar service). Call it at module scope, before the node starts. The key
+ * can then be named in {@link registerJobRequirement}, and the result appears
+ * in the startup self-test, `node doctor` and the heartbeat capability summary.
+ *
+ * Each probe is bounded (default 5 s) and never throws into the caller: a probe
+ * that throws or times out reports `missing`.
+ *
+ * @param definition - the key, label and probe function.
+ * @throws Error when the key is malformed, uses the reserved `binary:` prefix, or is already registered.
+ *
+ * @example
+ * ```ts
+ * registerCapabilityProbe(moduleCapability('sharp'));
+ * registerCapabilityProbe(httpServiceCapability({ id: 'ocr', env: 'APP_OCR_URL', path: '/status' }));
+ * registerJobRequirement('app.ocr', { required: ['module:sharp', 'service:ocr'] });
+ * ```
+ *
+ * @extensionPoint registry
+ * @stability experimental
+ */
+export function registerCapabilityProbe(definition: CapabilityProbeDefinition): void {
+  const key = definition?.key;
+  if (typeof key !== 'string' || !CAPABILITY_KEY_PATTERN.test(key)) {
+    throw new Error(`registerCapabilityProbe: "${String(key)}" is not a capability key of the form <kind>:<name>.`);
+  }
+  if (key.startsWith('binary:')) {
+    throw new Error('registerCapabilityProbe: the "binary:" prefix is reserved for registerProbedBinary.');
+  }
+  if (typeof definition.label !== 'string' || definition.label.trim() === '') throw new Error(`registerCapabilityProbe("${key}"): a label is required.`);
+  if (typeof definition.probe !== 'function') throw new Error(`registerCapabilityProbe("${key}"): probe must be a function.`);
+  for (const field of ['timeoutMs', 'cacheMs'] as const) {
+    const value = definition[field];
+    if (value !== undefined && (!Number.isFinite(value) || value < 0)) throw new Error(`registerCapabilityProbe("${key}"): ${field} must be a non-negative number.`);
+  }
+  if (capabilityProbes.has(key) && !autoRegisteredProbes.has(key)) throw new Error(`registerCapabilityProbe: "${key}" is already registered.`);
+  autoRegisteredProbes.delete(key);
+  capabilityProbes.set(key, definition);
+}
+
+/** Removes one registered probe. Tests only. @internal */
+export function unregisterCapabilityProbeForTests(key: Capability): void {
+  capabilityProbes.delete(key);
+  autoRegisteredProbes.delete(key);
+  probeCache.delete(key);
+}
+
+/**
+ * The registered non-binary probes, in registration order.
+ *
+ * @returns the definitions.
+ * @stability experimental
+ */
+export function listCapabilityProbes(): CapabilityProbeDefinition[] {
+  return [...capabilityProbes.values()];
+}
+
+/**
+ * Options of {@link moduleCapability}.
+ *
+ * @stability experimental
+ */
+export interface ModuleCapabilityOptions {
+  /** Shown by `node doctor`. Default `npm module <name>`. */
+  label?: string | undefined;
+  /**
+   * Proves the module WORKS, not just that it resolves (load it, run a tiny
+   * operation). Resolves normally or returns `true` for operational; returns
+   * `false`, a string (the reason) or throws for `installed`-but-not-operational.
+   * Absent: a resolvable module counts as available.
+   */
+  operational?: (() => unknown | Promise<unknown>) | undefined;
+  /** A path to resolve from, when the module is not reachable from the running script. */
+  resolveFrom?: string | undefined;
+  /** Time budget. Default 5000 ms (the module check may load a native binding). */
+  timeoutMs?: number | undefined;
+  /** Reuse window for heartbeat refreshes. Default 60000 ms: resolution and loading do not change while running. */
+  cacheMs?: number | undefined;
+}
+
+/**
+ * Builds the probe for an npm module under the key `module:<name>`. It decides
+ * with `require.resolve`, so probing never imports the module or runs its
+ * top-level code; only an explicit {@link ModuleCapabilityOptions.operational}
+ * check does, and then `installed` means "resolves, does not work".
+ *
+ * @param name - the npm package name (`sharp`, `@scope/pkg`).
+ * @param options - label and an optional operational check.
+ * @returns a definition for {@link registerCapabilityProbe}.
+ * @throws Error when the name is not an npm package name.
+ * @stability experimental
+ */
+export function moduleCapability(name: string, options: ModuleCapabilityOptions = {}): CapabilityProbeDefinition {
+  if (typeof name !== 'string' || !MODULE_NAME_PATTERN.test(name)) {
+    throw new Error(`moduleCapability: "${String(name)}" is not an npm package name.`);
+  }
+  return {
+    key: `module:${name}`,
+    label: options.label ?? `npm module ${name}`,
+    timeoutMs: options.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS,
+    cacheMs: options.cacheMs ?? 60_000,
+    async probe() {
+      const resolved = resolveModule(name, options.resolveFrom);
+      if (resolved === undefined) return { status: 'missing', detail: `${name} is not installed` };
+      const version = readModuleVersion(name, resolved);
+      if (options.operational === undefined) return { status: 'available', ...(version !== undefined ? { version } : {}) };
+      try {
+        const outcome = await options.operational();
+        if (outcome === false || typeof outcome === 'string') {
+          return { status: 'installed', detail: typeof outcome === 'string' ? outcome : `${name} is installed but failed its check`, ...(version !== undefined ? { version } : {}) };
+        }
+        return { status: 'available', ...(version !== undefined ? { version } : {}) };
+      } catch (error) {
+        return { status: 'installed', detail: `${name} is installed but not operational: ${error instanceof Error ? error.message : String(error)}`, ...(version !== undefined ? { version } : {}) };
+      }
+    },
+  };
+}
+
+/** Resolves a module without loading it; returns the resolved path or undefined. */
+function resolveModule(name: string, resolveFrom: string | undefined): string | undefined {
+  const bases = [resolveFrom, process.argv[1], join(process.cwd(), 'noop.js')].filter((base): base is string => typeof base === 'string' && base !== '');
+  for (const base of bases) {
+    try {
+      return createRequire(base).resolve(name);
+    } catch {
+      // try the next base
+    }
+  }
+  return undefined;
+}
+
+/** The module's `package.json` version, found by walking up from its resolved entry. Never throws. */
+function readModuleVersion(name: string, resolvedEntry: string): string | undefined {
+  const marker = `node_modules/${name}/`;
+  const normalised = resolvedEntry.replace(/\\/g, '/');
+  const at = normalised.lastIndexOf(marker);
+  if (at === -1) return undefined;
+  try {
+    const manifest = JSON.parse(readFileSync(`${normalised.slice(0, at + marker.length)}package.json`, 'utf8')) as { version?: unknown };
+    return typeof manifest.version === 'string' ? manifest.version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Options of {@link httpServiceCapability}.
+ *
+ * @stability experimental
+ */
+export interface HttpServiceCapabilityOptions {
+  /** The service id; the key is `service:<id>`. */
+  id: string;
+  /** Shown by `node doctor`. Default `service <id>`. */
+  label?: string | undefined;
+  /** The base URL. */
+  url?: string | undefined;
+  /** Or the NAME of an environment variable that holds the base URL (read at probe time). One of `url` / `env` is required. */
+  env?: string | undefined;
+  /** The path to request, default `/`. */
+  path?: string | undefined;
+  /** Time budget for the request, default 3000 ms. */
+  timeoutMs?: number | undefined;
+  /** Reuse window for heartbeat refreshes, default 15000 ms. */
+  cacheMs?: number | undefined;
+  /** Test seam. */
+  fetch?: typeof fetch | undefined;
+}
+
+/**
+ * Builds the probe for an HTTP sidecar under the key `service:<id>`: a `GET`
+ * to `<url><path>`. A 2xx answer is `available`; any other HTTP answer is
+ * `installed` (it is there but not healthy); a connection error or a timeout is
+ * `missing`. The detail shows the origin and path only, never credentials or a
+ * query string.
+ *
+ * @param options - the service id, its URL (or the env var naming it) and path.
+ * @returns a definition for {@link registerCapabilityProbe}.
+ * @throws Error when the id is malformed or neither `url` nor `env` is given.
+ * @stability experimental
+ */
+export function httpServiceCapability(options: HttpServiceCapabilityOptions): CapabilityProbeDefinition {
+  if (typeof options?.id !== 'string' || !SERVICE_ID_PATTERN.test(options.id)) {
+    throw new Error(`httpServiceCapability: "${String(options?.id)}" is not a valid service id.`);
+  }
+  if (options.url === undefined && options.env === undefined) {
+    throw new Error(`httpServiceCapability("${options.id}"): give a url or the name of an env var that holds it.`);
+  }
+  const timeoutMs = options.timeoutMs ?? 3000;
+  return {
+    key: `service:${options.id}`,
+    label: options.label ?? `service ${options.id}`,
+    timeoutMs: timeoutMs + 500,
+    cacheMs: options.cacheMs ?? 15_000,
+    async probe({ env, signal }) {
+      const base = options.url ?? (options.env !== undefined ? env[options.env] : undefined);
+      if (base === undefined || base.trim() === '') return { status: 'missing', detail: `${options.env ?? 'url'} is not set` };
+      let target: URL;
+      try {
+        target = new URL(options.path ?? '/', base.endsWith('/') || (options.path ?? '/') === '/' ? base : `${base}/`);
+      } catch {
+        return { status: 'missing', detail: 'the service URL is not a valid URL' };
+      }
+      const shown = `${target.origin}${target.pathname}`;
+      const timer = AbortSignal.timeout(timeoutMs);
+      try {
+        const response = await (options.fetch ?? fetch)(target, { method: 'GET', signal: AbortSignal.any([signal, timer]) });
+        return response.ok
+          ? { status: 'available', detail: `${shown} answered ${response.status}` }
+          : { status: 'installed', detail: `${shown} answered HTTP ${response.status}` };
+      } catch (error) {
+        return { status: 'missing', detail: `${shown} is not reachable: ${timer.aborted ? `no answer within ${timeoutMs} ms` : error instanceof Error ? error.message : String(error)}` };
+      }
+    },
+  };
+}
+
+function printable(text: string, max: number): string {
+  return text.replace(/[^\x20-\x7e]/g, ' ').trim().slice(0, max).trim();
+}
+
+/** Runs one registered probe with its budget, cache and fault isolation. Never throws. */
+async function runCapabilityProbe(
+  definition: CapabilityProbeDefinition,
+  env: NodeJS.ProcessEnv,
+  useCache: boolean,
+): Promise<CapabilityProbeResult> {
+  const cacheMs = definition.cacheMs ?? 0;
+  const cached = probeCache.get(definition.key);
+  if (useCache && cacheMs > 0 && cached !== undefined && Date.now() - cached.at < cacheMs) return cached.result;
+
+  const budget = definition.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
+  const controller = new AbortController();
+  let timer: NodeJS.Timeout | undefined;
+  let result: CapabilityProbeResult;
+  try {
+    const timeout = new Promise<CapabilityProbeResult>((resolve) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        resolve({ status: 'missing', detail: `the probe did not answer within ${budget} ms` });
+      }, budget);
+    });
+    result = await Promise.race([Promise.resolve().then(() => definition.probe({ env, signal: controller.signal })), timeout]);
+  } catch (error) {
+    result = { status: 'missing', detail: `the probe failed: ${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+
+  const status: CapabilityState = result?.status === 'available' || result?.status === 'installed' ? result.status : 'missing';
+  const clean: CapabilityProbeResult = {
+    status,
+    ...(typeof result?.detail === 'string' && result.detail !== '' ? { detail: printable(result.detail, MAX_PROBE_DETAIL_LENGTH) } : {}),
+    ...(typeof result?.version === 'string' && result.version !== '' ? { version: printable(result.version, 80) } : {}),
+  };
+  probeCache.set(definition.key, { at: Date.now(), result: clean });
+  return clean;
 }
 
 /**
@@ -261,6 +635,12 @@ export interface CapabilityProbe {
    * registered with `versionArgs`. Absent when none was captured.
    */
   versions?: Record<string, string> | undefined;
+  /**
+   * The outcome of every registered non-binary probe ({@link registerCapabilityProbe}),
+   * keyed by capability key. Absent when none is registered. Only `available`
+   * entries are in {@link CapabilityProbe.capabilities}.
+   */
+  probes?: Record<string, CapabilityProbeEntry> | undefined;
   /** Flat set of satisfied capability keys — what the self-test compares against. */
   capabilities: Capability[];
 }
@@ -275,12 +655,18 @@ export interface CapabilityProbe {
  * @returns what the machine has, including the satisfied capability keys.
  * @stability experimental
  */
-export function probeCapabilities(options?: {
+export async function probeCapabilities(options?: {
   binaries?: string[] | undefined;
   hasBinary?: ((name: string) => boolean) | undefined;
   /** Reads a found binary's version banner. Defaults to running its registered `versionArgs`. */
   readVersion?: ((name: string) => string | undefined) | undefined;
-}): CapabilityProbe {
+  /** Environment handed to registered probes. Defaults to `process.env`. */
+  env?: NodeJS.ProcessEnv | undefined;
+  /** Reuse registered probes' cached results (`cacheMs`). For heartbeat refreshes; startup and `doctor` leave it off. */
+  useCache?: boolean | undefined;
+  /** Registered probes to run. Defaults to the registry; `[]` runs none. */
+  probes?: readonly CapabilityProbeDefinition[] | undefined;
+}): Promise<CapabilityProbe> {
   const names = options?.binaries ?? PROBED_BINARIES;
   const has = options?.hasBinary ?? isOnPath;
   const readVersion = options?.readVersion ?? readRegisteredVersion;
@@ -304,6 +690,17 @@ export function probeCapabilities(options?: {
     if (found) capabilities.push(binaryCapability(name));
   }
 
+  // Registered non-binary probes run together; each is bounded and isolated.
+  const definitions = options?.probes ?? listCapabilityProbes();
+  const env = options?.env ?? process.env;
+  const settled = await Promise.all(definitions.map((definition) => runCapabilityProbe(definition, env, options?.useCache === true)));
+  const probes: Record<string, CapabilityProbeEntry> = {};
+  definitions.forEach((definition, index) => {
+    const result = settled[index] as CapabilityProbeResult;
+    probes[definition.key] = { label: definition.label, ...result };
+    if (result.status === 'available') capabilities.push(definition.key);
+  });
+
   return {
     platform: safe(() => platform(), 'unknown'),
     arch: safe(() => arch(), 'unknown'),
@@ -313,6 +710,7 @@ export function probeCapabilities(options?: {
     freeMemoryMb: safe(() => Math.round(freemem() / 1024 / 1024), 0),
     binaries,
     ...(Object.keys(versions).length > 0 ? { versions } : {}),
+    ...(definitions.length > 0 ? { probes } : {}),
     capabilities,
   };
 }
@@ -374,6 +772,13 @@ export interface CapabilityGap {
   type: string;
   /** The missing capability key. */
   capability: Capability;
+  /**
+   * `installed` when the capability is present but not operational (a module
+   * that resolves and fails its check). Absent for a plainly missing one.
+   */
+  state?: 'installed' | undefined;
+  /** Why, when a probe said (or `no probe is registered for this capability`). */
+  detail?: string | undefined;
 }
 
 /**
@@ -407,15 +812,30 @@ export function evaluateCapabilities(
   const satisfied = new Set(probe.capabilities);
   const missingRequired: CapabilityGap[] = [];
   const missingDegradable: CapabilityGap[] = [];
+  const gapOf = (type: string, capability: Capability): CapabilityGap => {
+    const found = probe.probes?.[capability];
+    if (found !== undefined) {
+      return {
+        type,
+        capability,
+        ...(found.status === 'installed' ? { state: 'installed' as const } : {}),
+        ...(found.detail !== undefined ? { detail: found.detail } : {}),
+      };
+    }
+    // A binary is probed by name; anything else with no probe can never be satisfied.
+    return capability.startsWith('binary:')
+      ? { type, capability }
+      : { type, capability, detail: 'no probe is registered for this capability' };
+  };
 
   for (const type of types) {
     const need = requirements[type];
     if (need === undefined) continue;
     for (const capability of need.required) {
-      if (!satisfied.has(capability)) missingRequired.push({ type, capability });
+      if (!satisfied.has(capability)) missingRequired.push(gapOf(type, capability));
     }
     for (const capability of need.degradable) {
-      if (!satisfied.has(capability)) missingDegradable.push({ type, capability });
+      if (!satisfied.has(capability)) missingDegradable.push(gapOf(type, capability));
     }
   }
 
@@ -451,20 +871,24 @@ export interface SelfTestOptions {
  * @returns the verdict; `ok` is false when a REQUIRED capability is missing.
  * @stability experimental
  */
-export function runStartupSelfTest(options: SelfTestOptions): SelfTestResult {
-  const probe = options.probe ?? probeCapabilities();
+export async function runStartupSelfTest(options: SelfTestOptions): Promise<SelfTestResult> {
+  const probe = options.probe ?? (await probeCapabilities());
   const result = evaluateCapabilities(options.types, probe, options.requirements);
 
   for (const gap of result.missingDegradable) {
     options.warn?.(
-      `Reduced function: job type "${gap.type}" would use "${gap.capability}", which is not available on this machine.`,
+      `Reduced function: job type "${gap.type}" would use "${gap.capability}", which is ${
+        gap.state === 'installed' ? 'installed but not operational' : 'not available'
+      } on this machine${gap.detail !== undefined ? ` (${gap.detail})` : ''}.`,
     );
   }
 
   for (const gap of result.missingRequired) {
     options.fail?.(
-      `Cannot run job type "${gap.type}": required capability "${gap.capability}" is missing. ` +
-        `Install it, or drop the type from this node's --types.`,
+      `Cannot run job type "${gap.type}": required capability "${gap.capability}" is ${
+        gap.state === 'installed' ? 'installed but not operational' : 'missing'
+      }${gap.detail !== undefined ? ` (${gap.detail})` : ''}. ` +
+        `${gap.state === 'installed' ? 'Repair it' : 'Install it'}, or drop the type from this node's --types.`,
     );
   }
 
@@ -481,6 +905,18 @@ export function isWritable(path: string): boolean {
   }
 }
 
+const resetHooks: Array<() => void> = [];
+
+/**
+ * Lets a module that holds its own registry (the model artifacts) be emptied by
+ * {@link resetCapabilityRegistriesForTests} without `registries.ts` importing it.
+ *
+ * @internal
+ */
+export function onCapabilityRegistryReset(hook: () => void): void {
+  resetHooks.push(hook);
+}
+
 /**
  * Removes every requirement and probed binary an app registered, leaving the
  * platform's own. Tests only (`resetCliRegistriesForTests` calls it).
@@ -488,10 +924,14 @@ export function isWritable(path: string): boolean {
  * @internal
  */
 export function resetCapabilityRegistriesForTests(): void {
+  for (const hook of resetHooks) hook();
   for (const type of Object.keys(JOB_TYPE_REQUIREMENTS)) {
     if (!BUILTIN_REQUIREMENT_TYPES.has(type)) delete JOB_TYPE_REQUIREMENTS[type];
   }
   PROBED_BINARIES.length = 0;
   PROBED_BINARIES.push('pg_dump', 'psql');
   probedBinaryVersionArgs.clear();
+  capabilityProbes.clear();
+  autoRegisteredProbes.clear();
+  probeCache.clear();
 }

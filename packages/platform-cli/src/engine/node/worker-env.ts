@@ -102,6 +102,11 @@ export function workerEnv() {
      * and 4. Handed to every registered worker runtime hook.
      */
     nativeThreads: envVar('NATIVE_THREADS'),
+    /**
+     * Directory model artifacts are stored in and verified against. Unset means
+     * `<state dir>/models`. A container mounts a baked-in or shared volume here.
+     */
+    modelsDir: envVar('MODELS_DIR'),
   } as const;
 }
 
