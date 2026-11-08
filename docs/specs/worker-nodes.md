@@ -199,6 +199,70 @@ An app declares its own types' needs with `registerJobRequirement(type, { requir
 
 The probe result is reported as `capabilities` on register and heartbeat and shown on the fleet page. A node also needs a network route to PostgreSQL for `db.backup.run`; `appctl node doctor --db-host` checks it as a warning. Heap tuning, the memory watchdog and the pre-OOM valve are operator concerns, described in [Running worker nodes](../runbooks/run-worker-nodes.md).
 
+#### Capability keys
+
+A capability key names what a job type needs from the machine, in one of three
+forms. `registerJobRequirement(type, { required, degradable? })` accepts all of them.
+
+| Key | Probe | Meaning |
+|---|---|---|
+| `binary:<name>` | An executable on `PATH`, optionally with a version banner | A tool such as `pg_dump` or `ffmpeg` |
+| `module:<name>` | `require.resolve` (never an import), plus an optional `operational` check | A native package is installed and, if checked, loadable |
+| `service:<id>` | A bounded HTTP request to a sidecar's status path | A companion service answers |
+
+`module:` and `service:` probes come from `registerCapabilityProbe` (built with
+`moduleCapability` / `httpServiceCapability`). A probe has three states:
+`available`, `installed` (present but not operational: a native binding that
+will not load, a sidecar that answers a non-2xx status) and `missing`. A required
+capability that is not `available` is a hard exit (`70`), `installed` included,
+because a node that claims a type it cannot run fails every job; a degradable one
+warns. Every probe is bounded (5 s default) and isolated, so one that hangs or
+throws cannot stall the others. Presence probes are refreshed on each heartbeat;
+expensive results are cached for the probe's `cacheMs`.
+
+### Executor input modes
+
+A `JobExecutor` declares exactly one `input` mode (the older `requiresInput`
+boolean is still accepted):
+
+| Mode | What the engine does | Use for |
+|---|---|---|
+| `none` | Nothing | Jobs with no input object |
+| `download` | Streams the object to a 0600 temp file and passes `inputPath` | Tools that need the whole file |
+| `url` | Downloads nothing; passes a presigned GET as `inputUrl`, and `refreshInputUrl()` for a fresh one | Tools that range-seek (ffmpeg, ffprobe), so a large object costs only the bytes read |
+
+The URL is minted through the same `download-url` route as a download, so the
+lease bounds it. It is a bearer capability: it is never logged, never a span
+attribute (only `job.input_mode`), and never passed to a process whose stderr is
+captured. A container that is not seekable (a non-faststart MP4) is the
+executor's problem: it falls back to downloading inside `execute`.
+
+### Model artifacts
+
+An app declares model files with `registerModelArtifact({ id, fileName, sha256,
+bytes, url | resolveUrl, requiredBy, targetSubdir? })`. They live in
+`<state dir>/models` or `<PREFIX>MODELS_DIR`; `node models pull` downloads what is
+missing with resume (`Range`), checks size and sha256 and renames atomically; a
+file already present and valid is left alone (a baked-in image). At startup the
+node verifies each file and **withholds** any type in `requiredBy` whose model is
+missing or corrupt (the node stays healthy for everything else). Fleet agreement
+on versions comes from the app release: there is deliberately **no** server
+manifest route, so the API cannot dictate what a node downloads. Only the origin
+and path of a model URL are ever logged.
+
+### Worker runtime hooks, aliases and the valve
+
+`registerWorkerRuntimeHook` runs app steps (capping a native library's threads)
+once per worker start, after the heap re-exec and before the first claim; a hook
+that throws aborts the start. `<PREFIX>NATIVE_THREADS` (default half the cores,
+1 to 4) is handed to every hook. `registerWorkerEnvAlias` lets legacy variable
+names supply a worker variable when the canonical one is unset (never the token
+or the re-exec latch; a legacy valve fraction of `0` means valve off, sampling
+on). The pre-OOM valve drains for at most 60 s and exits with code `71`, or the
+app's `memoryValveExitCode` (64 to 113), which the generated systemd unit repeats
+as `RestartForceExitStatus=`. Operator view: [Running worker
+nodes](../runbooks/run-worker-nodes.md#7-memory-and-native-threads).
+
 ### Result contracts
 
 `GET /api/nodes/job-types` lists every node-eligible type with its `nodeResultSchema` converted by `z.toJSONSchema()`, so a client validates against the schema this server enforces. The schemas live in `apps/api/src/jobs/contracts/`. `resultSchema` is `null`, never `{}`, when a schema has no JSON Schema form; `{}` would mean "anything is valid". The type is still listed because it is still claimable.
@@ -534,4 +598,5 @@ End to end, following [Running worker nodes](../runbooks/run-worker-nodes.md):
 - #607: `traceparent` on each claim assignment.
 - #608: span relay (`POST /api/nodes/{id}/telemetry`), node phase spans in the CLI.
 - PP-14.19 (#937): `vitals.extra`, `job.app.<name>` spans with registered attributes (`registerNodeSpanAttribute`) and per-span validation drops, `registerNodeVital` and the capabilities list on the fleet page, `registerJobRequirement` / `registerProbedBinary`.
+- RETRO-G2 (#1070): worker runtime hooks, env aliases, valve exit code and bounded drain (#1072); URL-input executors (#1073); async probes, `module:` / `service:` capabilities, install-step and model-artifact registries (#1074); docs (#1075). Harvest: [worker-node-harvest.md](../platform-adoption/worker-node-harvest.md).
 - PP-8.2 (#734): the fleet becomes `@marinoscar/platform-api/nodes` (`NodesModule.forRoot()`, `NodeCredentialModule`); the request schemas move to `@marinoscar/platform-contract/nodes`; the data plane goes through `NODE_OBJECT_STORE`; the sweep emits `nodes.node.offline` instead of calling the notifier; relayed spans carry the job's `org.id`.
