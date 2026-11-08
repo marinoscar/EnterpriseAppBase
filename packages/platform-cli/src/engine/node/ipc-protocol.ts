@@ -24,13 +24,58 @@ import type { LogRecord } from './logger.js';
 // tested against split and partial reads directly.
 // =============================================================================
 
+/** The channel of the built-in worker engine. A frame with no `channel` is on it. */
+export const NODE_CHANNEL = 'node';
+
+/**
+ * Server → client, for the built-in worker engine (the `node` channel).
+ *
+ * `channel` is optional and, when present, is `node`: an absent field IS the
+ * node channel, so a daemon that predates channels and a client that predates
+ * them keep interoperating, and a new daemon never writes the field for its
+ * own engine.
+ */
+export type NodeChannelMessage =
+  | { type: 'snapshot'; snapshot: NodeSnapshot; channel?: typeof NODE_CHANNEL }
+  | { type: 'log-tail'; lines: LogRecord[]; channel?: typeof NODE_CHANNEL }
+  | { type: 'event'; event: NodeEngineEvent; channel?: typeof NODE_CHANNEL };
+
+/**
+ * Server → client, for a second engine an app published with
+ * `registerDaemonChannel`. The payloads are the app's own, so they are
+ * `unknown` here and validated by the dashboard reducer that reads them.
+ */
+export type AppChannelMessage =
+  | { type: 'snapshot'; snapshot: unknown; channel: string }
+  | { type: 'log-tail'; lines: LogRecord[]; channel: string }
+  | { type: 'event'; event: unknown; channel: string };
+
 /** Server → client. */
 export type DaemonMessage =
-  | { type: 'snapshot'; snapshot: NodeSnapshot }
-  | { type: 'log-tail'; lines: LogRecord[] }
-  | { type: 'event'; event: NodeEngineEvent }
+  | NodeChannelMessage
+  | AppChannelMessage
   | { type: 'ack'; command: string; detail?: unknown }
   | { type: 'error'; message: string };
+
+/**
+ * The channel a frame belongs to: its `channel` field, else `node`.
+ *
+ * `ack` and `error` frames answer a command and belong to no channel; they
+ * read as `node`, which is where they always went.
+ */
+export function messageChannel(message: { channel?: string | undefined }): string {
+  return typeof message.channel === 'string' && message.channel.length > 0 ? message.channel : NODE_CHANNEL;
+}
+
+/** Narrows to the worker engine's snapshot frame: type `snapshot` on the `node` channel. */
+export function isNodeSnapshotMessage(
+  message: DaemonMessage,
+): message is Extract<NodeChannelMessage, { type: 'snapshot' }> {
+  return message.type === 'snapshot' && messageChannel(message) === NODE_CHANNEL;
+}
+
+/** A channel id an app may register: lowercase, digits, hyphens; `node` is the built-in's. */
+export const CHANNEL_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 
 /** Client → server. */
 export type ClientCommand =

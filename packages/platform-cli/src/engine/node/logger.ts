@@ -66,11 +66,24 @@ const MAX_DEPTH = 8;
 /** Roll the log over at this size. One generation is kept. */
 export const ROLLOVER_BYTES = 5 * 1024 * 1024;
 
+/**
+ * A log severity.
+ *
+ * @stability experimental
+ */
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
+/**
+ * One structured log line of the worker (a line of its log file).
+ *
+ * @stability experimental
+ */
 export interface LogRecord {
+  /** When it was written (ISO 8601). */
   ts: string;
+  /** The severity. */
   level: LogLevel;
+  /** The message. */
   msg: string;
   [key: string]: unknown;
 }

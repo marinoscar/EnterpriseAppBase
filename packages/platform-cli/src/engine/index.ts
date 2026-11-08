@@ -508,6 +508,41 @@ export type { InteractiveStdin, ResolveInteractiveStdinOptions } from './tui/raw
 export { TUI_SECTION_SCREENS, listTuiScreenSections, registerTuiScreenSection } from './tui/section-registry.js';
 export type { TuiSectionProps, TuiSectionRegistration } from './tui/section-registry.js';
 export {
+  DashboardSource,
+  daemonAttachFeed,
+  fetchJobsInsights,
+  inProcessFeed,
+  jobsInsightsReducer,
+  pollFeed,
+  selectDashboardFeed,
+  useDashboard,
+} from './tui/dashboard/index.js';
+export type {
+  DaemonAttachFeedOptions,
+  DashboardConnection,
+  DashboardEmitter,
+  DashboardFeed,
+  DashboardFeedMessage,
+  DashboardMode,
+  DashboardReducer,
+  DashboardSourceOptions,
+  InProcessFeedOptions,
+  JobsApi,
+  JobsEta,
+  JobsStatusCounts,
+  JobsDashboardData,
+  JobsInsights,
+  JobsPollResult,
+  JobsStats,
+  PollFeedOptions,
+  SelectDashboardFeedDeps,
+} from './tui/dashboard/index.js';
+export { createNodeDashboardReducer, nodeDashboardReducer } from './node/node-dashboard-source.js';
+export type { NodeDashboardData } from './node/node-dashboard-source.js';
+export type { LogLevel, LogRecord } from './node/logger.js';
+export { listDaemonChannels, registerDaemonChannel } from './node/daemon-channels.js';
+export type { DaemonChannel, DaemonChannelEmitter } from './node/daemon-channels.js';
+export {
   INSTALL_STEP_IDS,
   UPDATE_STEP_IDS,
   builtinDeployStepIds,

@@ -41,7 +41,9 @@ describe('the node screen reuses the command layer', () => {
   });
 
   it('renders the dashboard through the shared source rather than its own socket code', () => {
-    expect(SCREEN).toContain('NodeDashboardSource');
+    expect(SCREEN).toContain('DashboardSource');
+    expect(SCREEN).toContain('useDashboard');
+    expect(SCREEN).toContain('nodeDashboardReducer');
     // No hand-rolled transport in a React component: framing, reconnection and
     // teardown all live in the source, where they are testable without ink.
     expect(SCREEN).not.toContain("from 'node:net'");
@@ -56,7 +58,7 @@ describe('the node screen reuses the command layer', () => {
     expect(SCREEN).not.toContain("type: 'drain'");
   });
 
-  it('spawns the DETACHED daemon rather than running the engine in-process', () => {
+  it('spawns the DETACHED daemon by default rather than running the engine in-process', () => {
     // An interactive process cannot re-exec itself to raise its heap ceiling
     // without destroying raw-mode input, so an in-process engine would
     // silently run at the low default limit — the least suitable configuration
@@ -65,8 +67,19 @@ describe('the node screen reuses the command layer', () => {
     expect(SCREEN).not.toContain('new NodeEngine');
   });
 
+  it('offers the embedded mode only behind an explicit key, through the shared feed, with the warning', () => {
+    expect(SCREEN).toContain("input === 'e'");
+    expect(SCREEN).toContain('embeddedNodeFeed');
+    expect(SCREEN).toContain('selectDashboardFeed');
+    // The screen never starts a worker itself; `embeddedNodeFeed` goes through `startNode`.
+    expect(SCREEN).not.toContain("node/start.js");
+    expect(SCREEN).toContain('memory safety valve');
+  });
+
   it('detaches on unmount, so no timer outlives the screen', () => {
-    expect(SCREEN).toContain('sourceRef.current?.stop()');
+    // `useDashboard` stops the source in its effect cleanup; the screen holds none of its own.
+    expect(SCREEN).toContain('useDashboard(source)');
+    expect(SCREEN).not.toContain('sourceRef');
   });
 });
 

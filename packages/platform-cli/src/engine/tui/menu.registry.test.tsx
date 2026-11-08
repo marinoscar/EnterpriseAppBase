@@ -25,7 +25,7 @@ afterEach(() => resetTuiScreenRegistryForTests());
 
 describe('the built-in screens', () => {
   it('register first, in the order the menu has always had', () => {
-    expect(allTuiScreens().map((screen) => screen.route)).toEqual(['login', 'invoke', 'status', 'node', 'deploy', 'logout']);
+    expect(allTuiScreens().map((screen) => screen.route)).toEqual(['login', 'invoke', 'status', 'jobs', 'node', 'deploy', 'logout']);
   });
 
   it('each have a component and a label, from the one id list duplicates are checked against', () => {
@@ -38,6 +38,7 @@ describe('the built-in screens', () => {
       'Login',
       'Call an endpoint  (not logged in)',
       'Status',
+      'Jobs queue  (not logged in)',
       'Worker node  (this machine)',
       'Deploy  (this server)',
       'Logout  (nothing stored)',
@@ -47,6 +48,7 @@ describe('the built-in screens', () => {
       'Login  (replace the stored token)',
       'Call an endpoint',
       'Status',
+      'Jobs queue  (server)',
       'Worker node  (this machine)',
       'Deploy  (this server)',
       'Logout',
@@ -57,9 +59,9 @@ describe('the built-in screens', () => {
 
 describe('a registered screen', () => {
   it('appears in the menu at its order, before Quit, and its route selects it', () => {
-    registerTuiScreen({ route: 'about', label: 'About this app', order: 35, component: AboutScreen });
+    registerTuiScreen({ route: 'about', label: 'About this app', order: 36, component: AboutScreen });
     const items = buildMenuItems(allTuiScreens(), { loggedIn: false });
-    expect(items.map((item) => item.value)).toEqual(['login', 'invoke', 'status', 'about', 'node', 'deploy', 'logout', 'quit']);
+    expect(items.map((item) => item.value)).toEqual(['login', 'invoke', 'status', 'jobs', 'about', 'node', 'deploy', 'logout', 'quit']);
     expect(allTuiScreens().find((screen) => screen.route === 'about')?.component).toBe(AboutScreen);
   });
 

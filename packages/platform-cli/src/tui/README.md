@@ -113,6 +113,7 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `registerTuiSelection` | registry | `registerTuiSelection<T>(selection: TuiSelectionRegistration<T>): void` | Show the thing the app works inside of (an active project) as a header chip, readable on every screen with `useTuiSelection(id)` | experimental | [example](../../../../apps/cli/src/examples/workspace.tui-selection.ts) |
 | `registerTuiStateLoader` | registry | `registerTuiStateLoader<T>(loader: TuiStateLoaderRegistration<T>): void` | Load app data once for every screen (a database handle, update info), read with `useTuiState(id)` | experimental | [example](../../../../apps/cli/src/examples/build-info.tui-state.ts) |
 | `registerTuiScreenSection` | registry | `registerTuiScreenSection(screenId: string, section: ComponentType<TuiSectionProps> \| { id: string; load: () => Promise<ComponentType<TuiSectionProps>> }, options?: { id?: string }): void` | Add an ink section below the `node` or `deploy` screen's list (a fleet note, a release hint); a section that throws shows a notice and the screen keeps working | experimental | [example](../../../../apps/cli/src/examples/fleet-note.tui-section.tsx) |
+| `DashboardReducer` | hook | `interface DashboardReducer<S, E> { initial(): S; hydrate(state: S, snapshot: unknown): S; reduce(state: S, event: E): S; log?(state: S, lines: LogRecord[]): S; parseEvent(frame: unknown): E \| undefined }` | Teach a dashboard what an engine's snapshot and events mean, as pure functions; pair it with `daemonAttachFeed`, `inProcessFeed` or `pollFeed` in a `DashboardSource` and render with `useDashboard` | experimental | [example](../../../../apps/cli/src/examples/queue.dashboard.ts) |
 
 ### Component kit (`tui/ui`)
 
@@ -139,6 +140,36 @@ None. A CLI process has no RBAC of its own; the API enforces the permissions of 
 ## UI
 
 The terminal menu and the registered screens. A screen receives `onDone` (pop the stack) and optional `params`. A screen opened from the menu goes back to the menu with `onDone`, so Esc keeps its meaning; a screen that opens a sub-screen with `nav.push` returns to itself. The frame header shows each registered selection with a value as a chip, such as `[Workspace: Workspace Alpha]`.
+
+### Dashboards
+
+A dashboard is a pure reducer fed by a pluggable feed, so its logic is tested without ink and the same screen code serves an attached daemon, an in-process engine and a server poll (`src/engine/tui/dashboard/`).
+
+| Piece | Role |
+|---|---|
+| `DashboardReducer<S, E>` | Pure functions: `initial`, `hydrate` (the on-connect snapshot), `reduce` (one event), optional `log`, and `parseEvent` (validates a raw frame; `undefined` drops it) |
+| `DashboardFeed<E>` | Where data comes from: `{ mode: 'attached' \| 'embedded' \| 'poll', start(emit), stop() }` |
+| `DashboardSource<S, E>` | Owns the state: `getState()` (a new object per change, with `connected`, `everConnected`, `error`, `attempts`, `mode` added), `subscribe`, `start`, `stop` |
+| `useDashboard(source)` | The ink side: starts the source on mount, stops it on unmount (no timer or request outlives the screen), re-renders per state |
+
+Feeds:
+
+- `daemonAttachFeed({ socketPath, channel?, reconnectMs? })` attaches to the worker daemon's socket and reconnects until `stop()` (a worker restarts when the memory valve fires). It is **read-only**: it never sends a frame. `channel` selects an engine an app published with `registerDaemonChannel` (default `node`; a frame with no `channel` field is the node's, so old daemons and old TUIs interoperate).
+- `inProcessFeed(emitter, { snapshot, eventName?, logEventName?, refreshSnapshot? })` follows an engine in this process: the snapshot on start, then every event (re-reading the snapshot after each one unless `refreshSnapshot: false`).
+- `pollFeed(fetch, { intervalMs })` calls `fetch(signal)` one request at a time; `stop()` aborts the request in flight and clears the timer. A poll that must say something specific (a 403) returns it as its event instead of throwing.
+- `selectDashboardFeed({ socketPath, channel?, isDaemonRunning, embedded? })` attaches when a daemon is running, else builds the embedded feed when one is offered, else attaches anyway so the screen can say that no worker is running.
+
+Built-in screens on the pattern:
+
+- **Worker node** (`node`) attaches by default. With no worker running, `s` starts a detached one and attaches; `e` runs the worker inside the terminal (`embeddedNodeFeed`, through `startNode`). Embedded keeps the default heap (an interactive process cannot re-exec itself with a bigger one without breaking raw-mode input) and the memory valve closes the whole screen when it fires, so the screen says so before the key is pressed and while it runs.
+- **Jobs queue** (`jobs`, order 35) polls `GET /api/admin/jobs/stats` and `/insights` every 5 seconds with the caller's own credential (`jobsInsightsReducer` over `pollFeed`). A 403 (no `jobs:read`) renders a notice and polling continues. The menu entry is listed for every logged-in user for now; hiding it for callers without the permission waits on the menu tree's visibility rules.
+
+```ts
+const source = useMemo(() => new DashboardSource(myReducer, daemonAttachFeed<MyEvent>({ socketPath, channel: 'sync' })), []);
+const state = useDashboard(source); // { ...your data, connected, everConnected, error, attempts, mode }
+```
+
+The reference example is [`queue.dashboard.ts`](../../../../apps/cli/src/examples/queue.dashboard.ts).
 
 ## Infra
 

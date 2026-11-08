@@ -76,6 +76,12 @@ export interface StartNodeOptions extends NodePathsContext {
   watchdog?: boolean | undefined;
   /** `false` sends heartbeats without `vitals` (#605). Test seam; on by default. */
   vitals?: boolean | undefined;
+  /**
+   * Receives every engine event after it has been logged and broadcast to the
+   * daemon's clients. The embedded dashboard (RETRO-G1.3) feeds on it; a throw
+   * here never reaches the engine.
+   */
+  onEvent?: ((event: NodeEngineEvent) => void) | undefined;
 }
 
 /** Exit code for "this node cannot do the work it advertised". */
@@ -220,6 +226,11 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
     onEvent: (event) => {
       logEvent(logger, event);
       host?.broadcast(event);
+      try {
+        options.onEvent?.(event);
+      } catch {
+        // An observer must never cost the worker an event.
+      }
     },
   });
 

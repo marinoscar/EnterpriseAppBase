@@ -24,7 +24,7 @@ describe('aboutScreen', () => {
 
   it('appears in the TUI menu after Logout once passed in tuiScreens', () => {
     createCli({ ...APP_CLI_OPTIONS, tuiScreens: [aboutScreen] });
-    expect(menu()).toEqual(['login', 'invoke', 'status', 'node', 'deploy', 'logout', 'about']);
+    expect(menu()).toEqual(['login', 'invoke', 'status', 'jobs', 'node', 'deploy', 'logout', 'about']);
   });
 
   it('is the same menu when registered with registerTuiScreen instead', () => {
