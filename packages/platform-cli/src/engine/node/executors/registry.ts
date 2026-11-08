@@ -51,8 +51,19 @@ export function registerNodeExecutor(executor: JobExecutor): void {
   if (typeof type !== 'string' || type.trim() === '') {
     throw new Error('A node executor needs a non-empty job type.');
   }
-  if (typeof executor.execute !== 'function' || typeof executor.requiresInput !== 'boolean') {
-    throw new Error(`Node executor "${type}" needs execute() and a boolean requiresInput.`);
+  const hasLegacy = executor.requiresInput !== undefined;
+  const hasMode = executor.input !== undefined;
+  if (typeof executor.execute !== 'function' || (!hasLegacy && !hasMode)) {
+    throw new Error(`Node executor "${type}" needs execute() and an input mode (input: 'none' | 'download' | 'url', or a boolean requiresInput).`);
+  }
+  if (hasLegacy && hasMode) {
+    throw new Error(`Node executor "${type}" declares both requiresInput and input; declare exactly one.`);
+  }
+  if (hasLegacy && typeof executor.requiresInput !== 'boolean') {
+    throw new Error(`Node executor "${type}" needs a boolean requiresInput.`);
+  }
+  if (hasMode && !['none', 'download', 'url'].includes(executor.input as string)) {
+    throw new Error(`Node executor "${type}" has an unknown input mode "${String(executor.input)}"; use 'none', 'download' or 'url'.`);
   }
   if (builtinExecutorTypes().includes(type)) {
     throw new Error(`Node executor "${type}" duplicates a built-in executor; a job type has exactly one executor.`);

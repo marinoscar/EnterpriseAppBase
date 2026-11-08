@@ -17,7 +17,7 @@ Both are self-registering, and neither knows about the other.
    ```ts
    export class VideoTranscodeExecutor implements JobExecutor {
      readonly type = 'video.transcode';
-     readonly requiresInput = true;
+     readonly input = 'download' as const; // or 'none' | 'url'
 
      async execute(context: JobExecutionContext) {
        // Throw to fail. Return the result the server's nodeResultSchema expects.
@@ -64,11 +64,42 @@ is opt-in and cannot be tripped by an unluckily-worded error. It routes the job
 through the server's *deferral* path, which does not charge an attempt — and
 backs off sibling jobs of the same type on the server too.
 
-**Declare `requiresInput` rather than discovering it.** The engine fetches the
-download URL and streams the object to a temp file *before* calling you, and a
-type that needs an input and did not get one fails with a named error at the
-top of the job. The alternative — an empty path passed downstream — surfaces
-much later as `ENOENT … open ''`, which names neither the job nor the type.
+**Declare an input mode rather than discovering it.** `input` is one of three
+values, and declaring it lets a type that needs an input and did not get one
+fail with a named error at the top of the job (`MissingJobInputError`) instead
+of an opaque `ENOENT … open ''` inside it.
+
+| `input` | The engine | You get |
+|---|---|---|
+| `'none'` | does nothing | no input |
+| `'download'` | fetches the URL and streams the object to a temp file (removed afterwards) | `context.inputPath`, `context.input` |
+| `'url'` | fetches the URL and downloads **nothing** | `context.inputUrl`, `context.refreshInputUrl()`, `context.input` |
+
+`requiresInput: true` / `false` is the older spelling of `'download'` /
+`'none'` and keeps working. Declare exactly one of the two fields; registering
+both is an error.
+
+**Use `'url'` for a tool that range-seeks the object** (ffmpeg, ffprobe): it
+reads the header and the bytes around each seek point, so a multi-GB video
+costs megabytes. Rules for url mode:
+
+- *The URL is a bearer capability.* Pass it to the tool and nowhere else: never
+  log it, put it in a span, a result or an error message (an `execFile` error
+  message includes the command line, so wrap it). `checkExecutorCredentialHygiene`
+  (`@marinoscar/platform-cli/testing`) hands the executor a signed `inputUrl` and
+  flags any place it ends up.
+- *It expires.* On a long job call `await context.refreshInputUrl()` before each
+  tool invocation: it returns the held URL while more than 60 s remain and
+  re-requests it otherwise (single-flight). It rejects in any other mode.
+- *Not every input seeks.* A non-faststart MP4 keeps its index at the end, and a
+  store that ignores `Range` cannot serve a seek. Fall back inside `execute`:
+  try the URL, and on failure stream the object yourself with
+  `context.api.downloadUrl(...)` and work on the file. The engine does not do
+  this for you.
+- The `job.download` span carries `inputMode` (`download` | `url`) and, in
+  download mode only, `bytes`; url mode moves no bytes.
+
+See `apps/cli/src/examples/probe.executor.ts` for a worked url-mode executor.
 
 ## What the engine guarantees
 

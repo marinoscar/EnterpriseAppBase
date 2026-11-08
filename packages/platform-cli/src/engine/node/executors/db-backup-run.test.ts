@@ -158,6 +158,10 @@ function makeHarness(options: HarnessOptions = {}) {
     job: { id: 'job-1', type: 'db.backup.run' } as JobExecutionContext['job'],
     params: {},
     inputPath: undefined,
+    inputUrl: undefined,
+    refreshInputUrl: async () => {
+      throw new Error('no input url');
+    },
     input: undefined,
     api,
     nodeId: 'node-1',
