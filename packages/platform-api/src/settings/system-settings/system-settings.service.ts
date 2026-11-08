@@ -442,7 +442,11 @@ export class SystemSettingsService {
     const fields = Object.entries(schema.shape) as Array<[string, z.ZodType]>;
     for (const [key, field] of fields) {
       const parsed = field.safeParse(source[key]);
-      value[key] = parsed.success
+      // An OPTIONAL field the row does not carry (a field added to a namespace
+      // after the row was written, #1083's `nodes.credentialDelivery`) reads
+      // as the namespace's default when it has one, exactly as an invalid
+      // value does, so a reader never sees "absent" for a defaulted field.
+      value[key] = parsed.success && !(parsed.data === undefined && defaults[key] !== undefined)
         ? parsed.data
         : structuredClone(defaults[key]);
     }
