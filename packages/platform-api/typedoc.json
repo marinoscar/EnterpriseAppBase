@@ -39,6 +39,7 @@
     "src/ai/testing/index.ts",
     "src/db-backup/index.ts",
     "src/db-backup/testing/index.ts",
+    "src/nodes/testing/index.ts",
     "src/alerts/index.ts",
     "src/alerts/testing/index.ts",
     "src/android-app/index.ts",

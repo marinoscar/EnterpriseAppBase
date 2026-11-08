@@ -157,6 +157,7 @@ import {
   RegisterNodeDto,
 } from './dto/node-control-plane.dto';
 import { NodeEventsService } from './node-events.service';
+import { assertNodeOwnedBy } from './node-ownership';
 import { NodeSettlementLedger } from './node-settlement-ledger';
 
 /**
@@ -1074,25 +1075,8 @@ export class NodesService {
    * from "not yours" where `NodeCredentialService` deliberately does not.
    */
   async assertOwnership(userId: string, nodeId: string): Promise<WorkerNode> {
-    const node = await this.prisma.workerNode.findUnique({ where: { id: nodeId } });
-
-    if (!node) {
-      throw new NotFoundException({
-        message: `Worker node ${nodeId} was not found.`,
-        details: { nodeId },
-      });
-    }
-
-    if (node.createdById !== userId) {
-      throw new ForbiddenException({
-        message:
-          `Worker node ${nodeId} belongs to another user. Check that this credential and ` +
-          `this node id came from the same registration.`,
-        details: { nodeId },
-      });
-    }
-
-    return node;
+    // One rule, shared with the app-route guard (`node-ownership.ts`).
+    return assertNodeOwnedBy(this.prisma, userId, nodeId);
   }
 
   /**
