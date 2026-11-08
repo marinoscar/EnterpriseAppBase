@@ -1331,6 +1331,16 @@ Imports: `@marinoscar/platform-cli/tui`. Example: [`fleet-note.tui-section.tsx`]
 2. **Register it**: `registerTuiScreenSection('node' | 'deploy', Component, { id })`, or `{ id, load }` to load it when the screen opens, or `createCli({ tuiSections })`. Only `node` and `deploy` have a slot.
 3. **It renders below the screen's top-level list**, in registration order. A section that throws, or whose `load` rejects, shows a one-line notice and leaves the screen working.
 
+### Share state across TUI screens
+
+Imports: `@marinoscar/platform-cli/tui`. Examples: [`workspace.tui-selection.ts`](../apps/cli/src/examples/workspace.tui-selection.ts), [`build-info.tui-state.ts`](../apps/cli/src/examples/build-info.tui-state.ts). Reference: [the TUI slice README](../packages/platform-cli/src/tui/README.md).
+
+1. **Read the context** in any screen with `useTuiApp()`: `session` (logged in, server URL, identity; never the token), `nav`, `selection`, `theme` and `appState`. It needs no ink import, and `onDone` is `nav.pop()`.
+2. **Declare what the app works inside of** with `registerTuiSelection({ id, label, load, display, keyOf?, persist? })`, or `createCli({ tuiSelections })`. It shows as a chip in the frame header; read it with `useTuiSelection<T>(id)` and change it with `select(item)`. `persist: 'config'` keeps the choice's key under `tui.selection.<id>` in the CLI config file, never on the server.
+3. **Load app data once** with `registerTuiStateLoader({ id, load })` (or `tuiStateLoaders`) and read it with `useTuiState<T>(id)`. Loaders and selections run on start and again after `session.refresh()`, which the login and logout screens call; call it yourself after anything that changes who is signed in.
+4. **Open a sub-screen** with `nav.push('route', params)` and come back with `nav.pop()`. Only the top screen is mounted, so keep state that must survive a push in `params`, a loader or a selection.
+5. **Restyle** with `createCli({ tuiTheme })` and draw with the tokens (`textColor(theme.primary)`); colour is off under `NO_COLOR` and `--no-color` whatever the override says.
+
 ### Add a CLI conformance suite
 
 Imports: `@marinoscar/platform-cli/testing`. Example: [`coach.conformance-suite.ts`](../apps/cli/src/examples/coach.conformance-suite.ts); the run: [`conformance.test.ts`](../apps/cli/src/conformance.test.ts).

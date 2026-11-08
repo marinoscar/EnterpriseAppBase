@@ -17,7 +17,7 @@ Subpath exports, each with its own README:
 | `@marinoscar/platform-cli` | `createCli`, `run`, the identity accessors, `EXIT` and `formatError` | this file |
 | `/core` | `registerCliCommand`, `registerEnvSpecFragment`, `registerEnvGroup`, `registerEnvGenerator`, `annotateEnvKey` and the env-key metadata helpers | [core](src/core/README.md) |
 | `/commands` | The six built-in command registrars and the error model | [commands](src/commands/README.md) |
-| `/tui` | `registerTuiScreen`, `registerTuiScreenSection` and the built-in screen order | [tui](src/tui/README.md) |
+| `/tui` | `registerTuiScreen`, `registerTuiScreenSection`, the shared app context (`useTuiApp`, `registerTuiSelection`, `registerTuiStateLoader`, the theme) and the built-in screen order | [tui](src/tui/README.md) |
 | `/deploy` | `registerDeployStep`, `registerDeployCheck`, `registerProxyStreamPath`, `registerEdgeConfigFile`, `detectComposeProject`, `isPathUnder`, the built-in step ids, `planDeploySteps`, `DeployHooks`, the env template helpers | [deploy](src/deploy/README.md) |
 | `/node` | `JobExecutor`, `ExecutorRegistry`, `registerNodeExecutor` | [node](src/node/README.md) |
 | `/api-client` | `ApiClient`, `resolveApiBaseUrl` and the API errors | [api-client](src/api-client/README.md) |
@@ -81,6 +81,9 @@ void main();
 | `version` | `string` | required | The app's own version (its `package.json`). |
 | `extraCommands` | `CliCommandRegistration[]` | `[]` | Commands after the built-ins, in order. Same as `registerCliCommand`. |
 | `tuiScreens` | `TuiScreenRegistration[]` | `[]` | Screens in the TUI menu. Same as `registerTuiScreen`. |
+| `tuiTheme` | `TuiThemeOverrides` | none | Colour tokens, brand hues and glyphs of the TUI; colour stays off under `NO_COLOR`. |
+| `tuiSelections` | `TuiSelectionRegistration[]` | `[]` | Selections shown as a header chip. Same as `registerTuiSelection`. |
+| `tuiStateLoaders` | `TuiStateLoaderRegistration[]` | `[]` | Data loaded once for every TUI screen. Same as `registerTuiStateLoader`. |
 | `deploySteps` | `DeployStepRegistration[]` | `[]` | Steps inserted into `deploy install` / `update`. Same as `registerDeployStep`. |
 | `nodeExecutors` | `JobExecutor[]` | `[]` | Executors for the app's node-eligible job types. Same as `registerNodeExecutor`. |
 | `envSpecFragments` | `EnvSpecFragment[]` | `[]` | Metadata for the app's `.env.example` keys. Same as `registerEnvSpecFragment`. |
@@ -136,6 +139,8 @@ The registries are catalogued by the entry point that exports them, each with a 
 | `registerEnvGenerator` | [`/core`](src/core/README.md#extension-point-catalog) | [`coach.env-generator.ts`](../../apps/cli/src/examples/coach.env-generator.ts) |
 | `annotateEnvKey` | [`/core`](src/core/README.md#extension-point-catalog) | [`coach.env-annotation.ts`](../../apps/cli/src/examples/coach.env-annotation.ts) |
 | `registerTuiScreen` | [`/tui`](src/tui/README.md#extension-point-catalog) | [`about.tui.ts`](../../apps/cli/src/examples/about.tui.ts) |
+| `registerTuiSelection` | [`/tui`](src/tui/README.md#extension-point-catalog) | [`workspace.tui-selection.ts`](../../apps/cli/src/examples/workspace.tui-selection.ts) |
+| `registerTuiStateLoader` | [`/tui`](src/tui/README.md#extension-point-catalog) | [`build-info.tui-state.ts`](../../apps/cli/src/examples/build-info.tui-state.ts) |
 | `registerTuiScreenSection` | [`/tui`](src/tui/README.md#extension-point-catalog) | [`fleet-note.tui-section.tsx`](../../apps/cli/src/examples/fleet-note.tui-section.tsx) |
 | `registerDeployStep` | [`/deploy`](src/deploy/README.md#extension-point-catalog) | [`announce.deploy-step.ts`](../../apps/cli/src/examples/announce.deploy-step.ts) |
 | `registerDeployCheck` | [`/deploy`](src/deploy/README.md#extension-point-catalog) | [`coach.deploy-check.ts`](../../apps/cli/src/examples/coach.deploy-check.ts) |

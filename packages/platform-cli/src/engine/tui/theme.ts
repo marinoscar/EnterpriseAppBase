@@ -38,8 +38,46 @@ export interface TuiGlyphs {
   check: string;
   /** A failure mark. */
   cross: string;
-  /** Meter blocks, from a filled cell to an empty one. */
-  meter: { full: string; dense: string; light: string; medium: string; empty: string };
+  /** Meter blocks. */
+  meter: TuiMeterGlyphs;
+}
+
+/**
+ * The blocks of a progress meter.
+ *
+ * @stability experimental
+ */
+export interface TuiMeterGlyphs {
+  /** A filled cell. */
+  full: string;
+  /** A dense cell. */
+  dense: string;
+  /** A light cell. */
+  light: string;
+  /** A medium cell. */
+  medium: string;
+  /** An empty cell. */
+  empty: string;
+}
+
+/**
+ * Glyphs an app may replace; any subset.
+ *
+ * @stability experimental
+ */
+export interface TuiGlyphOverrides {
+  /** A selection pointer. */
+  chevron?: string | undefined;
+  /** A truncation mark. */
+  ellipsis?: string | undefined;
+  /** A list bullet. */
+  bullet?: string | undefined;
+  /** A success mark. */
+  check?: string | undefined;
+  /** A failure mark. */
+  cross?: string | undefined;
+  /** Meter blocks, any subset. */
+  meter?: Partial<TuiMeterGlyphs> | undefined;
 }
 
 /**
@@ -78,16 +116,26 @@ export interface TuiTheme {
  * @stability experimental
  */
 export interface TuiThemeOverrides {
+  /** Headings and the active element. */
   primary?: TuiColor;
+  /** Done states. */
   success?: TuiColor;
+  /** Retries and warnings. */
   warning?: TuiColor;
+  /** Failures. */
   error?: TuiColor;
+  /** Informational or skipped. */
   info?: TuiColor;
+  /** Secondary text and separators. */
   dim?: TuiColor;
+  /** A highlight, e.g. the selection chip. */
   accent?: TuiColor;
+  /** The banner title. */
   banner?: TuiColor;
+  /** Brand hues for a banner, left to right. */
   brand?: readonly string[] | undefined;
-  glyphs?: Partial<Omit<TuiGlyphs, 'meter'>> & { meter?: Partial<TuiGlyphs['meter']> | undefined };
+  /** Glyph replacements. */
+  glyphs?: TuiGlyphOverrides | undefined;
 }
 
 const DEFAULT_GLYPHS: TuiGlyphs = Object.freeze({
@@ -191,15 +239,34 @@ export function resolveTuiTheme(input: ResolveTuiThemeInput = {}): TuiTheme {
     brand: Object.freeze(color ? [...(overrides?.brand ?? [])] : []),
     glyphs: Object.freeze({
       ...DEFAULT_GLYPHS,
-      ...overrides?.glyphs,
-      meter: Object.freeze({ ...DEFAULT_GLYPHS.meter, ...overrides?.glyphs?.meter }),
+      ...definedOnly(overrides?.glyphs),
+      meter: Object.freeze({ ...DEFAULT_GLYPHS.meter, ...definedOnly(overrides?.glyphs?.meter) }),
     }),
   });
+}
+
+/** The entries of `record` that are strings, so an explicit `undefined` keeps the default. */
+function definedOnly<T extends object>(record: T | undefined): Partial<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(record ?? {})) {
+    if (typeof value === 'string') out[key] = value;
+  }
+  return out;
 }
 
 /** Clears the recorded overrides. Tests only. */
 export function resetTuiThemeForTests(): void {
   appOverrides = undefined;
+}
+
+/**
+ * The ink props a colour token spreads into.
+ *
+ * @stability experimental
+ */
+export interface TuiTextColorProps {
+  /** The colour; absent when colour is off. */
+  color?: string;
 }
 
 /**
@@ -211,6 +278,6 @@ export function resetTuiThemeForTests(): void {
  * @returns Props to spread onto `<Text>` or `<Box borderColor>`.
  * @stability experimental
  */
-export function textColor(token: TuiColor): { color?: string } {
+export function textColor(token: TuiColor): TuiTextColorProps {
   return token === undefined ? {} : { color: token };
 }

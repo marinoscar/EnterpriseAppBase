@@ -467,12 +467,25 @@ export type {
   TuiAppContext,
   TuiAppProviderProps,
   TuiNav,
+  TuiMenuFrame,
   TuiNavFrame,
+  TuiScreenFrame,
   TuiSelectionState,
   TuiSession,
+  TuiSessionIdentity,
+  TuiStoredSession,
 } from './tui/context.js';
 export { defaultTuiTheme, resolveTuiTheme, textColor } from './tui/theme.js';
-export type { ResolveTuiThemeInput, TuiColor, TuiGlyphs, TuiTheme, TuiThemeOverrides } from './tui/theme.js';
+export type {
+  ResolveTuiThemeInput,
+  TuiColor,
+  TuiGlyphOverrides,
+  TuiGlyphs,
+  TuiMeterGlyphs,
+  TuiTextColorProps,
+  TuiTheme,
+  TuiThemeOverrides,
+} from './tui/theme.js';
 export { canUseRawMode, hasInteractiveStdin, resolveInteractiveStdin } from './tui/raw-mode.js';
 export type { InteractiveStdin, ResolveInteractiveStdinOptions } from './tui/raw-mode.js';
 export { TUI_SECTION_SCREENS, listTuiScreenSections, registerTuiScreenSection } from './tui/section-registry.js';

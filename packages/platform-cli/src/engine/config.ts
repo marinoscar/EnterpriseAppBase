@@ -144,9 +144,13 @@ export interface Credentials {
  * thread it through, and a test never has to mutate `process.env` or
  * `os.homedir` globally (which leaks across test files and produces failures
  * that depend on execution order).
+ *
+ * @stability experimental
  */
 export interface ConfigContext {
+  /** The environment to read; defaults to `process.env`. */
   env?: NodeJS.ProcessEnv;
+  /** The home directory holding the config directory; defaults to the user's home. */
   home?: string;
 }
 

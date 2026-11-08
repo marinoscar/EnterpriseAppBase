@@ -16,6 +16,7 @@ import {
   listTuiStateLoaders,
   type TuiLoaderContext,
   type TuiSelectionRegistration,
+  type TuiStateLoaderRegistration,
 } from './app-registry.js';
 import { resolveTuiTheme, type TuiTheme } from './theme.js';
 
@@ -42,9 +43,57 @@ import { resolveTuiTheme, type TuiTheme } from './theme.js';
  *
  * @stability experimental
  */
-export type TuiNavFrame =
-  | { readonly kind: 'menu'; readonly sectionId?: string | undefined }
-  | { readonly kind: 'screen'; readonly route: string; readonly params?: unknown };
+export type TuiNavFrame = TuiMenuFrame | TuiScreenFrame;
+
+/**
+ * The menu frame, the root of the stack.
+ *
+ * @stability experimental
+ */
+export interface TuiMenuFrame {
+  /** Discriminant. */
+  readonly kind: 'menu';
+  /** The menu section to open at, once the menu tree has sections. */
+  readonly sectionId?: string | undefined;
+}
+
+/**
+ * A screen frame.
+ *
+ * @stability experimental
+ */
+export interface TuiScreenFrame {
+  /** Discriminant. */
+  readonly kind: 'screen';
+  /** The registered route id. */
+  readonly route: string;
+  /** What the opener passed to `nav.push`. */
+  readonly params?: unknown;
+}
+
+/**
+ * The signed-in user as the server described them.
+ *
+ * @stability experimental
+ */
+export interface TuiSessionIdentity {
+  /** The account's email address. */
+  email?: string | undefined;
+  /** The display name, when the account has one. */
+  displayName?: string | undefined;
+}
+
+/**
+ * The stored login state.
+ *
+ * @stability experimental
+ */
+export interface TuiStoredSession {
+  /** Whether a token and a server are stored. */
+  loggedIn: boolean;
+  /** The configured server, if any. */
+  serverUrl?: string | undefined;
+}
 
 /**
  * Navigation. Only the top frame is mounted, so leaving a screen unmounts it
@@ -77,7 +126,7 @@ export interface TuiSession {
   /** The configured server, as the user typed it. */
   readonly serverUrl?: string | undefined;
   /** The signed-in user, once the server has answered `GET /auth/me`; absent offline or logged out. */
-  readonly identity?: { email?: string | undefined; displayName?: string | undefined } | undefined;
+  readonly identity?: TuiSessionIdentity | undefined;
   /**
    * Re-reads the stored config and the identity, then re-runs every state
    * loader and selection loader. Call it after a login or a logout.
@@ -215,11 +264,12 @@ export function useTuiState<T = unknown>(id: string): T | undefined {
  * @stability experimental
  */
 export interface TuiAppProviderProps {
+  /** The tree that reads the context. */
   children: ReactNode;
   /** Reads the stored login state. Defaults to the CLI config (`resolveConfig`). */
-  readSession?: (() => { loggedIn: boolean; serverUrl?: string | undefined }) | undefined;
+  readSession?: (() => TuiStoredSession) | undefined;
   /** Asks the server who is signed in. Defaults to `GET /auth/me` with the stored token. Return `undefined` when unknown. */
-  loadIdentity?: ((serverUrl: string, signal: AbortSignal) => Promise<TuiSession['identity']>) | undefined;
+  loadIdentity?: ((serverUrl: string, signal: AbortSignal) => Promise<TuiSessionIdentity | undefined>) | undefined;
   /** Replaces the resolved theme. */
   theme?: TuiTheme | undefined;
   /** Config location seam for persisted selections. */
@@ -227,14 +277,14 @@ export interface TuiAppProviderProps {
   /** Replaces the registered selections (a test seam). */
   selections?: readonly TuiSelectionRegistration[] | undefined;
   /** Replaces the registered state loaders (a test seam). */
-  stateLoaders?: ReadonlyArray<{ id: string; load: (context: TuiLoaderContext) => Promise<unknown> }> | undefined;
+  stateLoaders?: readonly TuiStateLoaderRegistration[] | undefined;
   /** The stack to start with. Defaults to the menu. */
   initialStack?: readonly TuiNavFrame[] | undefined;
 }
 
 const MENU_FRAME: TuiNavFrame = Object.freeze({ kind: 'menu' as const });
 
-function defaultReadSession(): { loggedIn: boolean; serverUrl?: string | undefined } {
+function defaultReadSession(): TuiStoredSession {
   try {
     const config = resolveConfig();
     return { loggedIn: config.token !== undefined && config.serverUrl !== undefined, serverUrl: config.serverUrl };
@@ -244,7 +294,7 @@ function defaultReadSession(): { loggedIn: boolean; serverUrl?: string | undefin
   }
 }
 
-async function defaultLoadIdentity(serverUrl: string, signal: AbortSignal): Promise<TuiSession['identity']> {
+async function defaultLoadIdentity(serverUrl: string, signal: AbortSignal): Promise<TuiSessionIdentity | undefined> {
   // The token is read here, bound to a local, and goes into the request only.
   const token = resolveConfig().token;
   if (token === undefined) return undefined;
@@ -283,7 +333,7 @@ export function TuiAppProvider(props: TuiAppProviderProps): ReactNode {
     props.initialStack !== undefined && props.initialStack.length > 0 ? props.initialStack : [MENU_FRAME],
   );
   const [base, setBase] = useState(readSession);
-  const [identity, setIdentity] = useState<TuiSession['identity']>(undefined);
+  const [identity, setIdentity] = useState<TuiSessionIdentity | undefined>(undefined);
   const [version, setVersion] = useState(0);
   const [slots, setSlots] = useState<Readonly<Record<string, SelectionSlot>>>({});
   const [appState, setAppState] = useState<Readonly<Record<string, unknown>>>({});
