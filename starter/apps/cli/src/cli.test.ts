@@ -16,7 +16,8 @@ createCli(APP_CLI_OPTIONS);
 
 // The platform's CLI invariants against this composition: the env-spec
 // fragments (the platform's and infra/compose/app.env.example) parse, no key
-// is owned twice, every executor and screen is registered once.
+// is owned twice, every executor and screen is registered once, and the TUI
+// registrations are well-formed (tui).
 runPlatformConformance({
   suites: {
     cli: {
@@ -29,6 +30,11 @@ runPlatformConformance({
         { name: 'infra/compose/app.env.example', text: read(new URL('../../../infra/compose/app.env.example', import.meta.url)) },
       ],
     },
+    // The TUI registrations (RETRO-G1.5): a sound menu tree, lazy screens, no
+    // ink at import, non-empty labels, screens that render at narrow widths and
+    // without colour, and the login gate. The starter registers no screen yet;
+    // the checks bite as soon as one is added.
+    tui: {},
   },
   testApi: { describe, it, expect },
 });

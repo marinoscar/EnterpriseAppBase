@@ -7,6 +7,7 @@ import { PLATFORM_DOCUMENTED_OPTIONAL_KEYS, resetCliForTests, runPlatformConform
 import { describe, expect, it } from 'vitest';
 
 import { APP_CLI_OPTIONS } from './app.js';
+import { syncDashboardReducer } from './examples/queue.dashboard.js';
 
 // =============================================================================
 // The platform CLI's conformance suite, over this app  (#715)
@@ -14,7 +15,8 @@ import { APP_CLI_OPTIONS } from './app.js';
 //
 // The env template fragments this app's `.env.example` is composed from, and
 // every executor its worker would run (the platform's plus the app's, so the
-// CLI is built first), checked by the package. The app supplies the data.
+// CLI is built first), and the app's TUI registrations, checked by the package.
+// The app supplies the data.
 // =============================================================================
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -38,6 +40,22 @@ runPlatformConformance({
     // The deploy extension points (env groups, steps, checks, proxy stream
     // paths, edge-config files) the app registered are consistent (PP-14.22).
     deployRegistrations: {},
+    // The TUI registrations (RETRO-G1.5): the menu tree is sound, screens and
+    // sections load lazily, importing the TUI entries loads no ink, labels are
+    // non-empty, and every app screen renders at narrow widths and without
+    // colour. A dashboard reducer is passed to show the purity check; the
+    // reference app wires no dashboard of its own.
+    tui: {
+      importEntries: ['@marinoscar/platform-cli/tui', '@marinoscar/platform-cli/android'],
+      dashboards: [
+        {
+          id: 'sync (example)',
+          reducer: syncDashboardReducer,
+          snapshot: { phase: 'copying', filesTotal: 3, filesDone: 0 },
+          events: [{ kind: 'file-copied' }],
+        },
+      ],
+    },
   },
   testApi: { describe, it, expect },
 });
