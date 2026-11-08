@@ -20,8 +20,8 @@ permissions:
   contents: read
 
 jobs:
-  packages:
-    name: Build, lint & test packages
+  packages-build:
+    name: Build & lint packages
     runs-on: ubuntu-latest
     env:
       NODE_ENV: test
@@ -63,8 +63,6 @@ jobs:
       # the check fails when the committed page differs (run npm run docs:slices).
       - run: npm run check:slices-doc
 
-      - run: npm run test:packages
-
       # `npm pack --dry-run` per package: every exports/main/types target and
       # README.md are in the tarball; nothing outside `files` (no src/,
       # test/, specs, tsconfig*.json) is.
@@ -79,6 +77,60 @@ jobs:
         run: |
           node -e "require('@marinoscar/platform-ai-providers'); require('@marinoscar/platform-ai-providers/openai'); require('@marinoscar/platform-api'); require('@marinoscar/platform-db'); require('@marinoscar/platform-contract')"
           node --input-type=module -e "await import('@marinoscar/platform-web'); await import('@marinoscar/platform-cli'); await import('@marinoscar/platform-infra'); await import('@marinoscar/platform-contract')"
+
+  # The package test suites, split across parallel runners (they ran back to
+  # back in one job and took ~10 of its ~14 minutes). Each shard builds the
+  # packages first because the workspaces import each other's built output.
+  packages-test:
+    name: Test packages (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: 'api 1/4', ws: '@marinoscar/platform-api', args: '--shard=1/4' }
+          - { name: 'api 2/4', ws: '@marinoscar/platform-api', args: '--shard=2/4' }
+          - { name: 'api 3/4', ws: '@marinoscar/platform-api', args: '--shard=3/4' }
+          - { name: 'api 4/4', ws: '@marinoscar/platform-api', args: '--shard=4/4' }
+          - { name: 'web 1/2', ws: '@marinoscar/platform-web', args: '--shard=1/2' }
+          - { name: 'web 2/2', ws: '@marinoscar/platform-web', args: '--shard=2/2' }
+          - { name: 'cli 1/2', ws: '@marinoscar/platform-cli', args: '--shard=1/2' }
+          - { name: 'cli 2/2', ws: '@marinoscar/platform-cli', args: '--shard=2/2' }
+          - { name: 'contract, ai-providers, db, infra', ws: '', args: '' }
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm run build:packages
+
+      - name: Test (one package shard)
+        if: matrix.ws != ''
+        run: npm run test:run -w "${{ matrix.ws }}" -- ${{ matrix.args }}
+
+      - name: Test (small packages)
+        if: matrix.ws == ''
+        run: npm run test:run -w @marinoscar/platform-contract -w @marinoscar/platform-ai-providers -w @marinoscar/platform-db -w @marinoscar/platform-infra
+
+  # The check name the branch rules and the release flow know. It passes only
+  # when the build/lint job and every test shard passed.
+  packages:
+    name: Build, lint & test packages
+    if: always()
+    needs: [packages-build, packages-test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All package jobs passed
+        run: |
+          test "${{ needs.packages-build.result }}" = "success"
+          test "${{ needs.packages-test.result }}" = "success"
 
   # Package documentation standard (issue #693; docs/PACKAGES.md): TypeDoc
   # validation (every export documented) and scripts/check-package-docs.mjs
