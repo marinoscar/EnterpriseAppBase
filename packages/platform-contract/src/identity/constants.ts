@@ -349,13 +349,29 @@ export const USER_EXTENSION_LIMITS = {
 
 // ---- Device flow client info ---------------------------------------------------
 
-/** Longest `clientInfo.deviceName` (and its alias `name`). */
+/**
+ * Longest `clientInfo.deviceName` (and its alias `name`).
+ *
+ * @stability experimental
+ */
 export const DEVICE_NAME_MAX_LENGTH = 100;
-/** Longest `clientInfo.userAgent`. */
+/**
+ * Longest `clientInfo.userAgent`.
+ *
+ * @stability experimental
+ */
 export const DEVICE_USER_AGENT_MAX_LENGTH = 1024;
-/** Longest `clientInfo.returnUri`. */
+/**
+ * Longest `clientInfo.returnUri`.
+ *
+ * @stability experimental
+ */
 export const DEVICE_RETURN_URI_MAX_LENGTH = 512;
-/** The envelope `code` of the 400 for a `returnUri` the deployment does not accept. */
+/**
+ * The envelope `code` of the 400 for a `returnUri` the deployment does not accept.
+ *
+ * @stability experimental
+ */
 export const INVALID_RETURN_URI_CODE = 'INVALID_RETURN_URI';
 
 /** Control characters, whitespace and the characters that let a URI smuggle a second target. */

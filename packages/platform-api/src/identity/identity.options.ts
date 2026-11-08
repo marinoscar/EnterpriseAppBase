@@ -78,6 +78,16 @@ export interface IdentityModuleOptions {
 }
 
 /**
+ * The device flow's options after defaults.
+ *
+ * @stability experimental
+ */
+export interface ResolvedDeviceFlowOptions {
+  /** The accepted custom `returnUri` schemes, lower-cased, without the colon. */
+  readonly returnUriSchemes: readonly string[];
+}
+
+/**
  * The options after defaults, as `IDENTITY_OPTIONS` provides them.
  *
  * @stability experimental
@@ -92,7 +102,7 @@ export interface ResolvedIdentityModuleOptions {
   /** The app's sign-in policy binding, when one was given. */
   readonly signInPolicy?: PortBinding<SignInPolicy>;
   /** The device flow's resolved options. */
-  readonly deviceFlow: { readonly returnUriSchemes: readonly string[] };
+  readonly deviceFlow: ResolvedDeviceFlowOptions;
   /** The host-port modules. */
   readonly imports: ReadonlyArray<Type<unknown> | DynamicModule | Promise<DynamicModule> | ForwardReference>;
 }
