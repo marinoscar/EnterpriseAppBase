@@ -73,6 +73,8 @@ createCli({
 | `order` | `number` | required | Menu position; built-ins use 10 to 60; ties sort by route |
 | `component` | `ComponentType<TuiScreenProps>` | none | The screen (loads ink at startup: prefer `load`) |
 | `load` | `() => Promise<ComponentType<TuiScreenProps>>` | none | Loads the screen when it is opened; exactly one of `component` and `load` |
+| `hidden` | `boolean` | `false` | Not listed at the root when no entry opens it; still routable (an entry, `nav.push`) |
+| `replaceBuiltin` | `boolean` | `false` | Take a built-in's route (`login`, `invoke`, `status`, `jobs`, `node`, `deploy`, `logout`): the built-in is neither listed nor mounted. Without it a built-in route throws |
 
 `createCli` options of this slice (besides `tuiScreens` and `tuiSections`):
 
@@ -81,10 +83,42 @@ createCli({
 | `tuiTheme` | `TuiThemeOverrides` | none | Colour tokens (`primary`, `success`, `warning`, `error`, `info`, `dim`, `accent`, `banner`), `brand` hues and `glyphs` to replace; colour stays off under `NO_COLOR`, `--no-color` and `TERM=dumb` |
 | `tuiSelections` | `TuiSelectionRegistration[]` | `[]` | Same as `registerTuiSelection` |
 | `tuiStateLoaders` | `TuiStateLoaderRegistration[]` | `[]` | Same as `registerTuiStateLoader` |
+| `tuiHiddenScreens` | `string[]` | `[]` | Routes kept off the root menu, built-in or the app's. Same as `hideTuiScreen` |
+| `tuiMenuRoot` | `TuiMenuSlots` | none | The root menu's `banner` and `footnote`. Same as `setTuiRootMenuSlots` |
 
 `TuiSelectionRegistration<T>`: `id` (also the key under `tui.selection.<id>` in the CLI config), `label`, `load(ctx)`, `display(item)`, optional `keyOf(item)` (defaults to `display`) and `persist: 'config' | 'none'` (default `none`). After a load the current item is the previous choice, else the persisted one, else the first. `TuiStateLoaderRegistration<T>`: `id` and `load(ctx)`. The loader context is `{ loggedIn, serverUrl, signal }`, never the token; both registries run on mount and again on `session.refresh()`.
 
 Navigation: `nav.push(route, params?)` opens a registered screen on top, `nav.pop()` goes back (a no-op on the menu), `nav.toMenu(sectionId?)` clears the stack, `nav.current` and `nav.depth` describe it. `onDone` is `nav.pop()`. Only the top frame is mounted: a screen below it receives no keys and its effect cleanups have run, and it remounts with the same `params` when you come back (keep state that must survive in `params`, an app state loader or a selection, not in component state).
+
+### Hiding or replacing a built-in screen (seam #1115)
+
+An app with its own flow keeps a platform screen off the menu, or puts its own screen in its place:
+
+```ts
+createCli({
+  ...APP_CLI_OPTIONS,
+  tuiScreens: [{ route: 'login', label: 'Sign in', order: 10, replaceBuiltin: true, load: async () => (await import('./sign-in.screen.js')).SignIn }],
+  tuiHiddenScreens: ['invoke', 'jobs'], // or hideTuiScreen('invoke')
+});
+```
+
+- **Hide** (`tuiHiddenScreens`, `hideTuiScreen(route)`, or `hidden: true` on an app registration): the screen is not synthesised at the root. It stays routable: a menu entry that opens it is listed as usual, and `nav.push(route)` still works. A hidden route that names no built-in or registered screen throws when `createCli` freezes the registries; `menu`, `quit` and malformed ids throw at once.
+- **Replace** (`replaceBuiltin: true`): the app's screen takes the built-in's route, so the platform's component is never mounted and every `nav.push('login')` (the "not logged in" notice's `[l]` key included) opens the app's. Replacing `node` or `deploy` also drops their `registerTuiScreenSection` sections, which only the built-in screens render.
+
+Neither makes the `tui` conformance suite complain: a hidden screen is not a section, so `menu-references` has nothing to reach, and a replacement is an app screen, so `screens-render` and `no-color` check it like any other. `tuiMenuScreens(screens?, hidden?)` returns the screen list the tree is built from (built-ins not replaced, then the app's, each with `hidden` resolved), and `listHiddenTuiScreens()` the hidden routes. Reference example: [`custom-shell.tui.ts`](../../../../apps/cli/src/examples/custom-shell.tui.ts).
+
+### Menu banner and footnote (seam #1115)
+
+Any menu can draw a **banner** above the subtitle line and a **footnote** under the entries: header art, an "update available" line, a support contact. The root menu takes them from `setTuiRootMenuSlots({ banner?, footnote? })` (or `createCli({ tuiMenuRoot })`); a section takes them as `banner` and `footnote` on its node.
+
+```ts
+setTuiRootMenuSlots({
+  banner: { content: ({ columns }) => (columns >= 40 ? ['+-------------+', '|  Product X  |', '+-------------+'] : 'Product X') },
+  footnote: { content: ({ state }) => (state['update'] === undefined ? undefined : 'An update is available.'), color: 'warning' },
+});
+```
+
+A `TuiMenuSlot` is `{ content, color? }`. `content` is a string (it may hold `\n`), a list of lines, or a function of `{ loggedIn, columns, sectionId, state }` (`state` is what the state loaders loaded) returning either; `undefined` or an empty list draws nothing, and a function that throws draws nothing rather than taking the menu down. Each line is truncated to the terminal width, never wrapped, so art cannot smear at 40 or 24 columns; check `columns` to draw something shorter. `color` is a theme token or colour name resolved like a node's (default `banner` for the banner, `dim` for the footnote), so `NO_COLOR` draws none. The pure resolver is `resolveTuiMenuSlot(slot, context)`; `renderTuiMenu({ rootSlots })` renders a menu with slots in a test.
 
 ### The menu tree (RETRO-G1.1)
 
@@ -104,6 +138,7 @@ registerTuiMenuNode({ kind: 'entry', id: 'factory-reset', parent: 'settings', ro
 | `parent` | both | The section it sits in; default `root` |
 | `label`, `order` | both | Text (or a function of `{ loggedIn }`); position among siblings, ties by id |
 | `subtitle` | section | Shown under the breadcrumb instead of the default hint |
+| `banner`, `footnote` | section | `TuiMenuSlot`s drawn above the subtitle and under the entries ([Menu banner and footnote](#menu-banner-and-footnote-seam-1115)) |
 | `route` | entry | A registered screen route (built-in or `registerTuiScreen`) |
 | `ellipsis` | entry | Opens a further input step; drawn with a trailing `…` |
 | `loggedOut` | both | Visible when logged out. Omitted: inherited from the nearest ancestor that sets it (default hidden); an explicit `false` opts one child out |
@@ -124,6 +159,8 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `registerTuiScreen` | registry | `registerTuiScreen(screen: TuiScreenRegistration): void` | Add an app screen to the TUI menu (EvoPath's Android release screen) | experimental | [example](../../../../apps/cli/src/examples/about.tui.ts) |
+| `hideTuiScreen` | registry | `hideTuiScreen(route: string): void` | Keep a built-in screen (or an app's) off the root menu while it stays routable, e.g. an app that replaces Login and Jobs with its own flow; pair with `replaceBuiltin: true` on a registration to swap a built-in | experimental | [example](../../../../apps/cli/src/examples/custom-shell.tui.ts) |
+| `setTuiRootMenuSlots` | slot | `setTuiRootMenuSlots(slots: TuiMenuSlots \| undefined): void` | Draw header art above the root menu and a one-line notice under it ("update available"); a section takes `banner`/`footnote` on its node | experimental | [example](../../../../apps/cli/src/examples/custom-shell.tui.ts) |
 | `registerTuiMenuNode` | registry | `registerTuiMenuNode(node: TuiMenuNode): void` | Place screens in a nested menu: sections with breadcrumbs, a logged-out cascade, colours and accelerators (MemoriaHub's Worker node and Settings submenus) | experimental | [example](../../../../apps/cli/src/examples/nested-menu.tui.ts) |
 | `registerTuiSelection` | registry | `registerTuiSelection<T>(selection: TuiSelectionRegistration<T>): void` | Show the thing the app works inside of (an active project) as a header chip, readable on every screen with `useTuiSelection(id)` | experimental | [example](../../../../apps/cli/src/examples/workspace.tui-selection.ts) |
 | `registerTuiStateLoader` | registry | `registerTuiStateLoader<T>(loader: TuiStateLoaderRegistration<T>): void` | Load app data once for every screen (a database handle, update info), read with `useTuiState(id)` | experimental | [example](../../../../apps/cli/src/examples/build-info.tui-state.ts) |
@@ -169,7 +206,7 @@ screen.unmount();
 |---|---|
 | `renderTuiScreen(Screen, { session?, selection?, appState?, theme?, columns?, params?, screens?, useRegistered?, settleMs? })` | Mounts the component in a `TuiAppProvider` in test mode with `onDone` wired to `nav.pop()`; returns `{ lastFrame, frames, stdin, press, type, waitForFrame, nav: { stack }, app, crashed, resize, unmount }`. `press` takes `'esc'`, `'enter'`, `'up'`, `'down'`, `'left'`, `'right'`, `'tab'`, `'space'`, `'backspace'`, `'ctrl-c'`, a digit or any character; `type` sends text. `waitForFrame(predicate, timeoutMs = 2000)` resolves with the ANSI-stripped frame or rejects with the last frame. `screens` supplies components for routes the screen pushes. A screen that throws while rendering shows `[screen crashed: ...]` and `crashed()` returns the message |
 | `renderTuiRoute(route, options)` | Mounts the real router at a registered route: the lazy `load`, the registries and the login gate (`session: { loggedIn: false }` shows the shared notice) |
-| `renderTuiMenu({ nodes?, screens, loggedIn, section? })` | Renders the menu tree; adds `labels()` (the visible lines with their `▸` and `…`) and `breadcrumb()`. Opening an entry shows `[opened <route>]` |
+| `renderTuiMenu({ nodes?, screens, loggedIn, section?, rootSlots? })` | Renders the menu tree; adds `labels()` (the visible lines with their `▸` and `…`) and `breadcrumb()`. Opening an entry shows `[opened <route>]` |
 | `fakeDaemonFeed<E>()`, `fakeEmitterFeed<E>()` | A `DashboardFeed` a test drives by hand (`connect`, `snapshot`, `frame`, `event`, `logs`, `disconnect`, `error`, `attempt`) into a `DashboardSource`; the first is mode `attached` (raw frames go through `parseEvent`), the second `embedded` (typed events) |
 | `stripAnsi`, `hasAnsi`, `frameLines`, `renderAt(element, columns, { noColor? })`, `cleanup` | Frame helpers, a bare-element render at a width for kit components, and ink-testing-library's cleanup |
 
@@ -194,15 +231,15 @@ A dashboard is a pure reducer fed by a pluggable feed, so its logic is tested wi
 | Piece | Role |
 |---|---|
 | `DashboardReducer<S, E>` | Pure functions: `initial`, `hydrate` (the on-connect snapshot), `reduce` (one event), optional `log`, and `parseEvent` (validates a raw frame; `undefined` drops it) |
-| `DashboardFeed<E>` | Where data comes from: `{ mode: 'attached' \| 'embedded' \| 'poll', start(emit), stop() }` |
-| `DashboardSource<S, E>` | Owns the state: `getState()` (a new object per change, with `connected`, `everConnected`, `error`, `attempts`, `mode` added), `subscribe`, `start`, `stop` |
+| `DashboardFeed<E>` | Where data comes from: `{ mode: 'attached' \| 'embedded' \| 'poll', start(emit), stop(), refresh?() }` |
+| `DashboardSource<S, E>` | Owns the state: `getState()` (a new object per change, with `connected`, `everConnected`, `error`, `attempts`, `mode` added), `subscribe`, `start`, `stop`, and `refresh()` (asks the feed for data now; returns false for a push feed, before `start` and after `stop`) |
 | `useDashboard(source)` | The ink side: starts the source on mount, stops it on unmount (no timer or request outlives the screen), re-renders per state |
 
 Feeds:
 
 - `daemonAttachFeed({ socketPath, channel?, reconnectMs? })` attaches to the worker daemon's socket and reconnects until `stop()` (a worker restarts when the memory valve fires). It is **read-only**: it never sends a frame. `channel` selects an engine an app published with `registerDaemonChannel` (default `node`; a frame with no `channel` field is the node's, so old daemons and old TUIs interoperate).
 - `inProcessFeed(emitter, { snapshot, eventName?, logEventName?, refreshSnapshot? })` follows an engine in this process: the snapshot on start, then every event (re-reading the snapshot after each one unless `refreshSnapshot: false`).
-- `pollFeed(fetch, { intervalMs })` calls `fetch(signal)` one request at a time; `stop()` aborts the request in flight and clears the timer. A poll that must say something specific (a 403) returns it as its event instead of throwing.
+- `pollFeed(fetch, { intervalMs })` calls `fetch(signal)` one request at a time; `stop()` aborts the request in flight and clears the timer. A poll that must say something specific (a 403) returns it as its event instead of throwing. `refresh()` polls now (seam #1115): the waiting timer is cleared and a request starts; with one in flight, the next starts as soon as it settles. A dashboard's `[r]` key calls `source.refresh()` instead of rebuilding the source, so its state and subscribers survive.
 - `selectDashboardFeed({ socketPath, channel?, isDaemonRunning, embedded? })` attaches when a daemon is running, else builds the embedded feed when one is offered, else attaches anyway so the screen can say that no worker is running.
 
 Built-in screens on the pattern:
@@ -244,11 +281,13 @@ The `tui` suite (RETRO-G1.5, #1069) is registered with `registerCliConformanceSu
 | `no-color` | Every app screen emits no colour escape under the monochrome theme |
 | `login-gate` | Every login-gated entry shows the "not logged in" notice when logged out |
 
-Options (all optional): `allowEager`, `importEntries`, `dashboards`, `screenParams`, `columns`, and `skip: { '<check>': 'reason' }`. A skip needs a written reason and registers a passing `<check>: skipped by the app (<reason>)` case; an unknown check name throws. The render checks need `ink-testing-library`; without it they fail with the install command (or skip them with a reason). The reference app runs the suite in [`conformance.test.ts`](../../../../apps/cli/src/conformance.test.ts), the starter in `starter/apps/cli/src/cli.test.ts`.
+Options (all optional): `allowEager`, `importEntries`, `dashboards`, `screenParams`, `columns`, and `skip: { '<check>': 'reason' }`. A skip needs a written reason and registers a passing `<check>: skipped by the app (<reason>)` case; an unknown check name throws. Through `runPlatformConformance`, `tui: { skip: { 'no-color': 'why' } }` skips that one check and runs the rest (seam #1115; before, any `skip` key was read as a whole-suite skip and the map threw), while `tui: { skip: 'why' }` still skips the whole suite. A screen hidden from the root (`hideTuiScreen`, `hidden: true`) is not a finding. The render checks need `ink-testing-library`; without it they fail with the install command (or skip them with a reason). The reference app runs the suite in [`conformance.test.ts`](../../../../apps/cli/src/conformance.test.ts), the starter in `starter/apps/cli/src/cli.test.ts`.
 
 The package's own tests pin the rest: `menu.registry.test.tsx` the built-in order and the refusals; `menu-registry.test.ts`, `menu-tree.test.ts` and `menu.render.test.tsx` the menu tree (validation, the logged-out cascade, labels, breadcrumbs, the login gate, Esc and accelerators, the unchanged flat menu); `context.test.tsx` the stack, selections, state loaders and the theme; `raw-mode.test.ts` the terminal fallback; `testing/harness.test.tsx` and `conformance.test.tsx` the kit and the suite.
 
 ## Upgrade notes
+
+0.x (seam #1115): additive: `hideTuiScreen`, `createCli({ tuiHiddenScreens, tuiMenuRoot })`, `hidden` and `replaceBuiltin` on `TuiScreenRegistration`, `setTuiRootMenuSlots` and `banner`/`footnote` on a section, `resolveTuiMenuSlot`, `tuiMenuScreens`, `DashboardFeed.refresh?()`, `DashboardSource.refresh()` and `pollFeed`'s `refresh()`. `runPlatformConformance({ suites: { tui: { skip: { <check>: reason } } } })` now runs the suite with that check skipped instead of throwing. An app that parked built-ins in a never-visible section (`PLATFORM-ADOPTION-SHIM`) replaces it with `tuiHiddenScreens` or `replaceBuiltin`; one that rebuilt its dashboard source on `[r]` calls `source.refresh()`.
 
 0.x (RETRO-G1.5): additive: the `@marinoscar/platform-cli/tui/testing` subpath, the `tui` conformance suite and `ink-testing-library` as an optional peer (`^4.0.0`). Nothing changes at runtime. kvox and EvoPath need no change; they opt in with `tui: {}` when they want the checks. An app with a forked TUI maps it onto the framework in this order: its menu tree to `registerTuiMenuNode` (sections and entries over `registerTuiScreen` screens), its app state to `registerTuiStateLoader`, its active selection (project, workspace) to `registerTuiSelection`, its dashboards to a `DashboardReducer` plus a `DashboardSource` with `daemonAttachFeed`, `inProcessFeed` or `pollFeed`, and its widgets to the kit in `tui/ui`; then replace its hand-written Ink harness with `renderTuiScreen` and run the `tui` suite.
 
