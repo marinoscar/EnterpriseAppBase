@@ -353,7 +353,7 @@ Available now (#997). A second host (KVox Desktop: Electron, one user, no sign-i
 
 ### Add a side table with an `extend model` relation
 
-Full reference: [the platform-db README](../packages/platform-db/README.md#extension-point-catalog) and [the app fragments README](../apps/api/prisma/fragments/README.md). Only a model its owner marked `// @extensible` takes a back-relation: `User`, `Organization`, `Role`, `Job`, `Group`, `Grant`, `AiRun`, `StorageObject`, `Notification`, `NotificationDelivery` and `Credential` (what an app may hang on each, and why `Permission` stays closed: [the platform-db README](../packages/platform-db/README.md#extension-point-catalog)). Never add a column to a platform table: a per-user or per-organization field goes in [metadata](#add-app-metadata-to-users-and-organizations).
+Full reference: [the platform-db README](../packages/platform-db/README.md#extension-point-catalog) and [the app fragments README](../apps/api/prisma/fragments/README.md). Only a model its owner marked `// @extensible` takes a back-relation: `User`, `Organization`, `PersonalAccessToken`, `Role`, `Job`, `Group`, `Grant`, `AiRun`, `StorageObject`, `Notification`, `NotificationDelivery` and `Credential` (what an app may hang on each, and why `Permission` stays closed: [the platform-db README](../packages/platform-db/README.md#extension-point-catalog)). Never add a column to a platform table: a per-user or per-organization field goes in [metadata](#add-app-metadata-to-users-and-organizations).
 
 1. **Write the model** in `apps/api/prisma/fragments/<name>.prisma`, keyed by the platform id, and the back-relation beside it:
 

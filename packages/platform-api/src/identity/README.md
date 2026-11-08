@@ -52,6 +52,12 @@ export class ReportsController {
   @Auth({ permissions: ['reports:read'] })
   list(@CurrentUser() user: RequestUser) {}
 
+  // `@CurrentUser()` is a `RequestUser` on every `@Auth()` route, including
+  // one with no `roles` or `permissions` (never the raw user graph).
+  @Get('mine')
+  @Auth()
+  mine(@CurrentUser('id') userId: string) {}
+
   @Get('health')
   @Public()
   health() {}
@@ -195,7 +201,7 @@ The recipe, end to end (GitHub, Entra, a generic OIDC, a company SSO): [docs/EXT
 
 The identity fragment of `@marinoscar/platform-db` (`schema/identity.prisma`): `User`, `UserIdentity`, `Role`, `Permission`, `RolePermission`, `UserRole`, `AuditEvent`, `RefreshToken`, `PersonalAccessToken`, `AllowedEmail`, `DeviceCode`, `Organization`, `Membership`, `Invite`, and the enums `RoleScope`, `PatDurationUnit`, `DeviceCodeStatus`, `MembershipStatus`, `InviteStatus`. Their migrations are platform history (`0001_initial` onwards; organizations: `0023_add_organizations`, scopes: `0024`); the raw-SQL partial unique index `organizations_default_uniq_idx` keeps exactly one default organization (never an `@@unique`, never a `findFirst` check).
 
-An app may reference `User.id` and `Organization.id` from its own models (a back-relation is an `extend model User` / `extend model Organization` block in the app's fragment), and `Role.id` the same way (`Role` is `@extensible` too; `Permission` is deliberately closed: permissions are strings the registry owns, seeded by name and retired by an expand/contract migration, so a foreign key would block that). `users.metadata` and `organizations.metadata` (migration `0036_add_app_metadata`) are the app's namespaced fields, below. Every other identity model and column is private: read users through the slice, never write identity tables directly. The credential tables (`refresh_tokens`, `personal_access_tokens`, `device_codes`) carry an `org_id` but no row-level security: they are read across organizations at sign-in.
+An app may reference `User.id` and `Organization.id` from its own models (a back-relation is an `extend model User` / `extend model Organization` block in the app's fragment), `Role.id` the same way (`Role` is `@extensible` too), and `PersonalAccessToken.id` (an `extend model PersonalAccessToken` block, for an app row that records the token a device or integration paired with; use a nullable key with `onDelete: SetNull` and read token state through `PatService`, never the hash) ( `Permission` is deliberately closed: permissions are strings the registry owns, seeded by name and retired by an expand/contract migration, so a foreign key would block that). `users.metadata` and `organizations.metadata` (migration `0036_add_app_metadata`) are the app's namespaced fields, below. Every other identity model and column is private: read users through the slice, never write identity tables directly. The credential tables (`refresh_tokens`, `personal_access_tokens`, `device_codes`) carry an `org_id` but no row-level security: they are read across organizations at sign-in.
 
 ## Permissions and settings
 

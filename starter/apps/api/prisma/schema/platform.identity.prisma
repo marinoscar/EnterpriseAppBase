@@ -288,6 +288,7 @@ enum PatDurationUnit {
   months
 }
 
+// @extensible — back-relations only, added with "extend model PersonalAccessToken { ... }" in a fragment
 model PersonalAccessToken {
   id            String          @id @default(uuid()) @db.Uuid
   userId        String          @map("user_id") @db.Uuid

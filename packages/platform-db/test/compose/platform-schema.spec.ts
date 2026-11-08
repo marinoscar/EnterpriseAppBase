@@ -62,7 +62,7 @@ describe('the shipped platform fragments', () => {
     }
   });
 
-  it('mark exactly the eleven owner-approved models as extensible, and keep Permission closed', () => {
+  it('mark exactly the twelve owner-approved models as extensible, and keep Permission closed', () => {
     expect(composeFragments(inputs).extensible).toEqual([
       'AiRun',
       'Credential',
@@ -72,6 +72,7 @@ describe('the shipped platform fragments', () => {
       'Notification',
       'NotificationDelivery',
       'Organization',
+      'PersonalAccessToken',
       'Role',
       'StorageObject',
       'User',
@@ -129,6 +130,31 @@ describe('the shipped platform fragments', () => {
     expect(result.extensions.filter((e) => e.model === 'Group').map((e) => e.field)).toEqual(['albums']);
     const group = result.files.get('platform.sharing.prisma')!.split('\nmodel Group {\n')[1]!.split('\n}\n')[0]!;
     expect(group).toMatch(/\n  albums\s+Album\[\]/);
+  });
+
+  it('let an app add a back-relation to PersonalAccessToken, so an app row can link to the token it paired with (#1103)', () => {
+    const app: FragmentInput = {
+      origin: 'app',
+      name: 'devices.prisma',
+      text: [
+        'model Device {',
+        '  id    String  @id @default(uuid()) @db.Uuid',
+        '  patId String? @map("pat_id") @db.Uuid',
+        '  pat   PersonalAccessToken? @relation(fields: [patId], references: [id], onDelete: SetNull)',
+        '',
+        '  @@map("devices")',
+        '}',
+        '',
+        'extend model PersonalAccessToken {',
+        '  devices Device[]',
+        '}',
+        '',
+      ].join('\n'),
+    };
+    const result = composeFragments([...inputs, app]);
+    expect(result.extensions.filter((e) => e.model === 'PersonalAccessToken').map((e) => e.field)).toEqual(['devices']);
+    const pat = result.files.get('platform.identity.prisma')!.split('\nmodel PersonalAccessToken {\n')[1]!.split('\n}\n')[0]!;
+    expect(pat).toMatch(/\n  devices\s+Device\[\]/);
   });
 
   it('keep the identity-owned User relations in the identity fragment', () => {

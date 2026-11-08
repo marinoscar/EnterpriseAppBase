@@ -148,6 +148,7 @@ Rules:
 |---|---|---|---|---|
 | `User` | `users` | system | its own per-user rows (a plain key on `id`); app fields that fit a document go in [`metadata`](#app-metadata-on-users-and-organizations) with no table at all | a column; the credential and token tables |
 | `Organization` | `organizations` | system | its own per-organization rows; org-owned app tables point here with a `Cascade` key on `org_id` | |
+| `PersonalAccessToken` | `personal_access_tokens` | system | a link from an app row to the token it was paired with (a nullable key on `id`, `onDelete: SetNull`, so revoking or purging a token never deletes the app row) | the `token_hash` column: an app reads token state through `PatService`, never copies the hash |
 | `Role` | `roles` | system | per-role app data (a plain key on `id`) | `role_permissions`: `seedPlatform` owns the grants |
 | `Group` | `groups` | org (row-level security) | app rows of a group: a composite key `(group_id, org_id)` -> `groups (id, org_id)` | a plain key on `id` alone |
 | `Grant` | `grants` | org (row-level security) | an annotation of a grant: a composite key `(grant_id, org_id)` -> `grants (id, org_id)` | a plain key on `id` alone; an `@@unique` over the two partial unique indexes' columns |
