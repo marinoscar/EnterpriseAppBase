@@ -25,8 +25,10 @@ import type { ComponentType } from 'react';
  * @stability experimental
  */
 export interface TuiScreenProps {
-  /** Return to the menu. Every screen goes back there and nowhere else. */
+  /** Leave the screen: pops the navigation stack (back to the menu for a screen opened from it). */
   onDone: () => void;
+  /** What the opener passed to `nav.push(route, params)`; `undefined` from the menu. */
+  params?: unknown;
 }
 
 /**

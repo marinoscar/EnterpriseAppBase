@@ -25,6 +25,8 @@ import { registerNodeExecutor } from './node/executors/registry.js';
 import { buildProgram, run, type RunOptions } from './program.js';
 import { freezeCliRegistries } from './registries.js';
 import { registerTuiScreen, type TuiScreenRegistration } from './tui/screen-registry.js';
+import { registerTuiSelection, registerTuiStateLoader, type TuiSelectionRegistration, type TuiStateLoaderRegistration } from './tui/app-registry.js';
+import { setTuiThemeOverrides, type TuiThemeOverrides } from './tui/theme.js';
 import { registerTuiScreenSection, type TuiSectionRegistration } from './tui/section-registry.js';
 import { setUpdateNotice, type UpdateNoticeOptions } from './update-notice-options.js';
 
@@ -109,6 +111,12 @@ export interface CreateCliOptions {
   extraCommands?: readonly CliCommandRegistration[] | undefined;
   /** Screens added to the TUI menu. Same as `registerTuiScreen`. */
   tuiScreens?: readonly TuiScreenRegistration[] | undefined;
+  /** Colour tokens, brand hues and glyphs of the TUI. Colour is still off under `NO_COLOR`. */
+  tuiTheme?: TuiThemeOverrides | undefined;
+  /** Selections shown as a chip in the TUI header. Same as `registerTuiSelection`. */
+  tuiSelections?: ReadonlyArray<TuiSelectionRegistration<any>> | undefined;
+  /** Data loaded once for every TUI screen. Same as `registerTuiStateLoader`. */
+  tuiStateLoaders?: ReadonlyArray<TuiStateLoaderRegistration<any>> | undefined;
   /** Prerequisite checks added to `doctor` and the install/update preflight. Same as `registerDeployCheck`. */
   deployChecks?: readonly DeployCheck[] | undefined;
   /** Single-file nginx mounts of the app, checked for the stale-inode drift on update. Same as `registerEdgeConfigFile`. */
@@ -194,6 +202,9 @@ export function createCli(options: CreateCliOptions): CliInstance {
   for (const { screen, id, component, load } of options.tuiSections ?? []) {
     registerTuiScreenSection(screen, component ?? { id, load: load as NonNullable<typeof load> }, { id });
   }
+  setTuiThemeOverrides(options.tuiTheme);
+  for (const selection of options.tuiSelections ?? []) registerTuiSelection(selection);
+  for (const loader of options.tuiStateLoaders ?? []) registerTuiStateLoader(loader);
   for (const check of options.deployChecks ?? []) registerDeployCheck(check);
   for (const file of options.edgeConfigFiles ?? []) registerEdgeConfigFile(file);
   for (const step of options.deploySteps ?? []) registerDeployStep(step);

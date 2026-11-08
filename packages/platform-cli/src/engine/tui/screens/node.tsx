@@ -20,6 +20,8 @@ import {
 } from '../../node/node-dashboard-source.js';
 import { nodeLogPath, nodePidPath, nodeSocketPath, nodeStateDir } from '../../node/paths.js';
 import { ErrorNotice, Field, Frame } from '../layout.js';
+import { useTuiTheme } from '../context.js';
+import { textColor } from '../theme.js';
 import { ScrollBox } from '../scroll-box.js';
 import { TuiScreenSections } from '../screen-sections.js';
 
@@ -73,6 +75,7 @@ interface ActionItem {
 }
 
 export function NodeScreen({ onDone }: NodeScreenProps): ReactNode {
+  const theme = useTuiTheme();
   const [action, setAction] = useState<Action | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
@@ -242,7 +245,7 @@ export function NodeScreen({ onDone }: NodeScreenProps): ReactNode {
             <Spinner type="dots" /> Working…
           </Text>
         ) : null}
-        {notice !== undefined ? <Text color="green">{notice}</Text> : null}
+        {notice !== undefined ? <Text {...textColor(theme.success)}>{notice}</Text> : null}
         {error !== undefined ? <ErrorNotice message={error} /> : null}
         {doctorReport !== undefined
           ? doctorReport.checks.map((check) => (
@@ -250,7 +253,7 @@ export function NodeScreen({ onDone }: NodeScreenProps): ReactNode {
                 key={check.id}
                 label={check.label}
                 value={check.detail}
-                color={check.status === 'fail' ? 'red' : check.status === 'warn' ? 'yellow' : 'green'}
+                {...textColor(check.status === 'fail' ? theme.error : check.status === 'warn' ? theme.warning : theme.success)}
               />
             ))
           : null}
@@ -270,6 +273,7 @@ function DashboardView({
   state: DashboardState | undefined;
   onSpawn: () => void;
 }): ReactNode {
+  const theme = useTuiTheme();
   const [spawning, setSpawning] = useState(false);
   const [spawnError, setSpawnError] = useState<string | undefined>(undefined);
   // A ticking clock so elapsed times advance between events, which on a worker
@@ -320,7 +324,7 @@ function DashboardView({
     <Frame title="Worker node — dashboard" hints={['↑↓ scroll', 'esc detach']}>
       <Box flexDirection="column" gap={1}>
         <Box gap={2}>
-          <Text color={state.connected ? 'green' : 'yellow'}>
+          <Text {...textColor(state.connected ? theme.success : theme.warning)}>
             {state.connected ? '● attached' : '○ reconnecting'}
           </Text>
           <Text dimColor>{snapshot?.nodeId ?? '(unknown node)'}</Text>

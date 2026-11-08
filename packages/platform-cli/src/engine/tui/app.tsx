@@ -1,9 +1,10 @@
 import { Box, Text, useApp, useInput } from 'ink';
-import { lazy, Suspense, useCallback, useState, type ComponentType, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, type ComponentType, type ReactNode } from 'react';
 
 import { allTuiScreens } from './builtin-screens.js';
+import { TuiAppProvider, useTuiApp, type TuiAppProviderProps } from './context.js';
 import { useTerminalSize } from './layout.js';
-import { MENU_ROUTE, type Route } from './routes.js';
+import { textColor } from './theme.js';
 import type { TuiScreenProps, TuiScreenRegistration } from './screen-registry.js';
 import { MenuScreen } from './screens/menu.js';
 
@@ -23,9 +24,13 @@ import { MenuScreen } from './screens/menu.js';
 // between pressing Esc during a login and the process quietly continuing to
 // poll for the remaining fourteen minutes.
 //
-// THERE IS NO ROUTE HISTORY. Every screen returns to the menu and nowhere else,
-// so "back" has one meaning everywhere and Esc never lands somewhere a user has
-// to work out.
+// THE STACK (RETRO-G1.2). Navigation is a stack of frames held by the app
+// context (context.tsx): the menu is the root, `nav.push(route, params)` opens a
+// screen on top, and `onDone` is `nav.pop()`. A screen opened from the menu
+// therefore still goes back to the menu, exactly as before, while a screen can
+// now open a sub-screen and return to it. Only the TOP frame is mounted; a
+// frame below it is not rendered at all, so it receives no keys and its
+// effects are cleaned up. Coming back remounts it with the same `params`.
 // =============================================================================
 
 /**
@@ -41,14 +46,28 @@ import { MenuScreen } from './screens/menu.js';
  */
 const UNRENDERABLE_COLUMNS = 10;
 
-export function App(): ReactNode {
-  const [route, setRoute] = useState<Route>(MENU_ROUTE);
+/**
+ * The app root: the context provider around the router.
+ *
+ * @param props - The provider's seams (tests only).
+ */
+export function App(props: Omit<TuiAppProviderProps, 'children'> = {}): ReactNode {
+  return (
+    <TuiAppProvider {...props}>
+      <Router />
+    </TuiAppProvider>
+  );
+}
+
+/** Renders the top frame of the navigation stack and nothing else. */
+export function Router(): ReactNode {
+  const { nav, theme } = useTuiApp();
   const { columns } = useTerminalSize();
   const { exit } = useApp();
 
-  const toMenu = useCallback(() => {
-    setRoute(MENU_ROUTE);
-  }, []);
+  const pop = useCallback(() => {
+    nav.pop();
+  }, [nav]);
 
   // `useApp().exit()` is the ONLY way out, and it is the same path Ctrl-C
   // takes. It performs a real React unmount — every screen's effect cleanup
@@ -67,7 +86,12 @@ export function App(): ReactNode {
   // intercepted here — a handler that swallowed it would make the app
   // unkillable from the keyboard, which is the worst thing a full-screen
   // program can be.
-  useInput(() => {
+  useInput((_input, key) => {
+    // A frame pushed with a route nobody registered has no screen to handle
+    // Esc, so the router does; every real screen binds its own.
+    if (key.escape && nav.current.kind === 'screen' && !allTuiScreens().some((screen) => screen.route === (nav.current as { route: string }).route)) {
+      nav.pop();
+    }
     /* Present so the app holds stdin in raw mode even on a screen with no
        bindings of its own; without a mounted handler ink would release it and
        the first keypress after a screen transition could be echoed to the
@@ -78,15 +102,18 @@ export function App(): ReactNode {
     return <Text>Terminal too narrow — widen it.</Text>;
   }
 
-  if (route === MENU_ROUTE) return <MenuScreen onSelect={setRoute} onQuit={quit} />;
+  const frame = nav.current;
+  if (frame.kind === 'menu') {
+    return <MenuScreen onSelect={(route) => nav.push(route)} onQuit={quit} />;
+  }
 
   // The built-in screens and every app screen (`registerTuiScreen`, #715).
-  const registration = allTuiScreens().find((screen) => screen.route === route);
+  const registration = allTuiScreens().find((screen) => screen.route === frame.route);
   const Screen = registration === undefined ? undefined : screenComponent(registration);
   if (Screen !== undefined) {
     return (
       <Suspense fallback={<Text dimColor>Loading…</Text>}>
-        <Screen onDone={toMenu} />
+        <Screen onDone={pop} params={frame.params} />
       </Suspense>
     );
   }
@@ -96,7 +123,7 @@ export function App(): ReactNode {
   // than an app that renders nothing and looks hung.
   return (
     <Box>
-      <Text color="red">Unknown screen. Press ctrl-c to exit.</Text>
+      <Text {...textColor(theme.error)}>Unknown screen "{frame.route}". Press esc to go back, or ctrl-c to exit.</Text>
     </Box>
   );
 }

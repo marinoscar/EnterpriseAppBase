@@ -3,8 +3,8 @@ import SelectInput from 'ink-select-input';
 import { useMemo, type ReactNode } from 'react';
 
 import { cliName } from '../../identity.js';
-import { describeConfig, type ConfigSummary } from '../../config.js';
 import { allTuiScreens } from '../builtin-screens.js';
+import { useTuiApp } from '../context.js';
 import { Frame } from '../layout.js';
 import type { Route } from '../routes.js';
 import type { TuiMenuContext, TuiScreenRegistration } from '../screen-registry.js';
@@ -59,13 +59,11 @@ export function buildMenuItems(screens: readonly TuiScreenRegistration[], contex
 }
 
 export function MenuScreen({ onSelect, onQuit }: MenuScreenProps): ReactNode {
-  // Read ONCE per mount, not on every render. `describeConfig` hits the
-  // filesystem, and the menu re-renders on every arrow keypress — re-reading
-  // the config file ten times a second to decide whether to print "(not logged
-  // in)" is a syscall storm for a label. Returning to the menu after a login or
-  // a logout remounts this component, which is exactly when the value is stale.
-  const summary = useMemo<ConfigSummary>(() => safeDescribeConfig(), []);
-  const loggedIn = summary.tokenSource !== undefined;
+  // The session comes from the app context, which reads the config once and
+  // again on `session.refresh()` (the login and logout screens call it). The
+  // menu used to re-read the file on every mount for the same freshness.
+  const { session } = useTuiApp();
+  const loggedIn = session.loggedIn;
 
   const items = useMemo<MenuItem[]>(() => buildMenuItems(allTuiScreens(), { loggedIn }), [loggedIn]);
 
@@ -86,9 +84,9 @@ export function MenuScreen({ onSelect, onQuit }: MenuScreenProps): ReactNode {
     >
       <Box flexDirection="column" gap={1}>
         <Text dimColor>
-          {summary.serverUrl === undefined
+          {session.serverUrl === undefined
             ? `No server configured yet — start with Login, or run \`${cliName()} --help\`.`
-            : `Server: ${summary.serverUrl}`}
+            : `Server: ${session.serverUrl}${session.identity?.email === undefined ? '' : `  ·  ${session.identity.email}`}`}
         </Text>
 
         <SelectInput
@@ -104,35 +102,4 @@ export function MenuScreen({ onSelect, onQuit }: MenuScreenProps): ReactNode {
       </Box>
     </Frame>
   );
-}
-
-/**
- * `describeConfig` can throw: a corrupt or unreadable `config.json` raises
- * ConfigError (see config.ts), and it would do so from inside a render.
- *
- * A throw during render unmounts the whole ink tree and takes the menu down
- * with it — so a hand-edited config file would make the CLI's interactive mode
- * impossible to open, including the Logout entry that is the way to clear the
- * bad file. Degrading to "nothing configured" keeps every route reachable, and
- * the Status screen reports the real error in the one place a user goes to
- * look for it.
- */
-function safeDescribeConfig(): ConfigSummary {
-  try {
-    return describeConfig();
-  } catch {
-    return {
-      serverUrl: undefined,
-      serverUrlSource: undefined,
-      tokenHint: '(none)',
-      tokenSource: undefined,
-      tokenName: undefined,
-      tokenId: undefined,
-      expiresAt: undefined,
-      expired: undefined,
-      updatedAt: undefined,
-      path: '',
-      fileExists: false,
-    };
-  }
 }

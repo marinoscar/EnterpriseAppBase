@@ -112,6 +112,8 @@ export {
   isExpired,
   maskToken,
   readConfigFile,
+  readTuiSelection,
+  saveTuiSelection,
   requireCredentials,
   resolveConfig,
   saveCredentials,
@@ -124,6 +126,7 @@ export type {
   Credentials,
   ResolvedConfig,
   StoredConfig,
+  StoredTuiConfig,
 } from './config.js';
 
 export {
@@ -456,6 +459,35 @@ export {
   sortTuiScreens,
 } from './tui/screen-registry.js';
 export type { TuiMenuContext, TuiScreenOrder, TuiScreenProps, TuiScreenRegistration } from './tui/screen-registry.js';
+export { listTuiSelections, listTuiStateLoaders, registerTuiSelection, registerTuiStateLoader } from './tui/app-registry.js';
+export type { TuiLoaderContext, TuiSelectionRegistration, TuiStateLoaderRegistration } from './tui/app-registry.js';
+// The app context: React, not ink (README: react is needed by the engine slice).
+export { TuiAppProvider, useOptionalTuiApp, useTuiApp, useTuiSelection, useTuiState, useTuiTheme } from './tui/context.js';
+export type {
+  TuiAppContext,
+  TuiAppProviderProps,
+  TuiNav,
+  TuiMenuFrame,
+  TuiNavFrame,
+  TuiScreenFrame,
+  TuiSelectionState,
+  TuiSession,
+  TuiSessionIdentity,
+  TuiStoredSession,
+} from './tui/context.js';
+export { defaultTuiTheme, resolveTuiTheme, textColor } from './tui/theme.js';
+export type {
+  ResolveTuiThemeInput,
+  TuiColor,
+  TuiGlyphOverrides,
+  TuiGlyphs,
+  TuiMeterGlyphs,
+  TuiTextColorProps,
+  TuiTheme,
+  TuiThemeOverrides,
+} from './tui/theme.js';
+export { canUseRawMode, hasInteractiveStdin, resolveInteractiveStdin } from './tui/raw-mode.js';
+export type { InteractiveStdin, ResolveInteractiveStdinOptions } from './tui/raw-mode.js';
 export { TUI_SECTION_SCREENS, listTuiScreenSections, registerTuiScreenSection } from './tui/section-registry.js';
 export type { TuiSectionProps, TuiSectionRegistration } from './tui/section-registry.js';
 export {

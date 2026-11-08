@@ -78,6 +78,19 @@ export interface StoredConfig {
   nodeId?: string;
   /** Worker-node settings. Absent on every machine that never ran `node register`. */
   node?: StoredNodeConfig;
+  /** TUI state an app asked to keep (`persist: 'config'`). Absent until a selection is made. */
+  tui?: StoredTuiConfig;
+}
+
+/**
+ * The persisted half of the TUI's state (RETRO-G1.2).
+ *
+ * `selection` maps a registered selection id to the key of the chosen item
+ * (`tui.selection.<id>`). It is a hint, not a credential: it never carries the
+ * item itself, and a key that matches nothing on the next load is ignored.
+ */
+export interface StoredTuiConfig {
+  selection?: Record<string, string>;
 }
 
 /**
@@ -131,9 +144,13 @@ export interface Credentials {
  * thread it through, and a test never has to mutate `process.env` or
  * `os.homedir` globally (which leaks across test files and produces failures
  * that depend on execution order).
+ *
+ * @stability experimental
  */
 export interface ConfigContext {
+  /** The environment to read; defaults to `process.env`. */
   env?: NodeJS.ProcessEnv;
+  /** The home directory holding the config directory; defaults to the user's home. */
   home?: string;
 }
 
@@ -220,7 +237,59 @@ export function readConfigFile(ctx?: ConfigContext): StoredConfig | undefined {
     ...optionalField('updatedAt', readString(body.updatedAt)),
     ...optionalField('nodeId', readString(body.nodeId)),
     ...optionalField('node', readStoredNodeConfig(body.node)),
+    ...optionalField('tui', readStoredTuiConfig(body.tui)),
   };
+}
+
+/** The `tui` block, keeping only string-to-string selection entries. */
+function readStoredTuiConfig(value: unknown): StoredTuiConfig | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const selection = (value as Record<string, unknown>).selection;
+  if (selection === null || typeof selection !== 'object' || Array.isArray(selection)) return undefined;
+  const kept: Record<string, string> = {};
+  for (const [id, key] of Object.entries(selection as Record<string, unknown>)) {
+    const text = readString(key);
+    if (text !== undefined) kept[id] = text;
+  }
+  return Object.keys(kept).length > 0 ? { selection: kept } : undefined;
+}
+
+/**
+ * The stored key of a TUI selection, or `undefined` (nothing stored, or the
+ * file is unreadable: a selection is a convenience and must not fail a screen).
+ *
+ * @param id - The selection id.
+ * @param ctx - Test seam.
+ * @returns The stored key.
+ */
+export function readTuiSelection(id: string, ctx?: ConfigContext): string | undefined {
+  try {
+    return readConfigFile(ctx)?.tui?.selection?.[id];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Stores (or, with `undefined`, clears) a TUI selection under `tui.selection.<id>`.
+ * Read-merge-write, because `writeConfigFile` replaces the file: the token and
+ * the node block are kept. A machine with no config file gains one holding only
+ * this key.
+ *
+ * @param id - The selection id.
+ * @param key - The chosen item's key, or `undefined` to clear.
+ * @param ctx - Test seam.
+ * @returns The path written.
+ * @throws ConfigError when the file cannot be read or written.
+ */
+export function saveTuiSelection(id: string, key: string | undefined, ctx?: ConfigContext): string {
+  const existing: StoredConfig = readConfigFile(ctx) ?? {};
+  const selection = { ...(existing.tui?.selection ?? {}) };
+  if (key === undefined) delete selection[id];
+  else selection[id] = key;
+  const { tui: _previous, ...rest } = existing;
+  void _previous;
+  return writeConfigFile(Object.keys(selection).length > 0 ? { ...rest, tui: { selection } } : rest, ctx);
 }
 
 /**

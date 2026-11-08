@@ -2,6 +2,8 @@ import { Box, Text, useStdout } from 'ink';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { cliDisplayName, cliVersion } from '../identity.js';
+import { useOptionalTuiApp, useTuiTheme } from './context.js';
+import { textColor } from './theme.js';
 
 // =============================================================================
 // Layout primitives and the narrow-terminal degrade  (issue #145, epic #110)
@@ -184,6 +186,10 @@ export interface FrameProps {
  */
 export function Frame({ title, hints, children }: FrameProps): ReactNode {
   const { narrow, tiny } = useTerminalSize();
+  const theme = useTuiTheme();
+  const app = useOptionalTuiApp();
+  // The app's selections as chips (`[Project: Alpha]`); none registered, none shown.
+  const chips = Object.values(app?.selection ?? {}).filter((entry) => entry.text !== undefined);
 
   if (tiny) {
     return <Box flexDirection="column">{children}</Box>;
@@ -192,12 +198,17 @@ export function Frame({ title, hints, children }: FrameProps): ReactNode {
   const body = (
     <Box flexDirection="column" gap={1}>
       <Box>
-        <Text bold color="cyan">
+        <Text bold {...textColor(theme.primary)}>
           {cliDisplayName()}
         </Text>
         <Text dimColor> v{cliVersion()}</Text>
         <Text dimColor> · </Text>
         <Text bold>{title}</Text>
+        {chips.map((chip) => (
+          <Text key={chip.id} {...textColor(theme.accent)}>
+            {`  [${chip.label}: ${chip.text ?? ''}]`}
+          </Text>
+        ))}
       </Box>
 
       <Box flexDirection="column">{children}</Box>
@@ -209,7 +220,7 @@ export function Frame({ title, hints, children }: FrameProps): ReactNode {
   if (narrow) return body;
 
   return (
-    <Box borderStyle="round" borderColor="gray" paddingX={2} paddingY={1} flexDirection="column">
+    <Box borderStyle="round" {...(theme.dim === undefined ? {} : { borderColor: theme.dim })} paddingX={2} paddingY={1} flexDirection="column">
       {body}
     </Box>
   );
@@ -293,10 +304,11 @@ export function ErrorNotice({
   message: string;
   hint?: string | undefined;
 }): ReactNode {
+  const theme = useTuiTheme();
   return (
     <Box flexDirection="column">
-      <Text color="red" bold>
-        ✖ {message}
+      <Text bold {...textColor(theme.error)}>
+        {theme.glyphs.cross} {message}
       </Text>
       {hint === undefined ? null : <Text dimColor>{hint}</Text>}
     </Box>

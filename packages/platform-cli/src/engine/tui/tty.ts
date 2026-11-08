@@ -1,4 +1,5 @@
 import { cliName, envVar } from '../identity.js';
+import { hasInteractiveStdin } from './raw-mode.js';
 
 // =============================================================================
 // The TTY gate  (issue #145, epic #110 success criterion 7)
@@ -77,6 +78,13 @@ export interface TtyContext {
   stdin?: TtyLike | undefined;
   /** Defaults to `process.env` (`CI`, `TERM`, the no-TUI variable). */
   env?: NodeJS.ProcessEnv | undefined;
+  /**
+   * Whether a controlling terminal (`/dev/tty`) can take keystrokes when
+   * `stdin` is not a terminal. Defaults to a real probe when `stdin` is also
+   * defaulted, and to "no" when a test supplies its own `stdin`, so a fake
+   * stdin never depends on the machine running the test.
+   */
+  controllingTerminal?: (() => boolean) | undefined;
 }
 
 /** Why the TUI was refused. Distinct values so a test asserts the cause, not the prose. */
@@ -137,7 +145,14 @@ export function evaluateTuiGate(ctx?: TtyContext): TuiGateDecision {
   //    mode (`setRawMode` does not exist on it), so it would draw a menu that
   //    can never be answered and never exited — a hang in front of a user who
   //    can SEE the UI, which is worse than not drawing it.
-  if (stdin.isTTY !== true) {
+  //
+  //    One exception: a redirected stdin with a USABLE controlling terminal.
+  //    `appctl < /dev/null` over a real console can still be answered through
+  //    `/dev/tty`, which `startTui` opens (raw-mode.ts), so it is admitted.
+  //    With neither, the refusal below stands.
+  const controllingTerminal =
+    ctx?.controllingTerminal ?? (ctx?.stdin === undefined ? () => hasInteractiveStdin({ stdin: null }) : () => false);
+  if (stdin.isTTY !== true && !controllingTerminal()) {
     return refuse(
       'stdin-not-a-tty',
       `stdin is not a terminal, so there is no way to answer the interactive interface. Run \`${cliName()} --help\` to see the commands.`,

@@ -14,6 +14,8 @@ import {
 import { validateToken, type CurrentUser } from '../../device-login.js';
 import { formatError } from '../../errors.js';
 import { ErrorNotice, Field, Frame } from '../layout.js';
+import { useTuiTheme } from '../context.js';
+import { textColor } from '../theme.js';
 
 // =============================================================================
 // The status screen  (issue #145, epic #110)
@@ -190,19 +192,21 @@ export function StatusScreen({ onDone }: StatusScreenProps): ReactNode {
  * deliberately not paired with it.
  */
 function ExpiryField({ summary }: { summary: ConfigSummary }): ReactNode {
+  const theme = useTuiTheme();
   if (summary.expiresAt === undefined) {
     return <Field label="Expires" value="unknown (no expiry recorded)" dim />;
   }
   if (summary.expired === true) {
     return (
-      <Field label="Expires" value={`${summary.expiresAt}  — EXPIRED, log in again`} color="red" />
+      <Field label="Expires" value={`${summary.expiresAt}  — EXPIRED, log in again`} {...textColor(theme.error)} />
     );
   }
-  return <Field label="Expires" value={summary.expiresAt} color="green" />;
+  return <Field label="Expires" value={summary.expiresAt} {...textColor(theme.success)} />;
 }
 
 /** The half only the server can answer. */
 function LiveIdentity({ live }: { live: Live }): ReactNode {
+  const theme = useTuiTheme();
   switch (live.kind) {
     case 'idle':
       return null;
@@ -210,7 +214,7 @@ function LiveIdentity({ live }: { live: Live }): ReactNode {
     case 'checking':
       return (
         <Box>
-          <Text color="cyan">
+          <Text {...textColor(theme.primary)}>
             <Spinner type="dots" />
           </Text>
           <Text dimColor> Checking with the server…</Text>
@@ -225,7 +229,7 @@ function LiveIdentity({ live }: { live: Live }): ReactNode {
       const roles = live.user.roles.map((role) => role.name).join(', ');
       return (
         <Box flexDirection="column">
-          <Text color="green">✔ Signed in</Text>
+          <Text {...textColor(theme.success)}>✔ Signed in</Text>
           <Field label="User" value={who} />
           {roles.length > 0 ? <Field label="Roles" value={roles} /> : null}
         </Box>
