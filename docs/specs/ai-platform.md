@@ -471,6 +471,54 @@ and `editImage({ …, imageStorageObjectIds, maskStorageObjectId? })` →
 - Usage: `operation: 'audio.transcribe'`, `units: { audioSeconds }` when
   reported.
 
+### 2.12a Inline media calls and system callers
+
+A handler already inside its own queue job holds the bytes it wants edited or
+transcribed; queueing a second job for them would copy the bytes through
+storage and hold a lease while waiting. Two synchronous methods take bytes and
+return the result inline:
+
+- `editImageInline({ model, prompt, images, mask?, size?, quality?, background?, outputFormat?, n?, providerOptions? })`
+  → `AiImageResult` (the generated images as bytes). 1–16 images, each
+  PNG/JPEG/WebP and ≤ 25 MiB; a PNG mask. Capability `image_edit`.
+- `transcribeInline({ audio, model?, language?, prompt?, timestampGranularities?, providerOptions? })`
+  → `AiTranscriptionResult`. `audio` is bytes or a stream (`audio/*`,
+  `video/mp4`, `video/webm`), at most the port's `transcriptionMaxBytes`; a
+  stream that declares a larger `size` is refused up front, and one that
+  outgrows the cap mid-send is cut off and answered `AI_INVALID_REQUEST`.
+  `model` defaults as for `transcribe`.
+
+They run the same gate pipeline, key resolution, rate limits, ONE usage row
+(`operation: 'images'` / `'audio.transcribe'`, same units as the queued form)
+and span as the queued methods. No `ai_runs` row, no job, no storage object.
+The queued and inline forms share one round-trip core, so they cannot drift.
+A provider 429/529 stays `AI_RATE_LIMITED` (`toRateLimitError()` defers the
+job); an error that echoes the key is replaced by a generic one. Server-side
+handlers only: no route exposes them and a worker node never holds a key.
+
+`AiService.forSystem({ orgId, feature, jobId? })` serves work with no acting
+user (a per-organization generation job, a digest, an importer's tagging).
+
+- **Feature opt-in.** The feature must be registered with `systemCalls: true`;
+  otherwise every call is `AI_KEY_REQUIRED` (`details.reason:
+  'system_calls_not_enabled'`). An app whose rule is "AI keys are per user"
+  registers none, and system calls stay impossible for it.
+- **Key.** The organization's own key, else the deployment's (honouring
+  `ai.deploymentKeyServesOrgs`), **never a user's**, under either `ai.keyPolicy`
+  (no person is borrowing the administrator's key). `AiKeyResolver.resolveForSystem`.
+- **Gates.** The kill switches (`ai.enabled`, the organization's) first, then
+  the same provider/model/capability/feature-fit gates. Usable models are those
+  an org or deployment key serves (`UsableModelsService.listForSystem`).
+- **Limits.** Only `limits.perOrg`; `perUser` and `perModel...PerUser` windows
+  have no subject. `perModel.maxOutputTokens` still clamps.
+- **Usage.** `ai_usage_events.user_id` is `null` and `feature` is the scope's.
+- **Surface.** `respond`, `respondStructured`, `stream`, `openStream`, `embed`,
+  `editImageInline`, `transcribeInline`. No queued runs (a run belongs to a
+  user), no `runTools` (a tool's `execute` is scoped to its user), no hosted
+  tools and no storage-object inputs (their outputs and ownership are a
+  user's); the target resolver receives `userId: null` and the default
+  resolver has no per-user default model.
+
 ### 2.14 Speech synthesis
 
 `speak({ input, voice?, model?, format?, instructions?, speed? })` →
@@ -902,7 +950,7 @@ this order) and no edit under `packages/`.
 |---|---|---|
 | `registerAiCapability({ id, label, description })` | What one model can do: a model declares it in its catalog row (the adapter's `classifyModel` or an administrator's override). | `^[a-z][a-z0-9_]{1,47}$`, permanent once stored |
 | `registerAiOperation({ id, label, capability, inputSchema, outputSchema, usageUnits? })` | One metered kind of call and the model capability it needs. Both schemas are required for an app's operation. | `AI_OPERATION_ID_PATTERN` (`audio.diarize`), permanent: it is the usage row's `operation` |
-| `registerAiFeature({ id, label, needs, ... })` | What an app feature needs from a model; `needs` may name an app capability once registered. | `^[a-z][a-z0-9_]{0,63}$` |
+| `registerAiFeature({ id, label, needs, systemCalls?, ... })` | What an app feature needs from a model; `needs` may name an app capability once registered; `systemCalls: true` lets `AiService.forSystem` serve it (§2.12a). | `^[a-z][a-z0-9_]{0,63}$` |
 
 The platform's own capabilities and its usage operations register through
 the same two functions (`core/capability-registry.ts`, `core/operation-registry.ts`),
@@ -1382,6 +1430,8 @@ By hand, following the [runbook](../runbooks/ai-configuration.md):
   capabilities and operations, the custom-operation port, transcription
   extras, the feature on usage rows and runs (migration `0035_ai_usage_feature`),
   the playground mode registry and the pricing port.
+- Seam: inline `editImageInline` / `transcribeInline` and `AiService.forSystem`
+  with `registerAiFeature({ systemCalls })` (§2.12a).
 - #499 removed `ai:use` from Viewer. #509 made `AI_STORAGE_UNAVAILABLE` a
   terminal run code.
 - #516: removed the unseeded `storage:read_any` bypass from the storage-input

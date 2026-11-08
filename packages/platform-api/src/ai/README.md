@@ -289,6 +289,34 @@ over a limit throws `AiError('AI_RATE_LIMITED')` with `retryAfterMs` and
   expiresAt, connectUrl, … }`); off unless `ai.defaults.allowRealtime`
   (`AI_REALTIME_DISABLED`); one usage row, `units: { sessions: 1 }` (§2.15).
 
+- **`editImageInline({ model, prompt, images, mask?, … }, opts?)` /
+  `transcribeInline({ audio, model?, … }, opts?)`** — for a handler already
+  inside its own job that holds the bytes: synchronous, the result inline
+  (`AiImageResult` bytes / `AiTranscriptionResult`), the same gates, key,
+  limits and ONE usage row as the queued forms, and no run row, second job or
+  storage copy. `images` are `{ data, mimeType }` (1–16, PNG/JPEG/WebP, ≤ 25
+  MiB; PNG mask); `audio` is bytes or a stream, capped at the provider's
+  limit (25 MiB for OpenAI). `providerOptions` pass through
+  (`{ openai: { input_fidelity: 'high' } }`). Server-side handlers only (§2.12a):
+
+  ```ts
+  const out = await this.ai
+    .forSystem({ orgId: job.orgId, feature: 'example_enhance', jobId: job.id })
+    .editImageInline({ model: 'gpt-image-1', prompt, images: [{ data: oriented, mimeType: 'image/jpeg' }] });
+  await upload(`results/${id}.jpg`, out.images[0].data);
+  ```
+
+- **`AiService.forSystem({ orgId, feature, jobId? })`** — a client for work
+  with no acting user (a per-organization job, a digest, an importer's
+  tagging): `respond`, `respondStructured`, `stream`, `openStream`, `embed`,
+  `editImageInline`, `transcribeInline`. The feature must be registered with
+  `systemCalls: true` (else `AI_KEY_REQUIRED`); the key is the organization's,
+  else the deployment's, never a user's, under either key policy; only
+  `limits.perOrg` applies; usage rows carry `userId: null` and the feature.
+  There are no queued runs, no `runTools`, no hosted tools and no storage
+  inputs (all user-scoped). An app that keeps "AI keys are per user" registers
+  no `systemCalls` feature and gains nothing.
+
 - **`run(operationId, input, { provider?, model?, signal? }?)`** — runs a
   custom operation an app registered (`registerAiOperation`) and a provider
   implements under `operations` (diarization, moderation, rerank, OCR),
@@ -656,7 +684,7 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `AI_OBJECT_STORE` | token | `InjectionToken<AiObjectStore>` | Bind object storage for image, audio and file-input runs | experimental | [example](../../../../apps/api/src/platform/ai/ai-host.module.ts) |
 | `AI_METRICS` | token | `InjectionToken<AiMetrics>` | Bind the app's `app.ai.*` instruments; omit for none | experimental | [example](../../../../apps/api/src/platform/ai/ai-host.module.ts) |
 | `AI_TARGET_RESOLVER` | token | `InjectionToken<AiTargetResolver>` | Pick the provider and model per call (per feature, per organization) instead of the user's default model | experimental | [example](../../../../apps/api/src/examples/ai/example-target-resolver.ts) |
-| `registerAiFeature` | registry | `registerAiFeature({ id, label, needs, inputModalities?, providers?, requiresHostedTools?, defaultEffort? }): void` | Declare an AI feature before bootstrap; `forUser(userId, { feature })` then checks the model fits it, and `GET /api/ai/features` lists it | experimental | [example](../../../../apps/api/src/examples/ai/example-summary.feature.ts) |
+| `registerAiFeature` | registry | `registerAiFeature({ id, label, needs, inputModalities?, providers?, requiresHostedTools?, defaultEffort?, systemCalls? }): void` | Declare an AI feature before bootstrap; `forUser(userId, { feature })` then checks the model fits it, `GET /api/ai/features` lists it, and `systemCalls: true` lets `AiService.forSystem` serve it | experimental | [example](../../../../apps/api/src/examples/ai/example-summary.feature.ts) |
 | `AiConformanceFixture` | option | `{ createAiApp; createContext; closeContext; createUser; openApiDocument; defaultOrgId; rolePermissions }` | Tell the AI conformance suites how the app boots, mints a user for a role and seeds its grants | experimental | [example](../../../../apps/api/test/conformance/ai-fixture.ts) |
 | `AiKillSwitchOptions` | option | `{ fixture; minAiRoutes?; minAdminAiRoutes?; minAiJobTypes? }` | Run the `ai-kill-switch` suite (`aiKillSwitch`) | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 | `aiKillSwitchSuite` | registry | `ConformanceAppSuite<AiKillSwitchOptions>` | Read the suite's id and description | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
@@ -672,7 +700,7 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `aiNoSdkLeakSuite` | registry | `ConformanceSuite<AiNoSdkLeakOptions>` | Call the suite's `check()` directly in a test | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 | `aiOrchestrationBoundarySuite` | registry | `ConformanceAppSuite<OrchestrationBoundaryOptions>` | Read the suite's id (`ai-orchestration-boundary`, option key `aiOrchestrationBoundary`) | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 
-Not extension points, but the surface a feature uses: `AiService.forUser(userId, { orgId?, feature? })` and its client (`respond`, `stream`, `openStream`, `respondStructured`, `runTools`, `startRun`, `embed`, `generateImage`, `editImage`, `transcribe`, `speak`, `createRealtimeSession`, `run`), `AiProviderAdapter.operations` and `AiOperationHandler` (the adapter side of a custom operation), `AiTranscriptionResult.extras`, `defineTool`, `AiError`, `AiEnabledGuard` and `AiOrgEnabledInterceptor` (for an app's own `/api/ai/*` controller), `UserAiKeysService.importKey` (migrating keys an app already holds) and `AiOrgKeyService` (an organization's keys, programmatically).
+Not extension points, but the surface a feature uses: `AiService.forUser(userId, { orgId?, feature? })` and its client (`respond`, `stream`, `openStream`, `respondStructured`, `runTools`, `startRun`, `embed`, `generateImage`, `editImage`, `transcribe`, `speak`, `createRealtimeSession`, `run`, `editImageInline`, `transcribeInline`), `AiService.forSystem(scope)` and its `AiSystemClient`, `AiProviderAdapter.operations` and `AiOperationHandler` (the adapter side of a custom operation), `AiTranscriptionResult.extras`, `defineTool`, `AiError`, `AiEnabledGuard` and `AiOrgEnabledInterceptor` (for an app's own `/api/ai/*` controller), `UserAiKeysService.importKey` (migrating keys an app already holds) and `AiOrgKeyService` (an organization's keys, programmatically).
 
 ## Data
 
@@ -836,6 +864,8 @@ web-side `settings-ai-cards`). See `CLAUDE.md`'s "MANDATORY: AI Platform Rules"
 rule 4 for what each one pins.
 
 ## Upgrade notes
+
+- Additive: `editImageInline`/`transcribeInline` on the client, `AiService.forSystem` and `AiFeatureDefinition.systemCalls` (default off, so nothing changes until a feature opts in). `AiTargetContext.userId` is `string | null` (`null` for a system call): a custom `AI_TARGET_RESOLVER` that passes it where a `string` is required needs a null check. `UsableModelsService.assertUsable` takes `userId: string | null`, `AiKeyResolver` gains `resolveForSystem`/`sourceForSystem`, `UsableModelsService` gains `listForSystem`, `AiLimitCall.userId` is `string | null`. A custom `AiService` double needs the two inline members.
 
 New subpath in this version. From the reference app's `src/ai/` (#739):
 
