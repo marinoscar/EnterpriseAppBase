@@ -412,6 +412,12 @@ function selectInstallSteps(steps: InstallStep[], only: readonly string[] | unde
   return steps.filter((step) => wanted.has(step.id));
 }
 
+/** Removes one registered step. Tests only. @internal */
+export function removeInstallStepForTests(id: string): void {
+  const at = registeredSteps.findIndex((step) => step.id === id);
+  if (at !== -1) registeredSteps.splice(at, 1);
+}
+
 /** Removes every registered step. Tests only (`resetCliRegistriesForTests` calls it). @internal */
 export function resetInstallStepRegistryForTests(): void {
   registeredSteps.length = 0;

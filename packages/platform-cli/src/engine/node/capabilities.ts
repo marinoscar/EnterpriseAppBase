@@ -379,6 +379,13 @@ export function registerCapabilityProbe(definition: CapabilityProbeDefinition): 
   capabilityProbes.set(key, definition);
 }
 
+/** Removes one registered probe. Tests only. @internal */
+export function unregisterCapabilityProbeForTests(key: Capability): void {
+  capabilityProbes.delete(key);
+  autoRegisteredProbes.delete(key);
+  probeCache.delete(key);
+}
+
 /**
  * The registered non-binary probes, in registration order.
  *
@@ -879,6 +886,18 @@ export function isWritable(path: string): boolean {
   }
 }
 
+const resetHooks: Array<() => void> = [];
+
+/**
+ * Lets a module that holds its own registry (the model artifacts) be emptied by
+ * {@link resetCapabilityRegistriesForTests} without `registries.ts` importing it.
+ *
+ * @internal
+ */
+export function onCapabilityRegistryReset(hook: () => void): void {
+  resetHooks.push(hook);
+}
+
 /**
  * Removes every requirement and probed binary an app registered, leaving the
  * platform's own. Tests only (`resetCliRegistriesForTests` calls it).
@@ -886,6 +905,7 @@ export function isWritable(path: string): boolean {
  * @internal
  */
 export function resetCapabilityRegistriesForTests(): void {
+  for (const hook of resetHooks) hook();
   for (const type of Object.keys(JOB_TYPE_REQUIREMENTS)) {
     if (!BUILTIN_REQUIREMENT_TYPES.has(type)) delete JOB_TYPE_REQUIREMENTS[type];
   }

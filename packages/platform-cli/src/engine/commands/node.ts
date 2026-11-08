@@ -25,6 +25,7 @@ import { startNode } from '../node/start.js';
 import { saveNodeConfig } from '../node/node-config.js';
 import { formatDoctorReport, runDoctor } from '../node/doctor.js';
 import { formatInstallReport, runInstallDeps } from '../node/install-deps.js';
+import { pullModels, resolveModelsDir, verifyModels } from '../node/models.js';
 import { installService, serviceStatus, uninstallService } from '../node/service.js';
 import { nodeStateDir } from '../node/paths.js';
 import { maybeReexecWithHeapLimit } from '../node/runtime-tuning.js';
@@ -493,6 +494,51 @@ export function registerNodeCommand(program: Command, ctx?: NodeCommandContext):
 
       stderr.write(formatInstallReport(report));
       if (!report.ok) throw new PreconditionError('At least one dependency step failed.');
+    });
+
+  const models = node.command('models').description('Download and verify the model files this worker’s job types need');
+
+  models
+    .command('pull')
+    .description('Download missing or corrupt model files (resumes a partial download, verifies sha256)')
+    .option('--ids <ids>', 'Pull only these model ids (comma-separated)')
+    .option('--force', 'Download even files that are already valid')
+    .action(async (options: { ids?: string; force?: boolean }) => {
+      const stderr = ctx?.stderr ?? process.stderr;
+      const configContext = contextOf(ctx);
+      let results;
+      try {
+        results = await pullModels({
+          modelsDir: resolveModelsDir(nodeStateDir(configContext), configContext.env ?? process.env),
+          ...(options.ids !== undefined ? { ids: options.ids.split(',').map((id) => id.trim()).filter((id) => id !== '') } : {}),
+          ...(options.force === true ? { force: true } : {}),
+          log: (message) => stderr.write(`${message}\n`),
+        });
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith('Unknown model')) throw new UsageError(error.message);
+        throw error;
+      }
+
+      if (results.length === 0) stderr.write('No model files are declared for this worker.\n');
+      for (const result of results) {
+        stderr.write(`  ${result.outcome.padEnd(10)} ${result.id}${result.detail === undefined ? '' : ` — ${result.detail}`}\n`);
+      }
+      if (results.some((result) => result.outcome === 'failed')) throw new PreconditionError('At least one model file failed.');
+      if (results.some((result) => result.outcome === 'downloaded')) stderr.write('Restart a running worker so it advertises the types these models unlock.\n');
+    });
+
+  models
+    .command('status')
+    .description('Verify the model files on disk without downloading')
+    .action(async () => {
+      const stderr = ctx?.stderr ?? process.stderr;
+      const configContext = contextOf(ctx);
+      const verdicts = await verifyModels(resolveModelsDir(nodeStateDir(configContext), configContext.env ?? process.env));
+      if (verdicts.length === 0) stderr.write('No model files are declared for this worker.\n');
+      for (const verdict of verdicts) {
+        stderr.write(`  ${verdict.status.padEnd(8)} ${verdict.id}${verdict.detail === undefined ? '' : ` — ${verdict.detail}`}\n`);
+      }
+      if (verdicts.some((verdict) => verdict.status !== 'ok')) throw new PreconditionError('At least one model file is missing or corrupt.');
     });
 
   const service = node.command('service').description('Manage the worker as a systemd user service');

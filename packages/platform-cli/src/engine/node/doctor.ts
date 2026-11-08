@@ -4,6 +4,7 @@ import { promisify } from 'node:util';
 
 import { cliName } from '../identity.js';
 import { ApiError, NetworkError } from '../errors.js';
+import { resolveModelsDir, verifyModels, withheldTypesFor } from './models.js';
 import { probeCapabilities, evaluateCapabilities, isWritable, type CapabilityGap, type CapabilityProbe } from './capabilities.js';
 import { PG_DUMP_COMMAND } from './pg-dump.js';
 import { readLiveStatus } from './lifecycle.js';
@@ -74,6 +75,8 @@ export interface DoctorOptions {
    * are debugging offload, and nobody else should have to answer it.
    */
   databaseHost?: string | undefined;
+  /** Overrides the models directory (the check otherwise follows `<PREFIX>MODELS_DIR` and the state dir). */
+  modelsDir?: string | undefined;
   /** Seams, so the two probes below need neither `pg_dump` nor a socket in tests. */
   readPgDumpVersion?: (() => Promise<string | null>) | undefined;
   probeTcp?: ((host: string, port: number) => Promise<true | string>) | undefined;
@@ -175,6 +178,29 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
   // every node in a fleet that it is broken because it is not the one taking
   // backups, which is the ordinary case: most nodes will never run this type.
   checks.push(...(await checkBackupDependencies(options, probe)));
+
+  // ---- 1c. Model artifacts an app declared (registerModelArtifact) --------------
+  //
+  // A warning, not a failure: a missing model withholds its job types (the node
+  // does not claim them) and `node models pull` fixes it, so the node is healthy
+  // for everything else. The detail says which types are withheld, and why.
+  const modelVerdicts = await verifyModels(options.modelsDir ?? resolveModelsDir(options.stateDir));
+  if (modelVerdicts.length > 0) {
+    const bad = modelVerdicts.filter((verdict) => verdict.status !== 'ok');
+    const withheld = withheldTypesFor(modelVerdicts);
+    checks.push({
+      id: 'models',
+      group: 'capabilities',
+      label: 'Model files',
+      status: bad.length > 0 ? 'warn' : 'pass',
+      detail:
+        bad.length === 0
+          ? `${modelVerdicts.length} model file(s) verified`
+          : `${bad.map((verdict) => `${verdict.id}: ${verdict.status}${verdict.detail !== undefined ? ` (${verdict.detail})` : ''}`).join('; ')}. ` +
+            `Not advertised until fixed: ${[...withheld.keys()].join(', ') || '(none)'}`,
+      action: bad.length > 0 ? `Run \`${cliName()} node models pull\`, then restart the worker.` : undefined,
+    });
+  }
 
   checks.push({
     id: 'state-dir',

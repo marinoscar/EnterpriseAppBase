@@ -14,6 +14,7 @@ import {
   type CapabilityProbe,
   type JobTypeRequirements,
 } from './capabilities.js';
+import { resolveModelsDir, verifyModels, withheldTypesFor } from './models.js';
 import { MemoryWatchdog, memoryWatchdogEnabled } from './memory-watchdog.js';
 import { writeHeapSnapshot } from './heap-snapshot.js';
 import {
@@ -155,6 +156,24 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
   }
 
   // ---------------------------------------------------------------------------
+  // Model artifacts (RETRO-G2.4): verify what is on disk, withhold what cannot run
+  // ---------------------------------------------------------------------------
+  // A type whose model file is missing or corrupt is not advertised: claiming it
+  // would take a lease and fail it. This is not fatal (unlike a missing required
+  // capability), because `node models pull` fixes it and the rest of the node
+  // is healthy. A pull needs a restart to be noticed.
+  const modelVerdicts = await verifyModels(resolveModelsDir(nodeStateDir(pathCtx), options.env ?? process.env));
+  const withheld = withheldTypesFor(modelVerdicts);
+  for (const verdict of modelVerdicts) {
+    if (verdict.status === 'ok') continue;
+    const types = [...withheld.entries()].filter(([, ids]) => ids.includes(verdict.id)).map(([type]) => type);
+    logger.warn(
+      `model "${verdict.id}" is ${verdict.status}${verdict.detail !== undefined ? ` (${verdict.detail})` : ''}; ` +
+        `${types.length > 0 ? `not advertising ${types.join(', ')}` : 'no job type depends on it'}. Run \`${cliName()} node models pull\`, then restart.`,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // Runtime hooks (#1072): once, after the re-exec, before anything can claim
   // ---------------------------------------------------------------------------
   // A hook that throws aborts the start with a named error: a worker that is
@@ -207,6 +226,7 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
     nodeId,
     concurrency: config.node.concurrency,
     eligibleTypes: config.node.eligibleTypes,
+    ...(withheld.size > 0 ? { withheldTypes: [...withheld.keys()] } : {}),
     pollIntervalMs: config.node.pollIntervalMs,
     tmpDir: nodeTmpDir(pathCtx),
     capabilities: { ...(options.capabilities ?? {}), probe: { ...probe } },

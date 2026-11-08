@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { ApiError, NetworkError } from '../errors.js';
 import { binaryCapability, registerJobRequirement, resetCapabilityRegistriesForTests, type CapabilityProbe } from './capabilities.js';
+import { registerModelArtifact, resetModelRegistryForTests } from './models.js';
 import { formatDoctorReport, runDoctor, splitHostPort, type DoctorCheck } from './doctor.js';
 import type { NodeApi, WorkerNode } from './node-api.js';
 import type { ResolvedNodeConfig } from './node-config.js';
@@ -169,6 +170,36 @@ describe('runDoctor: modules and services an app registered (RETRO-G2.4)', () =>
 
     expect(find(report.checks, 'job-capabilities')).toMatchObject({ status: 'fail' });
     expect(find(report.checks, 'job-capabilities')?.detail).toContain('module:native (app.doctor-ocr) installed but not operational: binding failed to load');
+  });
+});
+
+describe('runDoctor: model files (RETRO-G2.4)', () => {
+  const base = () => ({
+    config: CONFIG,
+    socketPath: join(dir, 'node.sock'),
+    pidPath: join(dir, 'node.pid'),
+    stateDir: dir,
+    api: api(async () => []),
+    readStatus: NO_DAEMON as never,
+    probe: PROBE,
+  });
+  afterEach(() => resetModelRegistryForTests());
+
+  it('adds nothing when no model is declared', async () => {
+    expect(find((await runDoctor(base())).checks, 'models')).toBeUndefined();
+  });
+
+  it('explains a missing model: which file, which types are not advertised, and the fix', async () => {
+    registerModelArtifact({ id: 'weights', fileName: 'weights.bin', sha256: 'a'.repeat(64), bytes: 10, url: 'https://models.example.test/w.bin', requiredBy: ['app.embed', 'app.search'] });
+
+    const report = await runDoctor({ ...base(), modelsDir: join(dir, 'models') });
+
+    const check = find(report.checks, 'models');
+    expect(check?.status).toBe('warn');
+    expect(check?.detail).toContain('weights: missing');
+    expect(check?.detail).toContain('Not advertised until fixed: app.embed, app.search');
+    expect(check?.action).toContain('models pull');
+    expect(report.ok).toBe(true);
   });
 });
 
