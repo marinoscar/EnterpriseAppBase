@@ -111,6 +111,7 @@ import {
   DB_BACKUP_MIRROR_TARGETS,
   DB_BACKUP_TARGET,
   StorageProviderBackupTarget,
+  recordedLocationOf,
   type BackupTarget,
 } from '../backup-target';
 import { DbBackupEvents, eventBytes } from '../db-backup-events';
@@ -308,6 +309,8 @@ export class DatabaseBackupSweepHandler implements JobHandler, OnModuleInit {
         jobId: true,
         // PP-14.12: what `db_backup.run.completed` reports for a stale run.
         storageProvider: true,
+        // #1121: with `storageProvider`, where the partial object was written.
+        bucket: true,
         bytesWritten: true,
         createdAt: true,
       },
@@ -460,7 +463,8 @@ export class DatabaseBackupSweepHandler implements JobHandler, OnModuleInit {
       // which is the part that had to happen.
       for (const target of [this.target, ...this.mirrors]) {
         try {
-          await target.delete(candidate.storageKey);
+          // The primary target gets the run's recorded location (#1121); a mirror keeps its own.
+          await target.delete(candidate.storageKey, target === this.target ? recordedLocationOf(candidate) : undefined);
         } catch (error) {
           this.logger.warn(
             `Marked database backup run ${candidate.id} stale but could not delete its ` +

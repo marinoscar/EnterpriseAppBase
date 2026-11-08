@@ -15,6 +15,7 @@ import {
   DB_BACKUP_MIRROR_TARGETS,
   DB_BACKUP_TARGET,
   StorageProviderBackupTarget,
+  recordedLocationOf,
   assertBackupTarget,
   validateBackupTargets,
   isStorageBackedTarget,
@@ -478,5 +479,48 @@ describe('binding a target through a Nest provider shape', () => {
 
     expect(moduleRef.get<BackupTarget>(DB_BACKUP_TARGET)).toBeInstanceOf(NeedsNothingTarget);
     expect(moduleRef.get<BackupTarget[]>(DB_BACKUP_MIRROR_TARGETS)).toHaveLength(2);
+  });
+});
+
+describe('the default adapter serves a run from its recorded location (#1121)', () => {
+  function provider(kind: string, bucket: string) {
+    return {
+      kind,
+      getBucket: () => bucket,
+      download: jest.fn(async () => Readable.from([Buffer.from(`${kind}:${bucket}`)])),
+      delete: jest.fn(async () => undefined),
+      getSignedDownloadUrl: jest.fn(async () => `https://${kind}.example.test/${bucket}`),
+    } as unknown as StorageProvider & { download: jest.Mock; delete: jest.Mock; getSignedDownloadUrl: jest.Mock };
+  }
+
+  it('reads, deletes and signs through the provider the run recorded, with no lookup by key', async () => {
+    const active = provider('r2', 'new-backups');
+    const recorded = provider('s3', 'old-backups');
+    const router = { forLocation: jest.fn(async () => recorded) };
+    const target = new StorageProviderBackupTarget(active, undefined, router);
+    const location = recordedLocationOf({ storageProvider: 's3', bucket: 'old-backups' });
+
+    await target.openRead('database-backups/a.dump', location);
+    await target.delete('database-backups/a.dump', location);
+    expect(await target.signedDownloadUrl('database-backups/a.dump', { expiresInSeconds: 60, filename: 'a.dump' }, location)).toBe(
+      'https://s3.example.test/old-backups',
+    );
+
+    expect(router.forLocation).toHaveBeenCalledWith({ provider: 's3', bucket: 'old-backups' });
+    expect(recorded.download).toHaveBeenCalledWith('database-backups/a.dump');
+    expect(recorded.delete).toHaveBeenCalledWith('database-backups/a.dump');
+    expect(active.download).not.toHaveBeenCalled();
+  });
+
+  it('keeps using the active provider without a location, a recorded provider or a router', async () => {
+    const active = provider('r2', 'new-backups');
+    const router = { forLocation: jest.fn() };
+
+    await new StorageProviderBackupTarget(active, undefined, router).openRead('k');
+    await new StorageProviderBackupTarget(active, undefined, router).openRead('k', { provider: null, bucket: null });
+    await new StorageProviderBackupTarget(active).openRead('k', { provider: 's3', bucket: 'b' });
+
+    expect(router.forLocation).not.toHaveBeenCalled();
+    expect(active.download).toHaveBeenCalledTimes(3);
   });
 });

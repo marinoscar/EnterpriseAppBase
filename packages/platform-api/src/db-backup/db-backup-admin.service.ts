@@ -170,6 +170,8 @@ import {
   DB_BACKUP_MIRROR_TARGETS,
   DB_BACKUP_TARGET,
   StorageProviderBackupTarget,
+  recordedLocationOf,
+  type BackupObjectLocation,
   type BackupTarget,
 } from './backup-target';
 import { DatabaseBackupRunnerService } from './db-backup-runner.service';
@@ -674,7 +676,7 @@ export class DatabaseBackupAdminService {
       // the run id (see `buildBackupStorageKey`), and nothing in this
       // repository may hard-code an application name.
       filename: basename(run.storageKey),
-    });
+    }, recordedLocationOf(run));
 
     this.logger.log(
       `Issued a ${BACKUP_DOWNLOAD_URL_EXPIRY_SECONDS}s download URL for database backup ` +
@@ -715,7 +717,7 @@ export class DatabaseBackupAdminService {
       });
     }
 
-    const objectDeleted = await this.deleteArchive(run.storageKey);
+    const objectDeleted = await this.deleteArchive(run.storageKey, recordedLocationOf(run));
 
     // `deleteMany` rather than `delete` so a row that vanished under us (a
     // concurrent delete, a retention sweep that reached it first) is a 404
@@ -1065,9 +1067,9 @@ export class DatabaseBackupAdminService {
    * still has to be able to delete the row, or a missing object would leave a
    * row nobody can ever remove.
    */
-  private async deleteArchive(storageKey: string): Promise<boolean> {
+  private async deleteArchive(storageKey: string, location?: BackupObjectLocation): Promise<boolean> {
     try {
-      await this.target.delete(storageKey);
+      await this.target.delete(storageKey, location);
 
       // The copies go with the original, best effort: an orphan copy is logged,
       // and never keeps the run undeletable.

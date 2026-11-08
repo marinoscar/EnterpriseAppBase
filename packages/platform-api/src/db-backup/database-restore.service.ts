@@ -38,6 +38,7 @@ import {
 import {
   DB_BACKUP_TARGET,
   StorageProviderBackupTarget,
+  recordedLocationOf,
   type BackupTarget,
 } from './backup-target';
 import { DbBackupEvents, eventBytes } from './db-backup-events';
@@ -1601,7 +1602,9 @@ export class DatabaseRestoreService {
    * @throws {@link DatabaseRestoreArchiveError} before anything has been created.
    */
   private async downloadAndVerifyArchive(run: DatabaseBackupRun, path: string): Promise<void> {
-    const source = await this.target.openRead(run.storageKey);
+    // The run's recorded location (#1121): an archive taken before the active
+    // provider changed is read from where it really is.
+    const source = await this.target.openRead(run.storageKey, recordedLocationOf(run));
     const { bytes, sha256 } = await this.seam.writeArchiveToFile(source, path);
 
     if (run.checksumSha256 !== null && run.checksumSha256 !== sha256) {

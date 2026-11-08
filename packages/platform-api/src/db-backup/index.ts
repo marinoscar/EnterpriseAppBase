@@ -27,9 +27,11 @@ export {
   StorageProviderBackupTarget,
   assertBackupTarget,
   isStorageBackedTarget,
+  recordedLocationOf,
 } from './backup-target';
 /** @stability experimental */
 export type {
+  BackupObjectLocation,
   BackupSignedUrlOptions,
   BackupSink,
   BackupTarget,
