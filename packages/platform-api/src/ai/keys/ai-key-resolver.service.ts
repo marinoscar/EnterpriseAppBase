@@ -109,6 +109,60 @@ export class AiKeyResolver {
   }
 
   /**
+   * The key that serves a SYSTEM call (no acting user) to `provider`,
+   * decrypted: the organization's own key when it has one, else the
+   * deployment's. NEVER a user's key, and no permission rule: a system call is
+   * not a person, so `ai.keyPolicy` (which decides what a user without a key
+   * may borrow) does not apply. The deployment key still honours
+   * `ai.deploymentKeyServesOrgs`.
+   *
+   * @throws AiError('AI_KEY_REQUIRED') when neither tier has a key.
+   */
+  async resolveForSystem(provider: string, scope: Pick<AiKeyScope, 'orgId'> = {}): Promise<ResolvedAiKey> {
+    if (await this.keyless(provider)) {
+      return { apiKey: AI_KEYLESS_API_KEY, keySource: 'none', tier: 'none' };
+    }
+
+    if (scope.orgId && this.orgKeys) {
+      const orgKey = await this.orgKeys.getKey(scope.orgId, provider);
+
+      if (orgKey) {
+        return { apiKey: orgKey, keySource: 'org', tier: 'org' };
+      }
+    }
+
+    if (await this.deploymentKeyServes(scope.orgId)) {
+      const deploymentKey = await this.aiConfig.getOrgKey(provider);
+
+      if (deploymentKey) {
+        return { apiKey: deploymentKey, keySource: 'org', tier: 'deployment' };
+      }
+    }
+
+    throw keyRequired(provider);
+  }
+
+  /**
+   * {@link resolveForSystem}'s rule answered WITHOUT decrypting anything:
+   * which source WOULD serve a system call, or null when none would.
+   */
+  async sourceForSystem(provider: string, scope: Pick<AiKeyScope, 'orgId'> = {}): Promise<AiKeySource | null> {
+    if (await this.keyless(provider)) {
+      return 'none';
+    }
+
+    if (scope.orgId && this.orgKeys && (await this.orgKeys.hasKey(scope.orgId, provider))) {
+      return 'org';
+    }
+
+    if ((await this.deploymentKeyServes(scope.orgId)) && (await this.aiConfig.hasOrgKey(provider))) {
+      return 'org';
+    }
+
+    return null;
+  }
+
+  /**
    * The same rule, answered WITHOUT decrypting anything: which source WOULD
    * serve the call, or null when none would. For listings that must not hold
    * plaintext they will not use.

@@ -2,7 +2,7 @@
 // Feature code imports from here (or from `ai/core` for the neutral types).
 export { AiRuntimeModule } from './ai-runtime.module';
 export { AiService } from './ai.service';
-export type { AiUserClient } from './ai.service';
+export type { AiUserClient, AiSystemClient } from './ai.service';
 export * from './ai-runtime.types';
 export {
   AiRunsService,

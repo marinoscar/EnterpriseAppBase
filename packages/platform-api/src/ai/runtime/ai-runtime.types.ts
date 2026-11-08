@@ -12,6 +12,8 @@ import type { z } from 'zod';
 
 import type { AiDefinedTool } from '../core/tools';
 import type {
+  AiBinaryPayload,
+  AiMediaInput,
   AiTranscriptionExtras,
   AiRealtimeTurnDetection,
   AiSpeechFormat,
@@ -88,6 +90,54 @@ export type AiEditImageRequest = AiGenerateImageRequest & {
   /** A PNG whose transparent areas mark what may change. */
   maskStorageObjectId?: string;
 };
+
+/**
+ * `editImageInline`'s request: a generation request plus the source images as
+ * BYTES the caller already holds (a handler inside its own job). Between 1 and
+ * `AI_IMAGE_EDIT_MAX_INPUTS` images, each PNG/JPEG/WebP and at most
+ * `AI_IMAGE_INPUT_MAX_BYTES`; the mask, when given, a PNG within the same size.
+ * `providerOptions` pass through exactly as for `respond`
+ * (`{ openai: { input_fidelity: 'high' } }`).
+ *
+ * @stability experimental
+ */
+export type AiEditImageInlineRequest = AiGenerateImageRequest & {
+  /** The source image(s), as bytes. */
+  images: AiBinaryPayload[];
+  /** A PNG whose transparent areas mark what may change. */
+  mask?: AiBinaryPayload;
+};
+
+/**
+ * `transcribeInline`'s request: `transcribe` with the recording as bytes (or a
+ * stream) instead of a storage object id. The recording must be `audio/*` or
+ * `video/mp4`/`video/webm` and no larger than the provider accepts (25 MiB for
+ * OpenAI); a stream is counted as it is sent and refused past the cap.
+ *
+ * @stability experimental
+ */
+export type AiTranscribeInlineRequest = Omit<AiTranscribeRequest, 'storageObjectId'> & {
+  /** The recording. */
+  audio: AiMediaInput;
+};
+
+/**
+ * Who a system call is made for (`AiService.forSystem`).
+ *
+ * @stability experimental
+ */
+export interface AiSystemScope {
+  /**
+   * The organization whose key, limits and usage the call is under. `null`
+   * (a deployment-wide job): the single-tenancy default organization; in
+   * multi-tenancy a missing organization is an error, never a guess.
+   */
+  orgId: string | null;
+  /** The registered AI feature (`registerAiFeature`) the call is metered and attributed to. It must set `systemCalls: true`. */
+  feature: string;
+  /** The queue job the round-trips are incurred under, for their usage rows. */
+  jobId?: string;
+}
 
 /**
  * `transcribe`'s request (#438): a recording the caller uploaded, BY STORAGE

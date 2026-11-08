@@ -71,6 +71,19 @@ export class UsableModelsService {
    * `scope.orgId` (#739) the organization's own switches and key apply too.
    */
   async listForUser(userId: string, scope: { orgId?: string } = {}): Promise<UsableAiModel[]> {
+    return this.list(userId, scope);
+  }
+
+  /**
+   * Every model a SYSTEM call (no acting user) can make right now: enabled by
+   * an administrator, on an enabled provider, and served by the organization's
+   * or the deployment's key (never a user's). See `AiKeyResolver.resolveForSystem`.
+   */
+  async listForSystem(scope: { orgId?: string } = {}): Promise<UsableAiModel[]> {
+    return this.list(null, scope);
+  }
+
+  private async list(userId: string | null, scope: { orgId?: string }): Promise<UsableAiModel[]> {
     const policy = await this.aiConfig.resolveForOrg(scope.orgId);
 
     if (!policy.enabled) {
@@ -84,10 +97,12 @@ export class UsableModelsService {
     }
 
     const [keyRows, modelRows] = await Promise.all([
-      this.prisma.userAiKey.findMany({
-        where: { userId, provider: { in: providers } },
-        select: { provider: true, reachableModelIds: true },
-      }),
+      userId === null
+        ? Promise.resolve([] as { provider: string; reachableModelIds: string[] }[])
+        : this.prisma.userAiKey.findMany({
+            where: { userId, provider: { in: providers } },
+            select: { provider: true, reachableModelIds: true },
+          }),
       this.prisma.aiModel.findMany({
         where: { provider: { in: providers }, enabled: true, deprecatedAt: null },
         select: MODEL_SELECT,
@@ -101,23 +116,23 @@ export class UsableModelsService {
     // Rule 2's permission lookup, at most once per listing — and only if some
     // provider without a user key actually reaches that rule.
     let writer: Promise<boolean> | undefined;
-    const holdsAiConfigWrite = () => (writer ??= this.resolver.holdsAiConfigWrite(userId));
+    const holdsAiConfigWrite = () => (writer ??= userId === null ? Promise.resolve(false) : this.resolver.holdsAiConfigWrite(userId));
     // And the org tier's (#739), likewise memoised.
     let orgWriter: Promise<boolean> | undefined;
     const orgId = scope.orgId;
-    const holdsOrgAiConfigWrite = orgId
+    const holdsOrgAiConfigWrite = orgId && userId !== null
       ? () => (orgWriter ??= this.resolver.holdsOrgAiConfigWrite(userId, orgId))
       : undefined;
 
     for (const provider of providers) {
       const reachable = reachableByProvider.get(provider);
-      const keySource = await this.resolver.sourceFor(
-        userId,
-        provider,
-        reachable !== undefined,
-        holdsAiConfigWrite,
-        { ...(orgId ? { orgId } : {}), ...(holdsOrgAiConfigWrite ? { holdsOrgAiConfigWrite } : {}) },
-      );
+      const keySource =
+        userId === null
+          ? await this.resolver.sourceForSystem(provider, orgId ? { orgId } : {})
+          : await this.resolver.sourceFor(userId, provider, reachable !== undefined, holdsAiConfigWrite, {
+              ...(orgId ? { orgId } : {}),
+              ...(holdsOrgAiConfigWrite ? { holdsOrgAiConfigWrite } : {}),
+            });
 
       if (!keySource) {
         continue;
@@ -146,9 +161,12 @@ export class UsableModelsService {
    *   AI_MODEL_NOT_REACHABLE              the user's key cannot reach this model
    *
    * Decrypts nothing — the runtime resolves the key itself, afterwards.
+   *
+   * `userId` `null` is a SYSTEM call: no user key is considered, the
+   * organization's or the deployment's key must serve the provider.
    */
   async assertUsable(
-    userId: string,
+    userId: string | null,
     provider: string,
     modelId: string,
     capability?: AiCapability | readonly AiCapability[],
@@ -188,17 +206,23 @@ export class UsableModelsService {
       }
     }
 
-    const keyRow = await this.prisma.userAiKey.findUnique({
-      where: { userId_provider: { userId, provider } },
-      select: { reachableModelIds: true },
-    });
-    const keySource = await this.resolver.sourceFor(
-      userId,
-      provider,
-      keyRow !== null,
-      undefined,
-      scope.orgId ? { orgId: scope.orgId } : {},
-    );
+    const keyRow =
+      userId === null
+        ? null
+        : await this.prisma.userAiKey.findUnique({
+            where: { userId_provider: { userId, provider } },
+            select: { reachableModelIds: true },
+          });
+    const keySource =
+      userId === null
+        ? await this.resolver.sourceForSystem(provider, scope.orgId ? { orgId: scope.orgId } : {})
+        : await this.resolver.sourceFor(
+            userId,
+            provider,
+            keyRow !== null,
+            undefined,
+            scope.orgId ? { orgId: scope.orgId } : {},
+          );
 
     if (!keySource) {
       throw keyRequired(provider);
