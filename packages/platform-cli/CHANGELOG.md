@@ -1,5 +1,18 @@
 # @marinoscar/platform-cli
 
+## 0.1.0-next.23
+
+### Minor Changes
+
+- 3d98e49: Add a shared TUI app context (RETRO-G1.2, #1066). `useTuiApp()` of `@marinoscar/platform-cli/tui` gives every screen the session (logged in, server URL, identity; never the token), a push/pop navigation stack (`TuiScreenProps` gains `params`; `onDone` now pops, which for a screen opened from the menu is unchanged; only the top frame is mounted), the theme (colour tokens and glyphs, off under `NO_COLOR` and `--no-color`; `createCli({ tuiTheme })`), registered selections shown as a header chip and optionally persisted under `tui.selection.<id>` in the CLI config (`registerTuiSelection`, `createCli({ tuiSelections })`) and app data loaded once and refreshed by `session.refresh()` (`registerTuiStateLoader`, `useTuiState`). The TUI now starts on consoles where `process.stdin` cannot enter raw mode (EIO on serial, hypervisor and LXC consoles) or is redirected, by reading `/dev/tty` read-only; with no usable terminal it exits through the usage path with one line instead of a stack trace. The built-in screens read their colours and session from the context.
+
+### Patch Changes
+
+- Updated dependencies [d8777d8]
+- Updated dependencies [513fa33]
+  - @marinoscar/platform-contract@0.1.0-next.23
+  - @marinoscar/platform-infra@0.1.0-next.23
+
 ## 0.1.0-next.22
 
 ### Patch Changes
