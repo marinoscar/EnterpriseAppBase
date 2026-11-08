@@ -132,6 +132,8 @@ const MIGRATIONS_AT_288 = [
   // #1093: storage_migration_runs and storage_migration_items (copy-only storage
   // provider migration; the four operational events still need nothing).
   '20261108112214_add_storage_migrations',
+  // #1083: node_credential_issuances (node credential delivery audit).
+  '20261108131338_add_node_credential_issuances',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

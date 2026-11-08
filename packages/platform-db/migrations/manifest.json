@@ -421,5 +421,13 @@
     "sha256": "8d37841523a5b4737379df567d5ad3feb37abb0f29dcef416cd34f20167ba181",
     "since": "1.0.0",
     "slice": "storage"
+  },
+  {
+    "dir": "0043_add_node_credential_issuances",
+    "id": "0043_add_node_credential_issuances",
+    "requires": [],
+    "sha256": "0c0e45e97792d834fc8c2b1b3c1ff6912d96d68e8a2ab063807a998f4b4fb27a",
+    "since": "1.0.0",
+    "slice": "jobs"
   }
 ]

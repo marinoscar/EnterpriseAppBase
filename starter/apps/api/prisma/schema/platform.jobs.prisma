@@ -258,6 +258,12 @@ model Job {
   // `onDelete: SetNull` is correct here specifically.
   claimedByNodeId String?     @map("claimed_by_node_id") @db.Uuid
   claimedByNode   WorkerNode? @relation("NodeClaimedJobs", fields: [claimedByNodeId], references: [id], onDelete: SetNull)
+
+  // Provider credentials delivered to the node that held this job (#1083).
+  // `NodeCredentialIssuance.job` is `SetNull`, so purging job history never
+  // erases the audit of an issuance.
+  credentialIssuances NodeCredentialIssuance[]
+
   leaseExpiresAt  DateTime?   @map("lease_expires_at") @db.Timestamptz
   // 'server' | 'node' — which side actually executed the job. A plain
   // string, not an enum, for the same "small closed set, but code-owned and
@@ -550,6 +556,10 @@ model WorkerNode {
   // with the node: an event has no meaning once its node is gone.
   events WorkerNodeEvent[]
 
+  // Provider credentials delivered to this node (#1083): the audit trail of
+  // node credential delivery. Cascades with the node.
+  credentialIssuances NodeCredentialIssuance[]
+
   // THE register-or-reattach anchor (#268's own words: "existing exactly
   // this way"). A node identifies itself to `/nodes/register` by
   // `(callerId, name)`; this is what lets that endpoint find-or-create
@@ -598,6 +608,53 @@ model WorkerNodeEvent {
   // Retention sweeps by age.
   @@index([receivedAt])
   @@map("worker_node_events")
+}
+
+// -----------------------------------------------------------------------------
+// NodeCredentialIssuance — one provider credential delivered to a node (#1083)
+// -----------------------------------------------------------------------------
+// Node credential delivery (opt-in, `nodes.credentialDelivery`, default OFF)
+// hands a worker node the organization's or the deployment's provider key for
+// a registered purpose (`ai:openai`, `geo:google`) so a job that declares the
+// purpose can run on the node. The material travels in exactly ONE HTTP
+// response (`POST /api/nodes/:id/credentials/:purpose`) and is never stored.
+//
+// ⚠ THERE IS NO COLUMN HERE CAPABLE OF HOLDING SECRET MATERIAL, AND THERE MUST
+// NEVER BE. `version` is a 16-hex-character HMAC that changes when the
+// credential rotates; it is derived from row metadata (or, failing that, a
+// keyed hash of the material) and cannot be reversed. Same rule, and same
+// reasoning, as `JobNodeSecret` below.
+//
+// `jobId` is `SetNull`: the job-history purge must not erase the audit of a
+// delivery. `nodeId` cascades: a deleted node's audit goes with it, like its
+// events. Retention: 30 days, purged by the nightly
+// `nodes.credential_issuances_purge` job. No row-level security (worker_nodes
+// has none); the organization is not recorded here, the job row carries it.
+model NodeCredentialIssuance {
+  id String @id @default(uuid()) @db.Uuid
+
+  nodeId String     @map("node_id") @db.Uuid
+  node   WorkerNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  // The registered purpose id, `<namespace>:<name>` (`ai:openai`).
+  purpose String @db.VarChar(97)
+  // The non-secret rotation marker returned to the node. NEVER the material.
+  version String @db.VarChar(16)
+
+  jobId String? @map("job_id") @db.Uuid
+  job   Job?    @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  issuedAt  DateTime @default(now()) @map("issued_at") @db.Timestamptz
+  // When the node must have deleted its cached copy (issuedAt + the TTL).
+  expiresAt DateTime @map("expires_at") @db.Timestamptz
+
+  // "This node's newest issuances" (the audit view, the rate limit's recount).
+  @@index([nodeId, issuedAt(sort: Desc)])
+  // Retention sweeps by age.
+  @@index([issuedAt])
+  // Backs the `SetNull` when the job-history purge deletes a job.
+  @@index([jobId])
+  @@map("node_credential_issuances")
 }
 
 enum NodeStatus {
