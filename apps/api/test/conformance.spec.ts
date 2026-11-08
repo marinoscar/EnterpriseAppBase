@@ -90,11 +90,14 @@ import '@marinoscar/platform-api/doctor/testing';
 import '@marinoscar/platform-api/webhooks/testing';
 // The alerts slice's suite (#1047): `alerts`.
 import '@marinoscar/platform-api/alerts/testing';
+// The nodes slice's suite (#1076): `nodes`.
+import '@marinoscar/platform-api/nodes/testing';
 import { RAW_SQL_INDEXES } from '@marinoscar/platform-db';
 // The app's own AI providers (registers `example-transcribe`): the SDK-leak suite reads
 // the registered definitions' `sdkPackages`, and each AI suite discovers its routes.
 import '../src/app-registrations/ai';
 
+import { AppModule } from '../src/app.module';
 import { aiConformanceFixture } from './conformance/ai-fixture';
 import { doctorConformanceFixture } from './conformance/doctor-fixture';
 import { API_SOURCE_ROOT, CRON_SOURCE_ROOTS, JOBS_SLICE_SOURCE_ROOT, NODES_SLICE_SOURCE_ROOT } from './jobs/cron-source-roots';
@@ -182,6 +185,11 @@ runPlatformConformance({
     // The alerts slice (#1047): routes, kinds, starter rules, the one-open-incident
     // index, idempotent evaluation, dispatch after the committed write.
     alerts: { rawSqlIndexNames: RAW_SQL_INDEXES.map((index) => index.name) },
+
+    // The nodes slice (#1076): every app route under /api/nodes carries @NodeRoute()
+    // (node ownership enforced before the handler), stays off the reserved sub-paths.
+    // The reference app mounts none; the walk must still see the packaged routes.
+    nodes: { rootModule: AppModule, minPlatformRoutes: 10 },
 
     // ---- the AI platform's invariants (CLAUDE.md AI rules 1 to 4) ------------
     // The five that boot the app take the fixture (./conformance/ai-fixture.ts):

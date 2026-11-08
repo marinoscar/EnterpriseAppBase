@@ -174,6 +174,16 @@ Examples: [`transcode.executor.ts`](../apps/cli/src/examples/transcode.executor.
 3. **Let the API relay the attributes** (`registerNodeSpanAttribute({ key, type, maxLength? })` from `@marinoscar/platform-api/nodes`, listed in `APP_NODE_SPAN_ATTRIBUTES`): an attribute nobody registered is dropped from the span, which is kept. They are emitted as `job.app.<key>`.
 4. **Report numbers**: give the executor `vitals()` returning `Record<string, number>` (cheap, synchronous, at most 16 keys fleet-wide, keys `^[a-z][a-z0-9_.]{1,47}$`). They arrive as `vitals.extra` and show in the fleet page's vitals dialog; word them with `registerNodeVital({ key, label, unit })` from `@marinoscar/platform-web/nodes/headless` (an unregistered key still shows, by its key).
 
+### Add a route on the node plane
+
+An app feature a worker node calls (a pull-mirror, a report upload) lives next to the platform's control plane under `/api/nodes/:id/<feature>`. `JwtAuthGuard` admits a `nod_` credential on `/api/nodes` and everything beneath it; `@NodeRoute()` is the inner fence that makes the route safe to be there. Example, proved over real HTTP: [`node-route.example.spec.ts`](../apps/api/test/examples/nodes/node-route.example.spec.ts). Reference: [nodes README](../packages/platform-api/src/nodes/README.md#app-routes-on-the-node-plane).
+
+1. **Pick a sub-path the platform does not own.** `RESERVED_NODE_SUBPATHS` (`@marinoscar/platform-api/nodes`) lists them: `register`, `job-types`, `:id`, `:id/events`, `:id/deregister`, `:id/heartbeat`, `:id/claim`, `:id/telemetry`, everything under `:id/jobs/` and `models/`. Use `nodes/:id/<feature>/...`. An overlap fails the application at bootstrap and the `nodes` conformance suite.
+2. **Import `NodeRouteModule`** in the module that declares the controller (it provides the guard and a read-only ownership check; `NodesService` stays unexported on purpose).
+3. **Mark the controller** `@Controller('nodes/:id/<feature>') @NodeRoute({ credentials?, nodeParam?, permissions? })`. It applies `@Auth` with `nodes:write` by default, admits `nod`, `pat` and `jwt` by default (`['nod']` makes the route node-only), and, before the handler runs, answers 404 for a missing node and 403 for another user's node (400 for an id that is not a uuid). `nodeParam: false` is for a route that names no node.
+4. **Take the node** with `@CurrentNode() node: WorkerNode`: the row the guard verified, never re-fetched.
+5. **Prove it**: `runPlatformConformance({ suites: { nodes: { rootModule: AppModule } } })` after `import '@marinoscar/platform-api/nodes/testing'`. Every app route under `/api/nodes` must carry `@NodeRoute()`; the suite also exercises each route's guard against another user's node, a missing node and an unlisted credential kind.
+
 ### Add a doctor check
 
 Full recipe: [the Doctor README](../packages/platform-api/src/doctor/README.md#quick-start); contract: [doctor.md §4](specs/doctor.md#4-extending-it-in-a-fork). Example: [`example-capability.doctor-check.ts`](../apps/api/src/examples/doctor/example-capability.doctor-check.ts).

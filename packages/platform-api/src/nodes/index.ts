@@ -44,6 +44,16 @@ export { NODE_EVENT_REPORTED, NodeEventReportedEvent } from './events/node-event
 // ---- services ----------------------------------------------------------------------------------
 export { CREDENTIAL_OWNER_SELECT, NODE_TOKEN_PREFIX, NodeCredentialService } from './node-credential.service';
 export { NodesService } from './nodes.service';
+
+// ---- app routes on the node plane (rung 5) -------------------------------------------------------
+export { NodeRoute } from './node-route.decorator';
+export { NodeRouteModule, findNodeRoutePlacementProblems } from './node-route.module';
+export { NodeRouteGuard } from './node-route.guard';
+export { CurrentNode } from './current-node.decorator';
+export { NodeOwnershipService, assertNodeOwnedBy } from './node-ownership';
+export { RESERVED_NODE_SUBPATHS, reservedNodeSubpathOverlap } from './node-route.paths';
+export { NODE_ROUTE_METADATA, resolveNodeRouteOptions } from './node-route.options';
+export type { NodeRouteCredential, NodeRouteOptions, ResolvedNodeRouteOptions } from './node-route.options';
 export {
   NODE_EVENTS_PER_HOUR,
   NODE_EVENT_MAX_AGE_MS,
