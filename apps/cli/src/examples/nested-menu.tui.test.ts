@@ -37,7 +37,7 @@ describe('nestedMenuNodes', () => {
   it('nests Inspect and Reset under Tools once passed in tuiMenu', () => {
     createCli({ ...APP_CLI_OPTIONS, tuiScreens: nestedMenuScreens, tuiMenu: nestedMenuNodes });
     const t = tree();
-    expect(t.root.children.map((node) => node.id)).toEqual(['screen:login', 'screen:invoke', 'screen:status', 'screen:node', 'screen:deploy', 'screen:logout', 'tools']);
+    expect(t.root.children.map((node) => node.id)).toEqual(['screen:login', 'screen:invoke', 'screen:status', 'screen:jobs', 'screen:node', 'screen:deploy', 'screen:logout', 'tools']);
     expect(visibleTuiMenuChildren('tools', { loggedIn: false }, t).map((node) => node.id)).toEqual(['tools-inspect', 'tools-reset']);
     expect(tuiBreadcrumb('tools', { loggedIn: false }, t)).toBe('Home › Tools');
     expect(tuiMenuItemLabel(t.entries.find((e) => e.id === 'tools-reset')!, 2)).toBe('2. Reset…');
