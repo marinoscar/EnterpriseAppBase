@@ -16,6 +16,7 @@
     "@marinoscar/platform-ai-providers": "0.1.0-next.5"
   },
   "changesets": [
+    "ai-inline-media-and-system-calls",
     "ai-open-operations",
     "ai-presentational-cards",
     "ai-provider-registry",
@@ -95,6 +96,7 @@
     "db-sharing-groups",
     "db-split-system-org-roles",
     "declaration-type-dependencies",
+    "device-return-uri",
     "docs-extension-author-guide",
     "docs-overview-readmes",
     "doctor-egress-inventory",
@@ -118,6 +120,7 @@
     "infra-starter-identity",
     "initial-platform-scaffold",
     "jobs-nodes-extension-points",
+    "node-app-routes",
     "node-host-vitals-power-events",
     "nodes-admin-contract-web",
     "notifications-app-channels",
@@ -139,6 +142,7 @@
     "sharing-docs-examples",
     "sharing-grantee-kinds",
     "sharing-open-vocabularies",
+    "shell-full-bleed-context-pane",
     "shell-local-host-mode",
     "slice-peer-dependencies",
     "storage-driver-registry",

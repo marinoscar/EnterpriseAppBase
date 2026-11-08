@@ -1,5 +1,19 @@
 # @marinoscar/platform-api
 
+## 0.1.0-next.22
+
+### Minor Changes
+
+- cd8aa59: AI: synchronous in-handler media calls and a user-less caller. `AiUserClient.editImageInline` and `transcribeInline` take bytes (or an audio stream) and return the result inline, through the same gate pipeline, key resolution, rate limits and single usage row as the queued `editImage`/`transcribe`, with no run row, second job or storage copy. `AiService.forSystem({ orgId, feature, jobId? })` returns an `AiSystemClient` (`respond`, `respondStructured`, `stream`, `openStream`, `embed`, `editImageInline`, `transcribeInline`) for work with no acting user: the organization's key, else the deployment's, never a user's; only the per-organization limits apply; usage rows carry `userId: null` and the feature. A feature must opt in with `registerAiFeature({ systemCalls: true })`, so an app that keeps "AI keys are per user" gains nothing. `AiTargetContext.userId` is now `string | null` (`null` for a system call). The `ai-key-policy` and `ai-secret-egress` conformance suites gain system-caller and inline-call cases.
+- 1a667be: Device flow `clientInfo.returnUri` and bounded client labels (RETRO-SEAM-DEVICE-RETURNURI). Contract: `deviceClientInfoSchema` gains `returnUri` (at most 512 characters, an absolute URI), the informational `hostname` and `platform`, and the deprecated alias `name` of `deviceName`; `deviceName` is now trimmed and at most 100 characters and `userAgent` at most 1024 (both were unbounded, so a client that sent more now gets a 400); new zod-free `isAllowedReturnUri`, `parseReturnUriScheme`, `DEVICE_NAME_MAX_LENGTH`, `DEVICE_USER_AGENT_MAX_LENGTH`, `DEVICE_RETURN_URI_MAX_LENGTH` and `INVALID_RETURN_URI_CODE`. API: `IdentityModule.forRoot({ deviceFlow: { returnUriSchemes } })` lists the custom schemes accepted besides `https:` (default none; `http`, `javascript`, `data` and similar are a boot error); `POST /api/auth/device/code` refuses any other `returnUri` with a 400 `code: 'INVALID_RETURN_URI'`, maps `name` onto `deviceName` when that is absent, and `GET /api/auth/device/activate` echoes a `returnUri` only while it is still allowed. Web: `ActivateDevicePage` takes `returnUriSchemes`; after a successful approval (never a denial) `ActivationSuccess` re-checks the URI and sends the user back with `window.location.assign`, automatically and through a "Return to <device>" button, never appending the code or a token. Back-compat: requests without the new fields behave as before.
+- 1d5e5d6: Add a supported rung for app-owned routes reachable by `nod_` worker credentials (#1076). `@marinoscar/platform-api/nodes` adds `@NodeRoute({ credentials?, nodeParam?, permissions? })`, which applies `@Auth` (default `nodes:write`), narrows the admitted credential kinds (`nod`, `pat`, `jwt`) and proves node ownership before the handler runs (404 missing, 403 not yours, 400 for a non-uuid id); `@CurrentNode()`; `NodeRouteModule` (provides `NodeRouteGuard` and the read-only `NodeOwnershipService`, and fails bootstrap on a node route outside `/api/nodes` or on a reserved sub-path); and `RESERVED_NODE_SUBPATHS` with `reservedNodeSubpathOverlap`. The ownership rule is extracted as `assertNodeOwnedBy`, shared with `NodesService.assertOwnership`. The new `@marinoscar/platform-api/nodes/testing` entry registers the `nodes` conformance suite: every app route under `/api/nodes` must carry `@NodeRoute()`, stay off the reserved sub-paths, and have a guard that refuses another user's node, a missing node and an unlisted credential kind. `JwtAuthGuard`'s prefix allowlist is unchanged.
+
+### Patch Changes
+
+- Updated dependencies [1a667be]
+  - @marinoscar/platform-contract@0.1.0-next.22
+  - @marinoscar/platform-ai-providers@0.1.0-next.22
+
 ## 0.1.0-next.21
 
 ### Patch Changes

@@ -1,5 +1,17 @@
 # @marinoscar/platform-web
 
+## 0.1.0-next.22
+
+### Minor Changes
+
+- 1a667be: Device flow `clientInfo.returnUri` and bounded client labels (RETRO-SEAM-DEVICE-RETURNURI). Contract: `deviceClientInfoSchema` gains `returnUri` (at most 512 characters, an absolute URI), the informational `hostname` and `platform`, and the deprecated alias `name` of `deviceName`; `deviceName` is now trimmed and at most 100 characters and `userAgent` at most 1024 (both were unbounded, so a client that sent more now gets a 400); new zod-free `isAllowedReturnUri`, `parseReturnUriScheme`, `DEVICE_NAME_MAX_LENGTH`, `DEVICE_USER_AGENT_MAX_LENGTH`, `DEVICE_RETURN_URI_MAX_LENGTH` and `INVALID_RETURN_URI_CODE`. API: `IdentityModule.forRoot({ deviceFlow: { returnUriSchemes } })` lists the custom schemes accepted besides `https:` (default none; `http`, `javascript`, `data` and similar are a boot error); `POST /api/auth/device/code` refuses any other `returnUri` with a 400 `code: 'INVALID_RETURN_URI'`, maps `name` onto `deviceName` when that is absent, and `GET /api/auth/device/activate` echoes a `returnUri` only while it is still allowed. Web: `ActivateDevicePage` takes `returnUriSchemes`; after a successful approval (never a denial) `ActivationSuccess` re-checks the URI and sends the user back with `window.location.assign`, automatically and through a "Return to <device>" button, never appending the code or a token. Back-compat: requests without the new fields behave as before.
+- 469f6b1: Full-bleed pages and a context pane for the app shell (#1080). `ShellLayout` gains `mainVariant` (`'padded'` default, or `'full-bleed'`), and `@marinoscar/platform-web/shell/headless` and `/shell/ui` export `useShellMainVariant(variant)` so a page (a map, a full-screen viewer) asks for full bleed while it is mounted without remounting the shell: `<main>` drops its side and top padding and the `banners` slot, and keeps the bottom-bar clearance below `sm` (gate 3 unchanged). `ShellDestination` gains `contextPane` (`ComponentType<ShellContextPaneProps>`, with the types `ShellContextPane`, `ShellContextPaneProps` and the constant `CONTEXT_PANE_WIDTH` = 240): `ShellNavigationRail` draws it as an `<aside>` beside the expanded rail while that destination is active, reusing the rail's own `expanded` state (hidden at the medium rail, when collapsed, in Console mode and below `sm`), and it stays mounted across route changes inside the destination. `@marinoscar/platform-web/shell/testing` also registers the `shell-layout-variants` web conformance suite (no options). Additive: the defaults render what they did, except that `<main>` now carries `data-main-variant`; the five breakpoint gates did not move.
+
+### Patch Changes
+
+- Updated dependencies [1a667be]
+  - @marinoscar/platform-contract@0.1.0-next.22
+
 ## 0.1.0-next.21
 
 ### Patch Changes
