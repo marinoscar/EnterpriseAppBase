@@ -19,6 +19,7 @@ import {
   currentUserSchema,
   deviceAuthorizeRequestSchema,
   deviceCodeRequestSchema,
+  isAllowedReturnUri,
   deviceTokenRequestSchema,
   isAuthErrorCode,
   orgInviteListQuerySchema,
@@ -102,6 +103,28 @@ describe('switch-org and device flow', () => {
     });
     expect(deviceCodeRequestSchema.parse({})).toEqual({});
     expect(deviceCodeRequestSchema.safeParse({ clientInfo: { tokenType: 'PAT' } }).success).toBe(false);
+  });
+
+  it('bounds the client labels and accepts the informational fields and the alias', () => {
+    const parsed = deviceCodeRequestSchema.parse({
+      clientInfo: { name: ' Phone ', hostname: 'host', platform: 'android', returnUri: 'myapp://paired' },
+    });
+    expect(parsed.clientInfo).toMatchObject({ name: 'Phone', hostname: 'host', platform: 'android', returnUri: 'myapp://paired' });
+    expect(deviceCodeRequestSchema.safeParse({ clientInfo: { deviceName: 'x'.repeat(101) } }).success).toBe(false);
+    expect(deviceCodeRequestSchema.safeParse({ clientInfo: { userAgent: 'x'.repeat(1025) } }).success).toBe(false);
+    expect(deviceCodeRequestSchema.safeParse({ clientInfo: { returnUri: `https://a.test/${'x'.repeat(520)}` } }).success).toBe(false);
+    expect(deviceCodeRequestSchema.safeParse({ clientInfo: { returnUri: 'not a uri' } }).success).toBe(false);
+  });
+
+  it('allows a return URI only for https or a listed scheme', () => {
+    expect(isAllowedReturnUri('https://app.example.test/paired')).toBe(true);
+    expect(isAllowedReturnUri('HTTPS://app.example.test')).toBe(true);
+    expect(isAllowedReturnUri('myapp://paired', ['myapp'])).toBe(true);
+    expect(isAllowedReturnUri('MyApp://paired', ['myapp:'])).toBe(true);
+    expect(isAllowedReturnUri('myapp://paired')).toBe(false);
+    for (const bad of ['javascript:alert(1)', 'data:text/html,x', 'http://a.test', 'other://x', '//a.test', 'java\nscript:x', 'https:\\evil', '', undefined]) {
+      expect(isAllowedReturnUri(bad, ['myapp'])).toBe(false);
+    }
   });
 
   it('validates the user code format and a non-empty device code', () => {

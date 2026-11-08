@@ -346,3 +346,57 @@ export const USER_EXTENSION_LIMITS = {
   /** The deepest nesting of a contribution; the extension's own object is level 1. */
   maxDepth: 5,
 } as const;
+
+// ---- Device flow client info ---------------------------------------------------
+
+/** Longest `clientInfo.deviceName` (and its alias `name`). */
+export const DEVICE_NAME_MAX_LENGTH = 100;
+/** Longest `clientInfo.userAgent`. */
+export const DEVICE_USER_AGENT_MAX_LENGTH = 1024;
+/** Longest `clientInfo.returnUri`. */
+export const DEVICE_RETURN_URI_MAX_LENGTH = 512;
+/** The envelope `code` of the 400 for a `returnUri` the deployment does not accept. */
+export const INVALID_RETURN_URI_CODE = 'INVALID_RETURN_URI';
+
+/** Control characters, whitespace and the characters that let a URI smuggle a second target. */
+const RETURN_URI_FORBIDDEN = /[\u0000-\u0020\u007F-\u009F\\]/;
+
+/**
+ * The lower-cased scheme of an absolute URI, or `null` when the text is not
+ * one (no scheme, whitespace or control characters, a backslash).
+ *
+ * @param value - the text.
+ * @returns the scheme without the colon, or `null`.
+ *
+ * @stability experimental
+ */
+export function parseReturnUriScheme(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length === 0 || RETURN_URI_FORBIDDEN.test(value)) return null;
+  const match = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(value);
+  return match ? match[1]!.toLowerCase() : null;
+}
+
+/**
+ * Whether a device-flow `returnUri` may be followed: an absolute URI of at
+ * most 512 characters whose scheme is `https` or one of `allowedSchemes`.
+ * `http`, `javascript`, `data` and every unlisted scheme are refused. The API
+ * runs it at issuance and the activation page runs it again before navigating.
+ *
+ * @param value - the candidate.
+ * @param allowedSchemes - the deployment's custom schemes (case-insensitive, without the colon).
+ * @returns `true` when the URI may be followed.
+ *
+ * @example
+ * ```ts
+ * isAllowedReturnUri('myapp://paired', ['myapp']); // true
+ * isAllowedReturnUri('javascript:alert(1)', ['myapp']); // false
+ * ```
+ *
+ * @stability experimental
+ */
+export function isAllowedReturnUri(value: unknown, allowedSchemes: readonly string[] = []): boolean {
+  if (typeof value !== 'string' || value.length > DEVICE_RETURN_URI_MAX_LENGTH) return false;
+  const scheme = parseReturnUriScheme(value);
+  if (scheme === null) return false;
+  return scheme === 'https' || allowedSchemes.some((allowed) => allowed.toLowerCase().replace(/:$/, '') === scheme);
+}
