@@ -96,6 +96,8 @@ Deletes: your system-settings and user-settings controllers and your credential 
 
 Register each of your job handlers with the packaged queue. Keep the type strings: a job `type` is permanent once jobs of it exist, and `apps/api/test/jobs/job-type-snapshot.spec.ts` pins them. Rewrite any `@Cron` that works inline into an enqueue-only task and any `@OnEvent` body that does I/O into a job; the conformance suites `cron-enqueue-only` and `on-event-no-io` fail otherwise.
 
+If you forked the worker-node CLI, move it onto the node engine's registries instead of keeping a parallel daemon: executors (`registerNodeExecutor`, with an `input` mode of `none`, `download` or `url`), capability probes, install steps and model files, native-thread hooks, and legacy variable names (`registerWorkerEnvAlias`). The env-name mapping, exit-code table and the migration order are in [runbooks/run-worker-nodes.md](runbooks/run-worker-nodes.md#11-move-a-forked-worker-onto-the-platform-engine); the line-by-line comparison is the [worker-node harvest report](platform-adoption/worker-node-harvest.md). Set the node name explicitly before switching so a fleet re-attaches instead of registering duplicate rows.
+
 Deletes: your queue, claim, lease, worker pool and worker-node code. Read: [jobs](../packages/platform-api/src/jobs/README.md), [nodes](../packages/platform-api/src/nodes/README.md), [adding a job type](../packages/platform-api/src/jobs/handlers/README.md).
 
 ### Step 6: storage

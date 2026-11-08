@@ -10,6 +10,7 @@ every `appctl node` flag is in
 Source of truth for every claim below:
 
 - `packages/platform-cli/src/engine/commands/node.ts` — the `appctl node` subcommands and flags.
+- `docs/platform-adoption/worker-node-harvest.md` — the fork-versus-platform comparison behind sections 9 to 11.
 - `packages/platform-cli/src/engine/node/` — the engine, `capabilities.ts` (the startup self-test),
   `install-deps.ts`, `worker-env.ts` (every `APPCTL_*` variable).
 - `packages/platform-cli/src/engine/tui/screens/node.tsx` — the interactive dashboard.
@@ -352,50 +353,96 @@ Helpers for steps, none with a product baked in:
 A step that needs `sudo` sets `requiresSudo: true`, so the plan names it before
 any step runs. Declaring a model (5.3) adds the `models` step by itself.
 
-## 7. Memory
+## 7. Memory and native threads
 
-Three mechanisms, all on by default, all with one thing in common: they assume
+Four mechanisms, all on by default, all with one thing in common: they assume
 a supervisor is watching.
 
-**Heap tuning.** The worker re-execs itself once at startup with a RAM-aware
+**Heap ceiling.** The worker re-execs itself once at startup with a RAM-aware
 `--max-old-space-size`, because Node's default old-space limit is low for a
 machine dedicated to being a worker. The original process becomes a
 signal-forwarding shim, so a container `SIGTERM` still reaches the worker and
-still drains. Set `APPCTL_HEAP_LIMIT_MB=0` when a cgroup or a PaaS already
-manages memory — a second opinion there is worse than none.
+still drains. An explicit `APPCTL_HEAP_LIMIT_MB` is honoured above 8192 MB (it
+is floored at 512 MB, never capped); `APPCTL_HEAP_LIMIT_MB=0` disables the
+re-exec when a cgroup or a PaaS already manages memory, because a second opinion
+there is worse than none.
+
+**Native threads.** Image and codec libraries (libvips and the like) keep their
+own thread pools and caches outside the V8 heap, so a heap ceiling does not
+bound them. `APPCTL_NATIVE_THREADS` is the one cap every app shares: a positive
+whole number, defaulting to half the cores clamped to 1 to 4. An app applies it
+by registering a runtime hook (`registerWorkerRuntimeHook`), which runs once per
+worker start, after the heap re-exec and before the first claim, in daemon and
+foreground mode alike. A hook receives `{ concurrency, cores, nativeThreads,
+env }`; a hook that throws aborts the start with a `WorkerRuntimeHookError`
+naming it, rather than letting the worker claim jobs unconfigured. Operators do
+not register hooks; they only set the number.
 
 **The watchdog** samples memory and, once the samples span a real window,
 reports a least-squares growth trend in MB/hour. That trend is the difference
-between "it died" and "it was climbing 40 MB/hour for six hours".
+between "it died" and "it was climbing 40 MB/hour for six hours". It is read
+from the heartbeat vitals (section 8.2), not from the log: the watchdog logs
+only when the valve fires. `APPCTL_MEMORY_WATCHDOG=false` turns off sampling,
+the trend and the valve together.
 
 **The pre-OOM valve** fires once when `heapUsed / heapLimit` crosses the
-threshold (default `0.9`): snapshot → log → drain → exit `71`.
+threshold (default `0.9`, `APPCTL_MEMORY_THRESHOLD`, clamped to 0.5 to 0.99):
+snapshot, log, drain, exit. The drain is bounded at 60 seconds, so one wedged
+job cannot keep a leaking process alive until the kernel kills it; the worker
+exits when the drain finishes or the bound passes, whichever is first. The exit
+code is `71` unless the app chose another with `createCli({ node: {
+memoryValveExitCode } })` (an integer from 64 to 113). The valve can be turned
+off while sampling continues, but only by an app-registered legacy alias
+(section 9: a legacy fraction of `0`); the canonical variable always arms it.
 
 > ⚠️ **The valve requires a supervisor.** It exits deliberately after a clean
-> drain. Without `Restart=on-failure` or `restart: unless-stopped`, a
-> *successful* drain leaves the worker down — a self-healing mechanism turned
-> into an outage. `appctl node service install` sets this for you.
+> drain. Without a restart policy, a *successful* drain leaves the worker down:
+> a self-healing mechanism turned into an outage.
 
-### 7.1 Diagnose a leak
+### 7.1 Supervisor settings
+
+| Supervisor | Setting | Why |
+|---|---|---|
+| systemd | `Restart=on-failure`, `RestartForceExitStatus=71`, `TimeoutStopSec=300` | `appctl node service install` writes all three; the exit status follows the app's `memoryValveExitCode`. Reinstall the unit (`appctl node service install`) after upgrading an old one |
+| Docker Compose | `restart: unless-stopped`, and a `stop_grace_period` at least as long as your longest job | Any non-zero exit restarts, so the valve code needs no entry. Keep the grace period or a rolling update kills jobs mid-run |
+| Anything that keys an alert on a number | Read the valve code from the startup line (7.4), or pin it with `memoryValveExitCode` | Do not hard-code `71` in an alert if an app may have changed it |
+
+### 7.2 Diagnose a leak
 
 ```bash
 appctl node heap-snapshot     # asks the LIVE daemon
 ```
 
 Ask the running worker, not a fresh one. Restarting to attach a diagnostic flag
-discards exactly the accumulated state that names the retainer — which is also
+discards exactly the accumulated state that names the retainer, which is also
 why the valve writes its snapshot *before* draining rather than after.
 
 Snapshots land in `<state dir>/heap-snapshots`, newest five kept, and are
-skipped with a clear reason when free disk is under 1.5× the live heap: a
+skipped with a clear reason when free disk is under 1.5x the live heap: a
 snapshot must never be the thing that fills the volume. Open one in Chrome
-DevTools → Memory → Load.
+DevTools, Memory, Load. `APPCTL_HEAP_SNAPSHOTS=false` disables all three
+snapshot paths (the valve, the IPC command and the near-limit one).
+
+### 7.3 Exit codes
 
 | Exit code | Meaning |
 |---|---|
 | `0` | Clean stop |
-| `70` | A required capability for an advertised job type is missing |
-| `71` | The pre-OOM valve fired — restart it |
+| `1` | Unclassified failure or configuration error |
+| `2` | Bad usage |
+| `3` to `6` | The server answered non-2xx (3), was unreachable (4), rejected the credential (5), or a prerequisite was not met (6) |
+| `70` | A required capability for an advertised job type is missing, or present but not operational |
+| `71` | The pre-OOM valve fired. Restart it. Configurable per app (64 to 113) |
+
+### 7.4 The startup line and the vitals that show pressure
+
+Every start logs one `worker started` line carrying `nodeId`, `name`,
+`concurrency`, `types`, `headless`, `heapLimitMb`, `nativeThreads`,
+`valveExitCode`, `valve` (`armed`, `off (sampling only)` or `off (watchdog
+disabled)`) and, when any legacy name supplied a value, `envAliases` as
+`LEGACY->CANONICAL` pairs. Read it first when a worker behaves differently from
+its peers. The heartbeat vitals (section 8.2) carry the live heap numbers and
+the growth trend.
 
 ## 8. Day-to-day operation
 
@@ -567,6 +614,113 @@ more than 24 hours ago, and when one node sends more than 60 batches or 1000
 spans a minute. Check the worker's clock (NTP) first. Tracing must also be on at the
 server (`OTEL_ENABLED`); see [telemetry.md](telemetry.md).
 
+## 9. Legacy env names
+
+A fleet that predates the platform engine sets its own variable names in compose
+files and units. An app can name them once, with `registerWorkerEnvAlias(key,
+legacyName)` or `createCli({ node: { envAliases } })`, and the fleet keeps
+working while you rename at your own pace.
+
+- A legacy name is read only when the canonical one is unset or empty. The
+  canonical name always wins.
+- One deprecation line is logged per alias in use, and the startup line lists
+  them (7.4). The generated variable table in
+  [`apps/cli/README.md`](../../apps/cli/README.md#running-a-worker-node) shows
+  the aliases an app registered.
+- The token (`APPCTL_TOKEN`) and the re-exec latch (`APPCTL_HEAP_TUNED`) can
+  never be aliased: a secret is not read from a second, unaudited name.
+- A legacy valve fraction of `0` turns the valve **off** while sampling
+  continues; a value outside 0 to 1 is ignored. (The canonical variable would
+  clamp `0` to 0.5, so a carried-over `0` must not be a plain rename.)
+- Values are copied verbatim otherwise; the usual parsing applies.
+
+Remove the aliases once the last compose file and unit use the canonical names;
+the deprecation lines tell you whether any still do.
+
+## 10. Streaming inputs
+
+A job type declares how its executor reads the input object: `none`,
+`download` (the engine streams it to a temp file) or `url`. In `url` mode the
+engine downloads nothing and hands the executor a presigned URL, so a tool that
+range-seeks the object (ffmpeg, ffprobe) reads only the bytes around each seek
+point: a multi-GB video costs megabytes of transfer and no scratch disk.
+
+What an operator should know:
+
+- The URL expires with the lease. The executor asks for a fresh one
+  (`refreshInputUrl`) when a long job outlives it; there is nothing to configure.
+- **Faststart caveat.** Seeking needs the container's index near the start of
+  the file. A non-faststart MP4 keeps its index at the tail, so a streaming read
+  can fetch far more than expected or fail. Such an executor is expected to fall
+  back to downloading inside `execute`; if a fleet shows high egress for a
+  `url`-mode type, check the source files before the node.
+- The presigned URL is a bearer capability. It is never logged by the engine and
+  must not be logged, put in a span attribute or passed to a process whose
+  stderr is captured. Only `job.input_mode = url` belongs in telemetry.
+
+## 11. Move a forked worker onto the platform engine
+
+For an app that forked the worker-node CLI (its own `node` command, daemon,
+watchdog and install steps) and now wants the platform engine. The line-by-line
+comparison is the [harvest report](../platform-adoption/worker-node-harvest.md);
+this is the order of work. Code-side steps are in
+[docs/ADOPTING-THE-PLATFORM.md](../ADOPTING-THE-PLATFORM.md#step-5-jobs-and-nodes).
+
+1. **Executors.** Register each job type with `registerNodeExecutor` and its
+   needs with `registerJobRequirement` (`binary:`, `module:`, `service:` keys).
+   Pick `input: 'none' | 'download' | 'url'` per type. A type whose executor
+   needs a provider key on the node stays server-only: the platform does not
+   broker AI keys to nodes.
+2. **Probes, steps and models.** Move app probes to `registerCapabilityProbe`
+   (`moduleCapability`, `httpServiceCapability`), install steps to
+   `registerInstallStep`, and model files to `registerModelArtifact` (sections
+   5.3 and 6). Probes and steps may be asynchronous.
+3. **Runtime tuning.** Replace the app's own libvips setup with a
+   `registerWorkerRuntimeHook` that applies `ctx.nativeThreads`.
+4. **Variable names.** Map the old names with `registerWorkerEnvAlias`:
+
+   | Old variable (typical fork) | Platform variable | Note |
+   |---|---|---|
+   | `<APP>_URL` | `<PREFIX>SERVER_URL` | Not a suffix rename |
+   | `<APP>_TOKEN`, `_NODE_ID`, `_NODE_NAME`, `_CONCURRENCY`, `_POLL_INTERVAL_MS`, `_HEADLESS`, `_STATE_DIR` | same suffix under `<PREFIX>` | No alias needed when the prefix matches the CLI name |
+   | `<APP>_ELIGIBLE_TYPES` | `<PREFIX>ELIGIBLE_TYPES` | Comma-separated |
+   | `<APP>_MAX_OLD_SPACE_MB` | `<PREFIX>HEAP_LIMIT_MB` | `0` disables the re-exec; above 8192 is honoured |
+   | `<APP>_HEAP_RESTART_FRACTION` | `<PREFIX>MEMORY_THRESHOLD` | A legacy `0` means valve off, sampling on |
+   | `<APP>_HEAP_SNAPSHOT` | `<PREFIX>HEAP_SNAPSHOTS` | Off disables all three paths |
+   | `<APP>_MEMWATCH` | `<PREFIX>MEMORY_WATCHDOG` | Off disables sampling and the valve |
+   | `<APP>_SHARP_CONCURRENCY` | `<PREFIX>NATIVE_THREADS` | Default half the cores, 1 to 4 |
+   | `MODELS_DIR` | `<PREFIX>MODELS_DIR` | Unset means `<state dir>/models` |
+
+   Variables that belong to an app's own compute (a sidecar URL, a session
+   recycle count) are not worker variables; the app's executors and probes read
+   them.
+5. **Exit codes.** The platform uses distinct codes where a fork often used `1`:
+
+   | Condition | Typical fork | Platform |
+   |---|---|---|
+   | Clean stop | 0 | 0 |
+   | Config or unclassified failure | 1 | 1 |
+   | Bad usage | 1 | 2 |
+   | Server non-2xx / unreachable / credential rejected / prerequisite | 1 | 3 / 4 / 5 / 6 |
+   | Required capability missing or not operational | 1 | 70 |
+   | Memory valve | often 75 | 71, or the app's `memoryValveExitCode` |
+
+   Both valve codes are non-zero, so a `Restart=on-failure` or `restart:
+   unless-stopped` supervisor restarts on either. Only an alert or script that
+   matches the number needs updating, or set `memoryValveExitCode` to the old
+   value.
+6. **Node identity.** Re-attach keys on the node name. A fork whose default name
+   was `worker-<host>` registers a new row under the platform default (`<host>`)
+   and leaves a stale offline one. Set `<PREFIX>NODE_NAME` (or `NODE_ID`)
+   explicitly in the compose file and unit before switching.
+7. **Supervisor files.** Regenerate the systemd unit (`appctl node service
+   install`) so it gains `--headless`, `TimeoutStopSec=300` and
+   `RestartForceExitStatus=`. Re-run `platform:infra:sync` for the compose
+   bundle.
+8. **Verify.** `appctl node doctor` shows every capability with its state;
+   `appctl node models status` checks the model files; the `worker started`
+   line (7.4) should show the heap limit, thread cap and the aliases in use.
+
 ## Troubleshooting
 
 | Symptom | Likely cause | What to do |
@@ -578,6 +732,8 @@ server (`OTEL_ENABLED`); see [telemetry.md](telemetry.md).
 | `doctor` says 404 on `/api/nodes` | The server predates worker nodes | Upgrade the server |
 | The node shows online in the admin UI but does nothing | It has no executor for any advertised type | `appctl node status` lists what it can actually run |
 | Jobs fail immediately with a rate-limit message | A provider is throttling | Nothing to do — the server defers those without charging an attempt |
+| Exits `71` and restarts repeatedly | The pre-OOM valve is firing: the heap keeps crossing the threshold | Read the trend in the vitals, take a `node heap-snapshot` between restarts, raise `APPCTL_HEAP_LIMIT_MB` only if the host has the RAM; see section 7 |
+| A job type is missing from the fleet page | A model it needs is missing or corrupt | `appctl node models status`, then `models pull` and restart |
 | The worker vanishes when you log out | No systemd lingering | `loginctl enable-linger $USER` |
 
 ## Summary checklist

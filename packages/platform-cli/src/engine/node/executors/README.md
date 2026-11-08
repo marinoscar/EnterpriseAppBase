@@ -51,6 +51,27 @@ An executor can also time its own phase and report numbers:
 - `context.phase('job.app.transcode', work, attributes)` records a relayed span; the name must be `job.app.<name>`, and the attributes are integers or short token-shaped strings (the API relays the keys it registered with `registerNodeSpanAttribute`).
 - `vitals(): Record<string, number>` is read on every heartbeat and merged into `vitals.extra` (at most 16 keys fleet-wide; the fleet page words them through the web app's `registerNodeVital`). Keep it cheap and synchronous: it must not spawn a process or touch the network.
 
+## Reading the input: `none`, `download` or `url`
+
+Declare exactly one `input` mode on the executor. `download` gives you
+`context.inputPath`, a temp file the engine removes. `url` gives you
+`context.inputUrl` and downloads nothing, for a tool that range-seeks the object
+(ffmpeg, ffprobe): ask `context.refreshInputUrl()` for a fresh one when a long
+job outlives the first. The URL is a bearer capability, so never log it, put it
+in a span attribute or hand it to a process whose stderr you capture. A
+non-faststart MP4 cannot be streamed efficiently: fall back to downloading
+inside `execute`.
+
+## Declaring more than a binary
+
+Beyond `registerProbedBinary`, an executor's needs can name `module:<name>` and
+`service:<id>` capabilities (`registerCapabilityProbe` with `moduleCapability` /
+`httpServiceCapability`), a model file (`registerModelArtifact`) and an install
+step (`registerInstallStep`). Each is a one-call registry in
+`@marinoscar/platform-cli/node`; the signatures and examples are in the
+[package README](../../../node/README.md#extension-point-catalog) and the
+operator view is in [Running worker nodes](../../../../../../docs/runbooks/run-worker-nodes.md).
+
 ## Three rules worth stating
 
 **`execute` returns the result and throws to fail.** Same contract as the
