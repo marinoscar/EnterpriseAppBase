@@ -26,6 +26,11 @@ import { useTerminalSize } from './layout.js';
 // that started mid-run of a colour would tint the rest of the frame.
 // =============================================================================
 
+/**
+ * Props of {@link ScrollBox}.
+ *
+ * @stability experimental
+ */
 export interface ScrollBoxProps {
   /** Already split into display lines. */
   lines: string[];
@@ -54,6 +59,16 @@ export interface ScrollBoxProps {
 /** Never show fewer than this, even in a very short terminal. */
 const MIN_VIEWPORT_ROWS = 3;
 
+/**
+ * A bounded, scrollable viewport over plain-text lines.
+ *
+ * The frame stays a fixed number of rows however long the content is; arrow
+ * keys, `j`/`k`, page keys and `g`/`G` move it.
+ *
+ * @param props - The lines and the viewport options.
+ * @returns The viewport.
+ * @stability experimental
+ */
 export function ScrollBox({
   lines,
   reservedRows,

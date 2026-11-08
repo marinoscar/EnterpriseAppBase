@@ -241,7 +241,13 @@ export function elapsedMs(startedAt: string, now: number): number {
   return Number.isNaN(started) ? 0 : Math.max(0, now - started);
 }
 
-/** `1m 04s`, `12s`, `2h 05m`. Short enough for a narrow column. */
+/**
+ * `1m 04s`, `12s`, `2h 05m`. Short enough for a narrow column.
+ *
+ * @param ms - A duration in milliseconds.
+ * @returns The text.
+ * @stability experimental
+ */
 export function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   if (seconds < 60) return `${seconds}s`;

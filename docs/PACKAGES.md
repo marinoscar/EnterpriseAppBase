@@ -132,7 +132,7 @@ When a slice becomes a subpath export (`"./<slice>"` in the package's `exports`)
 4. Add a catalog row per seam, each linking a working use in the reference app.
 5. Link the slice README from the package README's Purpose and scope.
 
-A slice may be split into several subpaths (`"./<slice>/<part>"`, for example `./doctor/headless` and `./doctor/ui` in `@marinoscar/platform-web`, #696). Each part is its own `typedoc.json` entry point (`src/<slice>/<part>/index.ts`), and all of them are catalogued in the one slice README, `src/<slice>/README.md`.
+A slice may be split into several subpaths (`"./<slice>/<part>"`, for example `./doctor/headless` and `./doctor/ui` in `@marinoscar/platform-web`, #696, or `./tui` and `./tui/ui` in `@marinoscar/platform-cli`). Each part is its own `typedoc.json` entry point (`src/<slice>/<part>/index.ts`), and all of them are catalogued in the one slice README, `src/<slice>/README.md`.
 
 ## Running the checks locally
 
