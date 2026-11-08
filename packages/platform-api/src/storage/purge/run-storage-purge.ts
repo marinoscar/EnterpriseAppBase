@@ -67,6 +67,7 @@ import {
 } from '../drivers/storage-driver';
 import { allKeyPrefixes } from '../storage-key-prefix.registry';
 import { DEFAULT_STORAGE_PART_SIZE_BYTES } from '../storage.options';
+import { deleteStorageKeys } from '../providers/storage-provider.interface';
 
 export type { StoragePurgeClient } from '../drivers/s3/s3-purge';
 import type { StoragePurgeClient } from '../drivers/s3/s3-purge';
@@ -235,6 +236,9 @@ export async function runStoragePurge(
   };
 }
 
+/** Keys deleted per bulk call in the generic purge (S3 `DeleteObjects` takes at most 1,000). */
+const PURGE_DELETE_BATCH = 1000;
+
 /**
  * The generic purge: list every key under each prefix with the driver's
  * `listKeys`, and (unless a dry run) delete each through the provider the
@@ -253,13 +257,28 @@ async function purgeByListing(
     for (const prefix of input.prefixes) {
       const report: StoragePurgePrefixReport = { prefix, objects: 0, bytes: 0 };
 
+      // Deleted in batches through `deleteStorageKeys` (#1124): the driver's
+      // `deleteMany` when its provider has one (S3: 1,000 keys a call), else
+      // one `delete` per key. A key that fails stops the purge, as before.
+      let pending: string[] = [];
+      const flush = async () => {
+        if (!provider || pending.length === 0) return;
+        const result = await deleteStorageKeys(provider, pending);
+        deleted += result.deleted.length;
+        pending = [];
+        if (result.failed.length > 0) {
+          throw new Error(`Could not delete ${result.failed.length} object(s), first ${result.failed[0].key}: ${result.failed[0].message}`);
+        }
+      };
+
       for await (const key of (driver.listKeys as NonNullable<StorageDriver['listKeys']>)(ctx, prefix)) {
         report.objects += 1;
         if (provider) {
-          await provider.delete(key);
-          deleted += 1;
+          pending.push(key);
+          if (pending.length >= PURGE_DELETE_BATCH) await flush();
         }
       }
+      await flush();
 
       prefixes.push(report);
     }

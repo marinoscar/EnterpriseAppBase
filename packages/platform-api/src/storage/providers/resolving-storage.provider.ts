@@ -11,11 +11,13 @@ import { storageDriverContext } from '../config/storage-driver-context';
 import { StorageConfigService } from '../config/storage-config.service';
 import { StorageNotConfiguredError } from '../config/storage-not-configured.error';
 import { requireStorageDriver } from '../drivers/storage-driver';
-import type { StorageProvider } from './storage-provider.interface';
+import { deleteStorageKeys, storageObjectSize, type StorageProvider } from './storage-provider.interface';
+import { StorageSizeUnsupportedError } from './storage-provider.types';
 import type {
   MultipartUploadInit,
   SignedPutUrlOptions,
   SignedUrlOptions,
+  StorageDeleteManyResult,
   StorageUploadOptions,
   StorageUploadResult,
   UploadPart,
@@ -214,6 +216,23 @@ export class ResolvingStorageProvider implements StorageProvider {
 
   async delete(key: string): Promise<void> {
     return (await this.delegate()).delete(key);
+  }
+
+  /** Bulk delete through the active driver: its `deleteMany`, else one `delete` per key (#1124). */
+  async deleteMany(keys: readonly string[]): Promise<StorageDeleteManyResult> {
+    return deleteStorageKeys(await this.delegate(), keys);
+  }
+
+  /**
+   * The active driver's size probe (#1124). A driver without one throws
+   * `StorageSizeUnsupportedError`, which `storageObjectSize` turns into
+   * `undefined` ("not supported") for its caller.
+   */
+  async size(key: string): Promise<number | null> {
+    const delegate = await this.delegate();
+    const size = await storageObjectSize(delegate, key);
+    if (size !== undefined) return size;
+    throw new StorageSizeUnsupportedError(delegate.kind);
   }
 
   async getMetadata(key: string): Promise<Record<string, string> | null> {

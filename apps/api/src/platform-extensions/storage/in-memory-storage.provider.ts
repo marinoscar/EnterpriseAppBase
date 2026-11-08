@@ -58,12 +58,16 @@ export class InMemoryStorageProvider implements StorageProvider {
   readonly kind: string = IN_MEMORY_STORAGE_KIND;
 
   /** The stored objects, by key. */
-  readonly objects = new Map<string, { body: Buffer; metadata: Record<string, string> }>();
+  readonly objects = new Map<string, { body: Buffer; metadata: Record<string, string>; cacheControl?: string }>();
 
   constructor(private readonly bucket: string = 'in-memory-bucket') {}
 
   async upload(key: string, stream: Readable, options: StorageUploadOptions): Promise<StorageUploadResult> {
-    this.objects.set(key, { body: await collect(stream), metadata: { ...(options.metadata ?? {}) } });
+    this.objects.set(key, {
+      body: await collect(stream),
+      metadata: { ...(options.metadata ?? {}) },
+      ...(options.cacheControl ? { cacheControl: options.cacheControl } : {}),
+    });
     return { key, bucket: this.bucket, location: `memory://${this.bucket}/${key}` };
   }
 
@@ -79,6 +83,17 @@ export class InMemoryStorageProvider implements StorageProvider {
 
   async exists(key: string): Promise<boolean> {
     return this.objects.has(key);
+  }
+
+  /** Bulk delete (#1124): every key in one call; an absent key counts as deleted. */
+  async deleteMany(keys: readonly string[]): Promise<{ deleted: string[]; failed: Array<{ key: string; message: string }> }> {
+    for (const key of keys) this.objects.delete(key);
+    return { deleted: [...keys], failed: [] };
+  }
+
+  /** The stored byte length, `null` when absent (#1124). */
+  async size(key: string): Promise<number | null> {
+    return this.objects.get(key)?.body.length ?? null;
   }
 
   async getMetadata(key: string): Promise<Record<string, string> | null> {

@@ -12,6 +12,26 @@ export interface StorageUploadOptions {
   metadata?: Record<string, string>;
   /** The byte length, when known. */
   contentLength?: number;
+  /**
+   * The `Cache-Control` the backend stores with the object and serves it with
+   * (#1124), for example `public, max-age=31536000, immutable` on a
+   * content-addressed derived object such as a thumbnail. Absent: the
+   * backend's default (no header). The S3-family drivers send it as
+   * `CacheControl`; a driver without the notion ignores it.
+   */
+  cacheControl?: string;
+}
+
+/**
+ * The outcome of {@link StorageProvider.deleteMany} (#1124).
+ *
+ * @stability experimental
+ */
+export interface StorageDeleteManyResult {
+  /** The keys the backend deleted (a key that was already absent counts as deleted, as with `delete`). */
+  deleted: string[];
+  /** The keys it could not delete, each with the backend's reason. */
+  failed: Array<{ key: string; message: string }>;
 }
 
 /**
@@ -201,4 +221,17 @@ export class MultipartPartsMissingError extends Error {
  */
 export function normalizeEtag(eTag: string): string {
   return eTag.replace(/^"+|"+$/g, '');
+}
+
+/**
+ * Thrown by a provider's `size` when the backend it delegates to has no size
+ * probe (#1124); `storageObjectSize` reports it as `undefined`.
+ *
+ * @stability experimental
+ */
+export class StorageSizeUnsupportedError extends Error {
+  constructor(public readonly kind: string) {
+    super(`The storage driver "${kind}" has no size probe.`);
+    this.name = 'StorageSizeUnsupportedError';
+  }
 }

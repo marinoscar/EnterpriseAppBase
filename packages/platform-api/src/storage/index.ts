@@ -27,7 +27,7 @@ export { ObjectProcessingModule } from './processing/object-processing.module';
 export { ProfileImageModule } from './profile-image/profile-image.module';
 
 // ---- the provider (rung 3: override STORAGE_PROVIDER) -------------------------------------
-export { STORAGE_PROVIDER } from './providers/storage-provider.interface';
+export { STORAGE_PROVIDER, deleteStorageKeys, storageObjectSize } from './providers/storage-provider.interface';
 export type { StorageProvider } from './providers/storage-provider.interface';
 export type {
   MultipartUploadInit,
@@ -35,6 +35,7 @@ export type {
   SignedUrlOptions,
   StoragePartUploadMode,
   StoredPart,
+  StorageDeleteManyResult,
   StorageUploadOptions,
   StorageUploadResult,
   UploadPart,
@@ -44,13 +45,14 @@ export {
   MultipartPartsMissingError,
   MultipartSessionNotFoundError,
   PartSizeMismatchError,
+  StorageSizeUnsupportedError,
   normalizeEtag,
 } from './providers/storage-provider.types';
 export { StorageProviderRouter } from './providers/storage-provider-router';
 export type { StorageLocation } from './providers/storage-provider-router';
 export { registerStoragePartBodyParser } from './objects/part-body-parser';
 export { ResolvingStorageProvider } from './providers/resolving-storage.provider';
-export { DEFAULT_S3_PART_SIZE, S3StorageProvider, buildS3ClientConfig } from './providers/s3/s3-storage.provider';
+export { DEFAULT_S3_PART_SIZE, S3_DELETE_OBJECTS_MAX_KEYS, S3StorageProvider, buildS3ClientConfig } from './providers/s3/s3-storage.provider';
 export type { S3StorageProviderConfig } from './providers/s3/s3-storage.provider';
 export { nodeObjectStoreBinding } from './node-object-store.binding';
 export type { StorageProviderIsNodeObjectStore } from './node-object-store.binding';

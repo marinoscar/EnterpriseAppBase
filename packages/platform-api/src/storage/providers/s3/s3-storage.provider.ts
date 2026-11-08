@@ -3,6 +3,7 @@ import {
   S3Client,
   GetObjectCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
   HeadObjectCommand,
   CopyObjectCommand,
   CreateMultipartUploadCommand,
@@ -20,6 +21,7 @@ import { Readable } from 'node:stream';
 import type { StorageProviderKind } from '@marinoscar/platform-contract/storage';
 import { StorageProvider } from '../storage-provider.interface';
 import {
+  StorageDeleteManyResult,
   StorageUploadOptions,
   StorageUploadResult,
   MultipartUploadInit,
@@ -30,6 +32,13 @@ import {
   UploadedPart,
   MultipartSessionNotFoundError,
 } from '../storage-provider.types';
+
+/**
+ * The most keys one S3 `DeleteObjects` request may carry.
+ *
+ * @stability experimental
+ */
+export const S3_DELETE_OBJECTS_MAX_KEYS = 1000;
 
 /**
  * The multipart part size used when nothing else says otherwise: 10 MiB.
@@ -343,6 +352,7 @@ export class S3StorageProvider implements StorageProvider {
           ContentType: options.mimeType,
           Metadata: options.metadata || {},
           ContentLength: options.contentLength,
+          ...(options.cacheControl ? { CacheControl: options.cacheControl } : {}),
         },
         // Use configured part size for automatic multipart uploads
         partSize: this.partSize,
@@ -381,6 +391,7 @@ export class S3StorageProvider implements StorageProvider {
         Key: key,
         ContentType: options.mimeType,
         Metadata: options.metadata || {},
+        ...(options.cacheControl ? { CacheControl: options.cacheControl } : {}),
       });
 
       const result = await this.s3Client.send(command);
@@ -686,6 +697,52 @@ export class S3StorageProvider implements StorageProvider {
         `Failed to delete file for key ${key}: ${message}`,
         stack,
       );
+      throw error;
+    }
+  }
+
+  /**
+   * Delete many keys with `DeleteObjects`, at most 1,000 per request (#1124).
+   * Per-key errors the bucket reports are returned in `failed`, never thrown.
+   */
+  async deleteMany(keys: readonly string[]): Promise<StorageDeleteManyResult> {
+    const result: StorageDeleteManyResult = { deleted: [], failed: [] };
+    const unique = [...new Set(keys)];
+
+    for (let start = 0; start < unique.length; start += S3_DELETE_OBJECTS_MAX_KEYS) {
+      const batch = unique.slice(start, start + S3_DELETE_OBJECTS_MAX_KEYS);
+      const response = await this.s3Client.send(
+        new DeleteObjectsCommand({
+          Bucket: this.bucket,
+          Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+        }),
+      );
+      const failed = new Map<string, string>();
+      for (const error of response.Errors ?? []) {
+        if (error.Key !== undefined) failed.set(error.Key, `${error.Code ?? 'Error'}: ${error.Message ?? 'delete failed'}`);
+      }
+      for (const key of batch) {
+        const message = failed.get(key);
+        if (message === undefined) result.deleted.push(key);
+        else result.failed.push({ key, message });
+      }
+    }
+
+    this.logger.log(`Deleted ${result.deleted.length} object(s), ${result.failed.length} failed`);
+    return result;
+  }
+
+  /**
+   * The object's size from `HeadObject` (#1124), or `null` when it is absent.
+   */
+  async size(key: string): Promise<number | null> {
+    try {
+      const result = await this.s3Client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
+      return typeof result.ContentLength === 'number' ? result.ContentLength : null;
+    } catch (error) {
+      if (error instanceof NotFound || (error && typeof error === 'object' && 'name' in error && error.name === 'NotFound')) {
+        return null;
+      }
       throw error;
     }
   }

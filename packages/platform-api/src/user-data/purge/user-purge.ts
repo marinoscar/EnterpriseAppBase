@@ -384,7 +384,7 @@ export interface StorageDeletionCounts {
  */
 export async function deleteStorageObjects(
   db: any,
-  storage: Pick<StorageProvider, 'delete' | 'abortMultipartUpload'>,
+  storage: Pick<StorageProvider, 'delete' | 'abortMultipartUpload'> & Partial<Pick<StorageProvider, 'deleteMany'>>,
   logger: Pick<Logger, 'warn'>,
   context: string,
   objectIds: readonly string[],
@@ -399,13 +399,44 @@ export async function deleteStorageObjects(
       where: { id: { in: ids } },
       select: { id: true, storageKey: true, s3UploadId: true },
     });
+    // Unfinished uploads are aborted one by one (there is no bulk abort).
+    const deletable: typeof objects = [];
     for (const object of objects) {
       try {
         if (object.s3UploadId) await storage.abortMultipartUpload(object.storageKey, object.s3UploadId);
-        await storage.delete(object.storageKey);
+        deletable.push(object);
       } catch (error) {
         storageObjectsFailed += 1;
         logger.warn(`${context}: could not delete storage object ${object.id}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    // The bytes: ONE bulk call when the provider has `deleteMany` (#1124; S3
+    // `DeleteObjects` takes 1,000 keys), else one `delete` per key.
+    const failedKeys = new Map<string, string>();
+    if (typeof storage.deleteMany === 'function') {
+      try {
+        const result = await storage.deleteMany(deletable.map((object) => object.storageKey));
+        for (const failure of result.failed) failedKeys.set(failure.key, failure.message);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        for (const object of deletable) failedKeys.set(object.storageKey, message);
+      }
+    } else {
+      for (const object of deletable) {
+        try {
+          await storage.delete(object.storageKey);
+        } catch (error) {
+          failedKeys.set(object.storageKey, error instanceof Error ? error.message : String(error));
+        }
+      }
+    }
+
+    for (const object of deletable) {
+      const failure = failedKeys.get(object.storageKey);
+      if (failure !== undefined) {
+        storageObjectsFailed += 1;
+        logger.warn(`${context}: could not delete storage object ${object.id}: ${failure}`);
         continue;
       }
       // A row already gone (a concurrent delete) is fine.
