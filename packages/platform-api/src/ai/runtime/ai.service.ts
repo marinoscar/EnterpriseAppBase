@@ -173,6 +173,7 @@ import {
   type AiBinaryPayload,
   type AiEmbeddingRequest,
   type AiEmbeddingResult,
+  type AiImageEditRequest,
   type AiAudioPort,
   type AiEmbeddingsPort,
   type AiImageResult,
@@ -230,6 +231,7 @@ import {
 import { boundTranscriptionExtras } from './ai-transcription-extras';
 import type {
   AiCallOptions,
+  AiEditImageInlineRequest,
   AiEditImageRequest,
   AiEmbedRequest,
   AiGenerateImageRequest,
@@ -240,6 +242,8 @@ import type {
   AiRunOperationOptions,
   AiSpeakRequest,
   AiStructuredRequest,
+  AiSystemScope,
+  AiTranscribeInlineRequest,
   AiTranscribeRequest,
   AiStructuredResponse,
   AiToolLoopRequest,
@@ -438,11 +442,71 @@ export interface AiUserClient {
    *   schema (the call is still recorded); every other gate's `AiError`.
    */
   run<O = unknown>(operationId: string, input: unknown, opts?: AiRunOperationOptions): Promise<O>;
+
+  /**
+   * Edits images SYNCHRONOUSLY, for a caller already inside its own job that
+   * holds the source bytes: the same gates, key resolution, rate limits,
+   * ONE usage row (`operation: 'images'`, `units: { images: n }`) and span as
+   * `editImage`, but no `ai_runs` row, no second job and no storage copy. The
+   * result carries the generated images as BYTES and stores nothing; the
+   * caller writes them where it needs them. See `AiEditImageInlineRequest` for
+   * the input rules (count, size, type) and `providerOptions`.
+   *
+   * Server-side handlers only: never wire it to a route or hand it to a
+   * worker node (a node never holds a key).
+   *
+   * @throws AiError('AI_INVALID_REQUEST') for an empty prompt, no or too many
+   *   images, an image over `AI_IMAGE_INPUT_MAX_BYTES` or of a type other
+   *   than PNG/JPEG/WebP, a mask that is not a PNG;
+   *   AiError('AI_CAPABILITY_UNSUPPORTED') for a model without `image_edit`;
+   *   AiError('AI_RATE_LIMITED') for a provider 429/529 or a local limit
+   *   (`toRateLimitError()` defers the job); every other gate's `AiError`.
+   */
+  editImageInline(req: AiEditImageInlineRequest, opts?: AiCallOptions): Promise<AiImageResult>;
+
+  /**
+   * Transcribes a recording SYNCHRONOUSLY, for a caller already inside its
+   * own job that holds the audio (an ffmpeg extract, say): the same gates, key
+   * resolution, rate limits, ONE usage row (`operation: 'audio.transcribe'`,
+   * `units: { audioSeconds }` when reported) and span as `transcribe`, with no
+   * run row, job or storage object. The transcript is returned inline. See
+   * `AiTranscribeInlineRequest`; an omitted `model` is chosen as for
+   * `transcribe`. Server-side handlers only.
+   *
+   * @throws AiError('AI_INVALID_REQUEST') for a recording that is empty, not
+   *   audio (or MP4/WebM video) or larger than the provider accepts;
+   *   AiError('AI_CAPABILITY_UNSUPPORTED') for a model without
+   *   `audio_transcription`; AiError('AI_RATE_LIMITED') as for
+   *   `editImageInline`; every other gate's `AiError`.
+   */
+  transcribeInline(req: AiTranscribeInlineRequest, opts?: AiCallOptions): Promise<AiTranscriptionResult>;
 }
+
+/**
+ * The client of a SYSTEM call (`AiService.forSystem`): work a server-side job
+ * does with no acting user (a per-organization generation job, a digest, an
+ * importer's tagging). Everything runs through the same gate pipeline and
+ * records one usage row per round-trip, with `userId: null` and the scope's
+ * `feature`. The key is the organization's own, else the deployment's, NEVER a
+ * user's; only the per-organization limits apply.
+ *
+ * There are no queued runs (`startRun`, `editImage`, `transcribe`, ...: a run
+ * belongs to a user), no `runTools` (a tool's `execute` is scoped to the user
+ * it acts for, and a system call has none), and no realtime or custom
+ * operations. Hosted tools are refused: their outputs are stored as a user's
+ * own objects.
+ *
+ * @stability experimental
+ */
+export type AiSystemClient = Pick<
+  AiUserClient,
+  'respond' | 'respondStructured' | 'stream' | 'openStream' | 'embed' | 'editImageInline' | 'transcribeInline'
+>;
 
 /** Internal: who a client acts for, and under which job (for usage rows). */
 export interface AiClientScope {
-  userId: string;
+  /** The acting user; `null` for a system call (`AiService.forSystem`). */
+  userId: string | null;
   /**
    * The organization the call runs in (issue #725): `principal.activeOrgId` for
    * an HTTP call, the job payload's `orgId` for a background run. Resolved to
@@ -559,6 +623,23 @@ export interface PreparedAiImageCall extends AiCallTarget {
   stored: StoredAiImageRunRequest;
   /** An edit's resolved inputs (metadata only — bytes are read when the job runs). */
   inputs: { images: AiStorageInput[]; mask?: AiStorageInput };
+}
+
+/** Everything the gate pipeline settled for one inline image edit. */
+export interface PreparedAiImageInlineCall extends AiCallTarget {
+  /** The provider's edit method (a provider without one was refused). */
+  edit: NonNullable<AiImagesPort['edit']>;
+  /** The request the adapter receives — model resolved, named fields only. */
+  request: AiImageEditRequest;
+}
+
+/** Everything the gate pipeline settled for one inline transcription. */
+export interface PreparedAiTranscriptionInlineCall extends AiCallTarget {
+  transcribe: NonNullable<AiAudioPort['transcribe']>;
+  /** The request the adapter receives — model resolved, the recording size-capped. */
+  request: AiTranscriptionRequest;
+  /** The cap's verdict for a streamed recording that turned out too large. */
+  exceeded(): AiError | undefined;
 }
 
 /** Everything the gate pipeline settled for one transcription. */
@@ -717,7 +798,63 @@ export class AiService {
       createRealtimeSession: (req, opts) => this.createRealtimeSession(bound, req, opts),
       run: <O>(operationId: string, input: unknown, opts?: AiRunOperationOptions) =>
         this.runOperation(bound, operationId, input, opts) as Promise<O>,
+      editImageInline: (req, opts) => this.editImageInline(bound, req, opts),
+      transcribeInline: (req, opts) => this.transcribeInline(bound, req, opts),
     };
+  }
+
+  /**
+   * The AI client for work with NO acting user: a per-organization job
+   * (memory titles, a digest), an importer's tagging. It runs the same gate
+   * pipeline as `forUser` and records one usage row per round-trip with
+   * `userId: null` and `scope.feature`, but:
+   *
+   * - the feature must be registered with `systemCalls: true`, else every call
+   *   is refused with `AI_KEY_REQUIRED` (an app whose rule is "AI keys are per
+   *   user" registers none, and system calls stay impossible for it);
+   * - the key is the organization's own, else the deployment's, NEVER a
+   *   user's, and `ai.keyPolicy` does not apply (no person is borrowing);
+   * - only the per-organization limits (`limits.perOrg`) apply;
+   * - the kill switches (`ai.enabled`, the organization's) still apply first.
+   *
+   * Server-side code only: it is not reachable over HTTP and must never be
+   * handed to a worker node. See `AiSystemClient` for what it offers.
+   *
+   * @example
+   * ```ts
+   * const titles = await this.ai
+   *   .forSystem({ orgId, feature: 'example_titles' })
+   *   .respondStructured({ schema, input });
+   * ```
+   *
+   * @stability experimental
+   */
+  forSystem(scope: AiSystemScope): AiSystemClient {
+    const bound: AiClientScope = {
+      userId: null,
+      ...(scope.orgId ? { orgId: scope.orgId } : {}),
+      feature: scope.feature,
+      ...(scope.jobId ? { jobId: scope.jobId } : {}),
+    };
+
+    return {
+      respond: (req, opts) => this.respond(bound, req, opts),
+      stream: (req, opts) => this.lazyStream(bound, req, opts),
+      openStream: (req, opts) => this.openStream(bound, req, opts),
+      respondStructured: (req, opts) => this.respondStructured(bound, req, opts),
+      embed: (req, opts) => this.embed(bound, req, opts),
+      editImageInline: (req, opts) => this.editImageInline(bound, req, opts),
+      transcribeInline: (req, opts) => this.transcribeInline(bound, req, opts),
+    };
+  }
+
+  /** The acting user of a call only a user can make (queued runs, realtime, custom operations). */
+  private userOf(scope: AiClientScope): string {
+    if (scope.userId === null) {
+      throw new AiError('AI_INVALID_REQUEST', 'This call needs an acting user; a system client cannot make it.');
+    }
+
+    return scope.userId;
   }
 
   /**
@@ -729,7 +866,11 @@ export class AiService {
     scope.orgId ??= await resolveOrgId(
       this.prisma,
       scope.orgId,
-      scope.jobId ? `AI call under job ${scope.jobId}` : `AI call for user ${scope.userId}`,
+      scope.jobId
+        ? `AI call under job ${scope.jobId}`
+        : scope.userId === null
+          ? 'AI system call'
+          : `AI call for user ${scope.userId}`,
     );
 
     return scope.orgId;
@@ -767,10 +908,11 @@ export class AiService {
       throw new AiError('AI_INVALID_REQUEST', 'Background AI runs are disabled in this deployment.');
     }
 
-    const call = await this.prepare(scope.userId, req, { streaming: false, orgId, feature: scope.feature });
+    const userId = this.userOf(scope);
+    const call = await this.prepare(userId, req, { streaming: false, orgId, feature: scope.feature });
 
     return this.runs.create({
-      userId: scope.userId,
+      userId,
       orgId,
       provider: call.provider,
       modelId: call.request.model,
@@ -825,7 +967,9 @@ export class AiService {
   private hostedOutputs(scope: AiClientScope, call: PreparedAiCall): AiHostedOutputSettler {
     return new AiHostedOutputSettler(
       {
-        userId: scope.userId,
+        // A system call has no user and `prepare` refuses its hosted tools, so
+        // nothing is ever stored under this owner.
+        userId: scope.userId ?? '',
         ...(scope.orgId ? { orgId: scope.orgId } : {}),
         ...(scope.jobId ? { jobId: scope.jobId } : {}),
         ...(scope.runId ? { runId: scope.runId } : {}),
@@ -923,7 +1067,7 @@ export class AiService {
     req: AiRealtimeRequest,
     opts: AiCallOptions = {},
   ): Promise<AiRealtimeSessionResult> {
-    const call = await this.prepareRealtime(scope.userId, req, scope.feature, await this.orgOf(scope));
+    const call = await this.prepareRealtime(this.userOf(scope), req, scope.feature, await this.orgOf(scope));
     const { ctx, keySource } = await this.context(scope, call, opts, () => ({
       instructions: call.request.instructions,
     }));
@@ -970,7 +1114,7 @@ export class AiService {
     input: unknown,
     opts: AiRunOperationOptions = {},
   ): Promise<unknown> {
-    const call = await this.prepareOperation(scope.userId, operationId, input, opts, await this.orgOf(scope), scope.feature);
+    const call = await this.prepareOperation(this.userOf(scope), operationId, input, opts, await this.orgOf(scope), scope.feature);
     // ⚠ The input is NOT passed as the debug prompt: an operation's input is
     // whatever the app defined (a transcript, a document) and only the
     // operation id is safe to name.
@@ -1117,10 +1261,11 @@ export class AiService {
     req: AiGenerateImageRequest | AiEditImageRequest,
   ): Promise<AiRunHandle> {
     const orgId = await this.orgOf(scope);
-    const call = await this.prepareImage(scope.userId, operation, req, orgId, scope.feature);
+    const userId = this.userOf(scope);
+    const call = await this.prepareImage(userId, operation, req, orgId, scope.feature);
 
     return this.runs.create({
-      userId: scope.userId,
+      userId,
       orgId,
       provider: call.provider,
       modelId: call.modelId,
@@ -1169,22 +1314,41 @@ export class AiService {
       : undefined;
 
     const request = toImageGenerationRequest(call.stored);
-    const { ctx, keySource } = await this.context(scope, call, opts, () => ({ prompt: request.prompt }));
-    const tracker = this.track(scope, call, keySource, call.operation);
 
-    let result: AiImageResult;
-
-    try {
+    return this.imageRoundTrip(scope, call, call.operation, opts, request.prompt, (ctx) => {
       if (edit) {
         // `prepareImage` refused a port without `edit`; this narrows the type.
         const editPort = call.port.edit as NonNullable<AiImagesPort['edit']>;
 
-        result = await editPort({ ...request, images, ...(mask ? { mask } : {}) }, ctx);
-      } else {
-        result = await call.port.generate(request, ctx);
+        return editPort({ ...request, images, ...(mask ? { mask } : {}) }, ctx);
       }
+
+      return call.port.generate(request, ctx);
+    });
+  }
+
+  /**
+   * Steps 6-9 of one image round-trip, shared by the queued run
+   * (`executeImageRun`) and the inline edit (`editImageInline`): resolve the
+   * key, apply the limits, call the port, record ONE usage row (with the image count as its units) and end the span. The error never carries the key.
+   */
+  private async imageRoundTrip(
+    scope: AiClientScope,
+    call: AiCallTarget,
+    operation: AiImageOperation,
+    opts: AiCallOptions,
+    prompt: string,
+    send: (ctx: AiCallContext) => Promise<AiImageResult>,
+  ): Promise<AiImageResult> {
+    const { ctx, keySource } = await this.context(scope, call, opts, () => ({ prompt }));
+    const tracker = this.track(scope, call, keySource, operation);
+
+    let result: AiImageResult;
+
+    try {
+      result = await send(ctx);
     } catch (err) {
-      const error = toAiError(err, opts.signal);
+      const error = scrubKey(toAiError(err, opts.signal), ctx.apiKey);
 
       await tracker.finish(failure(error, opts.signal));
       throw error;
@@ -1195,14 +1359,186 @@ export class AiService {
     return result;
   }
 
+  // ---- inline media (a caller already inside its own job) ----------------------------
+
+  private async editImageInline(
+    scope: AiClientScope,
+    req: AiEditImageInlineRequest,
+    opts: AiCallOptions = {},
+  ): Promise<AiImageResult> {
+    const call = await this.prepareImageInline(scope.userId, req, await this.orgOf(scope), scope.feature);
+
+    return this.imageRoundTrip(scope, call, 'images.edit', opts, call.request.prompt, (ctx) =>
+      call.edit(call.request, ctx),
+    );
+  }
+
+  private async transcribeInline(
+    scope: AiClientScope,
+    req: AiTranscribeInlineRequest,
+    opts: AiCallOptions = {},
+  ): Promise<AiTranscriptionResult> {
+    const call = await this.prepareTranscriptionInline(scope.userId, req, await this.orgOf(scope), scope.feature);
+
+    return this.transcriptionRoundTrip(
+      scope,
+      call,
+      opts,
+      { language: call.request.language, prompt: call.request.prompt },
+      call.request,
+      call.exceeded,
+    );
+  }
+
+  /**
+   * The gate pipeline for an inline image edit: kill switch, the system
+   * caller's opt-in, request shape (prompt, `n`, the images' count, size and
+   * type, the mask), target, provider, model with `image_edit` (model AND port
+   * with `edit`). Decrypts nothing; the bytes are already the caller's.
+   *
+   * @internal
+   */
+  async prepareImageInline(
+    userId: string | null,
+    req: AiEditImageInlineRequest,
+    orgId?: string,
+    featureId?: string,
+  ): Promise<PreparedAiImageInlineCall> {
+    // 1. Kill switch — before anything else is read.
+    await this.aiConfig.assertEnabled(orgId);
+
+    const feature = this.featureOf(featureId);
+
+    this.assertSystemCaller(userId, feature);
+    assertImageShape(req, false);
+    assertInlineImages(req);
+
+    if (req.providerOptions !== undefined) assertProviderOptionsShape(req.providerOptions);
+
+    if (!req.model?.trim()) {
+      throw new AiError('AI_INVALID_REQUEST', 'Name the image model explicitly.');
+    }
+
+    const { provider, model } = await this.resolveTarget(userId, req, { orgId, feature });
+
+    // 2. Provider enabled in settings AND registered in this process.
+    const slot = await this.aiConfig.assertProviderEnabled(provider, orgId);
+    const port = this.registry.get(provider)?.images;
+
+    // 3. Model enabled, `image_edit` declared (model AND provider port), key reach.
+    const { model: usableImage } = await this.usableModels.assertUsable(userId, provider, model, ['image_edit'], { orgId });
+    assertFeatureFits(feature, provider, model, usableImage.capabilities);
+
+    if (!port?.edit) {
+      throw capabilityUnsupported(provider, model, 'image_edit');
+    }
+
+    const policy = await this.aiConfig.resolveForOrg(orgId);
+    // Named fields only: whatever else the caller's object carried stays here.
+    const request: AiImageEditRequest = {
+      model,
+      prompt: req.prompt,
+      images: req.images.map(inlinePayload),
+      ...(req.mask ? { mask: inlinePayload(req.mask) } : {}),
+      ...(req.size !== undefined ? { size: req.size } : {}),
+      ...(req.quality !== undefined ? { quality: req.quality } : {}),
+      ...(req.background !== undefined ? { background: req.background } : {}),
+      ...(req.outputFormat !== undefined ? { outputFormat: req.outputFormat } : {}),
+      ...(req.n !== undefined ? { n: req.n } : {}),
+      ...(req.providerOptions !== undefined ? { providerOptions: req.providerOptions } : {}),
+    };
+
+    return {
+      provider,
+      modelId: model,
+      edit: port.edit.bind(port),
+      request,
+      ...providerCallSettings(slot),
+      logPromptContent: policy.logPromptContent,
+    };
+  }
+
+  /**
+   * The gate pipeline for an inline transcription: kill switch, the system
+   * caller's opt-in, request shape, target (an omitted model is the first
+   * usable `audio_transcription` model), provider, model with
+   * `audio_transcription` (model AND port), then the recording itself: type
+   * and the provider's size limit (a stream is counted as it is sent).
+   * Decrypts nothing.
+   *
+   * @internal
+   */
+  async prepareTranscriptionInline(
+    userId: string | null,
+    req: AiTranscribeInlineRequest,
+    orgId?: string,
+    featureId?: string,
+  ): Promise<PreparedAiTranscriptionInlineCall> {
+    // 1. Kill switch — before anything else is read.
+    await this.aiConfig.assertEnabled(orgId);
+
+    const feature = this.featureOf(featureId);
+
+    this.assertSystemCaller(userId, feature);
+    assertTranscriptionOptions(req);
+
+    const audio = req.audio as AiMediaInput | undefined;
+
+    if (!audio || typeof audio.mimeType !== 'string' || !mimeAllowed(audio.mimeType, AI_TRANSCRIPTION_INPUT_MIME_TYPES)) {
+      throw new AiError('AI_INVALID_REQUEST', 'A transcription needs an audio recording (audio/*, video/mp4 or video/webm).', {
+        details: { mimeType: audio?.mimeType },
+      });
+    }
+
+    const { provider, model } = req.model?.trim()
+      ? await this.resolveTarget(userId, req, { orgId, feature })
+      : await this.firstUsableModel(userId, 'audio_transcription', req.provider, orgId);
+
+    // 2. Provider enabled in settings AND registered in this process.
+    const slot = await this.aiConfig.assertProviderEnabled(provider, orgId);
+    const port = this.registry.get(provider)?.audio;
+
+    // 3. Model enabled, `audio_transcription` declared (model AND port), key reach.
+    const { model: usableTranscription } = await this.usableModels.assertUsable(
+      userId,
+      provider,
+      model,
+      ['audio_transcription'],
+      { orgId },
+    );
+    assertFeatureFits(feature, provider, model, usableTranscription.capabilities);
+
+    const transcribe = port?.transcribe?.bind(port);
+
+    if (!port || !transcribe) {
+      throw capabilityUnsupported(provider, model, 'audio_transcription');
+    }
+
+    // 4. The recording within the provider's limit.
+    const maxBytes = port.transcriptionMaxBytes ?? AI_TRANSCRIPTION_DEFAULT_MAX_BYTES;
+    const capped = capInlineAudio(audio, maxBytes);
+    const policy = await this.aiConfig.resolveForOrg(orgId);
+
+    return {
+      provider,
+      modelId: model,
+      transcribe,
+      request: { model, audio: capped.audio, ...transcriptionFields(req) },
+      exceeded: capped.exceeded,
+      ...providerCallSettings(slot),
+      logPromptContent: policy.logPromptContent,
+    };
+  }
+
   // ---- transcription ------------------------------------------------------------------
 
   private async startTranscriptionRun(scope: AiClientScope, req: AiTranscribeRequest): Promise<AiRunHandle> {
     const orgId = await this.orgOf(scope);
-    const call = await this.prepareTranscription(scope.userId, req, orgId, scope.feature);
+    const userId = this.userOf(scope);
+    const call = await this.prepareTranscription(userId, req, orgId, scope.feature);
 
     return this.runs.create({
-      userId: scope.userId,
+      userId,
       orgId,
       provider: call.provider,
       modelId: call.modelId,
@@ -1240,35 +1576,59 @@ export class AiService {
     let result: AiTranscriptionResult;
 
     try {
-      const { ctx, keySource } = await this.context(scope, call, opts, () => ({
-        language: call.stored.language,
-        prompt: call.stored.prompt,
-      }));
-      const tracker = this.track(scope, call, keySource, 'audio.transcribe');
       const request: AiTranscriptionRequest = { model: call.modelId, audio: audio.payload, ...transcriptionFields(call.stored) };
 
-      try {
-        result = await call.transcribe(request, ctx);
-      } catch (err) {
-        // A recording that turned out larger than its row said: the cap
-        // stopped the upload, and THAT is the answer, not the transport
-        // failure the SDK saw.
-        const error = audio.exceeded() ?? toAiError(err, opts.signal);
-
-        await tracker.finish(failure(error, opts.signal));
-        throw error;
-      }
-
-      result = this.boundExtras(result);
-
-      await tracker.finish({
-        status: 'succeeded',
-        result,
-        ...(result.durationSeconds !== undefined ? { units: { audioSeconds: result.durationSeconds } } : {}),
-      });
+      result = await this.transcriptionRoundTrip(
+        scope,
+        call,
+        opts,
+        { language: call.stored.language, prompt: call.stored.prompt },
+        request,
+        audio.exceeded,
+      );
     } finally {
       audio.close();
     }
+
+    return result;
+  }
+
+  /**
+   * Steps 6-9 of one transcription round-trip, shared by the queued run and
+   * the inline call: key, limits, the port, ONE usage row (with the audio seconds as units, when reported) and the span. The error never carries the key.
+   */
+  private async transcriptionRoundTrip(
+    scope: AiClientScope,
+    call: AiCallTarget & { transcribe: NonNullable<AiAudioPort['transcribe']> },
+    opts: AiCallOptions,
+    promptInfo: { language?: string; prompt?: string },
+    request: AiTranscriptionRequest,
+    exceeded: () => AiError | undefined,
+  ): Promise<AiTranscriptionResult> {
+    const { ctx, keySource } = await this.context(scope, call, opts, () => promptInfo);
+    const tracker = this.track(scope, call, keySource, 'audio.transcribe');
+
+    let result: AiTranscriptionResult;
+
+    try {
+      result = await call.transcribe(request, ctx);
+    } catch (err) {
+      // A recording that turned out larger than its row said: the cap
+      // stopped the upload, and THAT is the answer, not the transport
+      // failure the SDK saw.
+      const error = scrubKey(exceeded() ?? toAiError(err, opts.signal), ctx.apiKey);
+
+      await tracker.finish(failure(error, opts.signal));
+      throw error;
+    }
+
+    result = this.boundExtras(result);
+
+    await tracker.finish({
+      status: 'succeeded',
+      result,
+      ...(result.durationSeconds !== undefined ? { units: { audioSeconds: result.durationSeconds } } : {}),
+    });
 
     return result;
   }
@@ -1326,10 +1686,11 @@ export class AiService {
 
   private async startSpeechRun(scope: AiClientScope, req: AiSpeakRequest): Promise<AiRunHandle> {
     const orgId = await this.orgOf(scope);
-    const call = await this.prepareSpeech(scope.userId, req, scope.feature, orgId);
+    const userId = this.userOf(scope);
+    const call = await this.prepareSpeech(userId, req, scope.feature, orgId);
 
     return this.runs.create({
-      userId: scope.userId,
+      userId,
       orgId,
       provider: call.provider,
       modelId: call.modelId,
@@ -1572,11 +1933,13 @@ export class AiService {
    *
    * @internal
    */
-  async prepare(userId: string, req: AiRequest, opts: PrepareOptions): Promise<PreparedAiCall> {
+  async prepare(userId: string | null, req: AiRequest, opts: PrepareOptions): Promise<PreparedAiCall> {
     // 1. Kill switch — before anything else is read.
     await this.aiConfig.assertEnabled(opts.orgId);
 
     const feature = this.featureOf(opts.feature);
+
+    this.assertSystemCaller(userId, feature);
     const { provider, model } = await this.resolveTarget(userId, req, { orgId: opts.orgId, feature });
 
     // 2. Provider enabled in settings AND registered in this process.
@@ -1599,6 +1962,13 @@ export class AiService {
     // and an MCP server on an allowed host.
     assertHostedToolShapes(req.tools);
     assertHostedToolsAllowed(req.tools, policy.hostedTools);
+
+    if (userId === null && hostedToolsOf(req.tools).length > 0) {
+      // A hosted tool's output (a generated image) is stored as the user's own object.
+      throw new AiError('AI_INVALID_REQUEST', 'Hosted tools are not available to system calls.', {
+        details: { provider, model, capability: 'hosted_tools' },
+      });
+    }
 
     // 3. Model enabled, capabilities (model AND provider port), key reach.
     const needed = requiredCapabilities(req, opts.streaming);
@@ -1624,7 +1994,15 @@ export class AiService {
     }
 
     // 4b. Storage-object inputs: ownership, readiness, modality, size, strategy.
-    const storageInputs = await this.planStorageInputs(userId, provider, model, usable, req.input, opts.orgId);
+    if (userId === null && storageParts(req.input).length > 0) {
+      // A stored file is authorised by its owner; a system call has none. Pass bytes or a url instead.
+      throw new AiError('AI_INVALID_REQUEST', 'System calls cannot reference storage objects; pass a url or the content.', {
+        details: { provider, model, capability: 'file_input' },
+      });
+    }
+
+    const storageInputs =
+      userId === null ? [] : await this.planStorageInputs(userId, provider, model, usable, req.input, opts.orgId);
 
     // 5. Clamp output tokens: the deployment cap and the model's own
     // `ai.limits.perModel` cap (#450) combine — the smaller wins — and bound
@@ -1665,7 +2043,7 @@ export class AiService {
    * @internal
    */
   async prepareEmbedding(
-    userId: string,
+    userId: string | null,
     req: AiEmbedRequest,
     featureId?: string,
     orgId?: string,
@@ -1683,6 +2061,9 @@ export class AiService {
     }
 
     const feature = this.featureOf(featureId);
+
+    this.assertSystemCaller(userId, feature);
+
     const { provider, model } = await this.resolveTarget(userId, req, { feature });
 
     // 2. Provider enabled in settings AND registered in this process.
@@ -2212,13 +2593,16 @@ export class AiService {
    * operation whose model is never the chat `ai.defaultModel`.
    */
   private async firstUsableModel(
-    userId: string,
+    userId: string | null,
     capability: AiCapability,
     provider?: string,
     orgId?: string,
     operation?: string,
   ): Promise<{ provider: string; model: string }> {
-    const usable = await this.usableModels.listForUser(userId, orgId ? { orgId } : {});
+    const usable =
+      userId === null
+        ? await this.usableModels.listForSystem(orgId ? { orgId } : {})
+        : await this.usableModels.listForUser(userId, orgId ? { orgId } : {});
     const match = usable.find(
       (m) =>
         (provider === undefined || m.provider === provider) &&
@@ -2256,7 +2640,11 @@ export class AiService {
 
     const orgId = await this.orgOf(scope);
     // #739: the org tier needs the call's organization.
-    const { apiKey, keySource, tier } = await this.keyResolver.resolve(scope.userId, call.provider, { orgId });
+    // A system call (no user) is served by the organization's or the deployment's key, never a user's.
+    const { apiKey, keySource, tier } =
+      scope.userId === null
+        ? await this.keyResolver.resolveForSystem(call.provider, { orgId })
+        : await this.keyResolver.resolve(scope.userId, call.provider, { orgId });
     call.keyTier = tier;
 
     // 6b. Rate limits (#450) — here because the org-key limits need to know
@@ -2296,7 +2684,7 @@ export class AiService {
    * and `DefaultAiTargetResolver`). `null` from the resolver is "no model".
    */
   private async resolveTarget(
-    userId: string,
+    userId: string | null,
     req: { provider?: string; model?: string },
     ctx: { orgId?: string; feature?: AiFeatureDefinition } = {},
   ): Promise<{ provider: string; model: string }> {
@@ -2317,6 +2705,23 @@ export class AiService {
     }
 
     return { provider: target.provider, model: target.model };
+  }
+
+  /**
+   * A system call (no acting user) must name a registered feature that opted in
+   * with `systemCalls: true` (checked right after the kill switch). Refused with
+   * `AI_KEY_REQUIRED`: without the opt-in there is no key a system call may use.
+   */
+  private assertSystemCaller(userId: string | null, feature: AiFeatureDefinition | undefined): void {
+    if (userId !== null) return;
+
+    if (!feature?.systemCalls) {
+      throw new AiError(
+        'AI_KEY_REQUIRED',
+        'System AI calls are not enabled for this feature; register it with systemCalls: true.',
+        { details: { ...(feature ? { feature: feature.id } : {}), reason: 'system_calls_not_enabled' } },
+      );
+    }
   }
 
   /** The registered feature a call names, or `undefined`; an unknown id is AI_INVALID_REQUEST. */
@@ -2538,6 +2943,11 @@ function assertTranscriptionShape(req: AiTranscribeRequest): void {
     throw new AiError('AI_INVALID_REQUEST', 'A transcription needs the recording\'s storageObjectId.');
   }
 
+  assertTranscriptionOptions(req);
+}
+
+/** The recording-independent part of a transcription request's shape (shared with the inline form). */
+function assertTranscriptionOptions(req: Omit<AiTranscribeRequest, 'storageObjectId'>): void {
   if (req.language !== undefined && !AI_LANGUAGE_CODE.test(req.language)) {
     throw new AiError('AI_INVALID_REQUEST', 'language must be an ISO-639-1 code such as "en".', {
       details: { language: req.language },
@@ -2592,6 +3002,121 @@ export function assertProviderOptionsShape(options: unknown): void {
       { details: { max: AI_PROVIDER_OPTIONS_MAX_BYTES } },
     );
   }
+}
+
+/** A MIME type (parameters such as `;codecs=opus` ignored) against an allow-list that may use `type/*`. */
+function mimeAllowed(mimeType: string, allowed: readonly string[]): boolean {
+  const base = mimeType.split(';')[0].trim().toLowerCase();
+
+  return allowed.some((pattern) =>
+    pattern.endsWith('/*') ? base.startsWith(pattern.slice(0, -1)) && base.length > pattern.length - 1 : base === pattern,
+  );
+}
+
+/** The bytes of an inline payload, copied by reference into the named fields the adapter takes. */
+function inlinePayload(payload: AiBinaryPayload): AiBinaryPayload {
+  return {
+    data: payload.data,
+    mimeType: payload.mimeType,
+    ...(payload.filename !== undefined ? { filename: payload.filename } : {}),
+  };
+}
+
+/**
+ * An inline edit's images and mask, checked before any gate reads a table: 1
+ * to `AI_IMAGE_EDIT_MAX_INPUTS` non-empty images of an allowed type and at
+ * most `AI_IMAGE_INPUT_MAX_BYTES` each; a PNG mask within the same size.
+ * Errors name the index and the limit, never the bytes.
+ */
+function assertInlineImages(req: AiEditImageInlineRequest): void {
+  const { images, mask } = req;
+
+  if (!Array.isArray(images) || images.length === 0 || images.length > AI_IMAGE_EDIT_MAX_INPUTS) {
+    throw new AiError(
+      'AI_INVALID_REQUEST',
+      `An image edit needs 1 to ${AI_IMAGE_EDIT_MAX_INPUTS} source images.`,
+      { details: { max: AI_IMAGE_EDIT_MAX_INPUTS } },
+    );
+  }
+
+  const check = (payload: AiBinaryPayload | undefined, label: string, allowed: readonly string[], index?: number) => {
+    const where = index === undefined ? {} : { index };
+
+    if (
+      !payload ||
+      !(payload.data instanceof Uint8Array) ||
+      payload.data.byteLength === 0 ||
+      typeof payload.mimeType !== 'string'
+    ) {
+      throw new AiError('AI_INVALID_REQUEST', `The ${label} must be non-empty bytes with a MIME type.`, { details: where });
+    }
+
+    if (!mimeAllowed(payload.mimeType, allowed)) {
+      throw new AiError('AI_INVALID_REQUEST', `The ${label} must be ${allowed.join(', ')}.`, {
+        details: { ...where, mimeType: payload.mimeType },
+      });
+    }
+
+    if (payload.data.byteLength > AI_IMAGE_INPUT_MAX_BYTES) {
+      throw new AiError('AI_INVALID_REQUEST', `The ${label} is larger than ${AI_IMAGE_INPUT_MAX_BYTES} bytes.`, {
+        details: { ...where, size: payload.data.byteLength, maxBytes: AI_IMAGE_INPUT_MAX_BYTES },
+      });
+    }
+  };
+
+  images.forEach((image, index) => check(image, 'image', AI_IMAGE_INPUT_MIME_TYPES, index));
+
+  if (mask !== undefined) check(mask, 'mask', AI_IMAGE_MASK_MIME_TYPES);
+}
+
+/**
+ * An inline recording within `maxBytes`: bytes are checked now; a stream is
+ * refused now when it declares a larger `size`, and otherwise counted as it is
+ * sent and cut off past the cap (`exceeded()` then names the cause, as for a
+ * stored recording that outgrows its row).
+ */
+function capInlineAudio(
+  audio: AiMediaInput,
+  maxBytes: number,
+): { audio: AiMediaInput; exceeded(): AiError | undefined } {
+  const tooLarge = (size: number): AiError =>
+    new AiError('AI_INVALID_REQUEST', `The audio is larger than ${maxBytes} bytes (${maxBytes / 1024 / 1024} MiB).`, {
+      details: { size, maxBytes },
+    });
+
+  if (!('stream' in audio) || audio.stream === undefined) {
+    const bytes = audio as AiBinaryPayload;
+
+    if (!(bytes.data instanceof Uint8Array) || bytes.data.byteLength === 0) {
+      throw new AiError('AI_INVALID_REQUEST', 'The audio must be non-empty bytes.');
+    }
+
+    if (bytes.data.byteLength > maxBytes) throw tooLarge(bytes.data.byteLength);
+
+    return { audio: bytes, exceeded: () => undefined };
+  }
+
+  if (audio.size !== undefined && audio.size > maxBytes) throw tooLarge(audio.size);
+
+  let seen = 0;
+  let overflow: AiError | undefined;
+  const source = audio.stream;
+  const counted: AsyncIterable<Uint8Array> = {
+    async *[Symbol.asyncIterator]() {
+      for await (const chunk of source) {
+        seen += chunk.byteLength;
+
+        if (seen > maxBytes) {
+          overflow = tooLarge(seen);
+          throw overflow;
+        }
+
+        yield chunk;
+      }
+    },
+  };
+
+  return { audio: { ...audio, stream: counted }, exceeded: () => overflow };
 }
 
 /** The optional, provider-facing fields of a transcription request (named fields only). */

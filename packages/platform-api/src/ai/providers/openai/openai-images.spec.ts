@@ -229,6 +229,19 @@ describe('OpenAI images port', () => {
       expect(body.quality).toBeUndefined();
     });
 
+    it('passes providerOptions.openai (input_fidelity) through to an edit, beside the port’s own quality and size', async () => {
+      const body = await toOpenAiImageEditRequest({
+        model: 'gpt-image-1',
+        prompt: 'p',
+        quality: 'high',
+        size: '1536x1024',
+        images: [{ data: PNG, mimeType: 'image/jpeg' }],
+        providerOptions: { openai: { input_fidelity: 'high' } },
+      });
+
+      expect(body).toMatchObject({ input_fidelity: 'high', quality: 'high', size: '1536x1024' });
+    });
+
     it('refuses an edit with no source image before any request is made', async () => {
       const { adapter, ctx, server } = setup();
 

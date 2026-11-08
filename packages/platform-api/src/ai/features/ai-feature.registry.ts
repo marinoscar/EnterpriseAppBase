@@ -49,6 +49,13 @@ export interface AiFeatureDefinition {
   readonly requiresHostedTools?: readonly string[];
   /** The reasoning effort the feature defaults to, when it has one. */
   readonly defaultEffort?: string | null;
+  /**
+   * Opt in to system calls: `AiService.forSystem({ feature })` is refused
+   * (`AI_KEY_REQUIRED`) unless the feature sets this. A system call has no
+   * acting user and is served by the organization's or the deployment's key
+   * only, so a feature that promises "AI keys are per user" simply never sets it.
+   */
+  readonly systemCalls?: boolean;
 }
 
 /**
@@ -73,6 +80,9 @@ export const aiFeatureRegistry: Registry<AiFeatureDefinition> = defineRegistry<A
       if (!(AI_INPUT_MODALITIES as readonly string[]).includes(modality)) {
         throw new Error(`unknown input modality "${String(modality)}"`);
       }
+    }
+    if (def.systemCalls !== undefined && typeof def.systemCalls !== 'boolean') {
+      throw new Error('systemCalls must be a boolean');
     }
     if (def.providers !== undefined && def.providers !== null && def.providers.length === 0) {
       throw new Error('providers must be null (any) or name at least one provider');

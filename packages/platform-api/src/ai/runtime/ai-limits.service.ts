@@ -117,7 +117,8 @@ export type AiLimitName =
  * @internal
  */
 export interface AiLimitCall {
-  userId: string;
+  /** The acting user; `null` for a system call, which only the per-organization windows govern. */
+  userId: string | null;
   /** The organization whose usage rows are counted (`ai_usage_events` is under row-level security, #725). */
   orgId: string;
   provider: string;
@@ -256,6 +257,10 @@ export class AiLimitsService {
 
   private minuteWindows(limits: SystemAiLimitsValue | undefined, call: AiLimitCall): MinuteWindow[] {
     const windows: MinuteWindow[] = [];
+
+    // Per-user windows have no subject for a system call.
+    if (call.userId === null) return windows;
+
     const perUser = limits?.perUser?.requestsPerMinute;
     const perModel = modelLimits(limits, call.provider, call.modelId)?.requestsPerMinutePerUser;
 
@@ -277,7 +282,7 @@ export class AiLimitsService {
 
   private async checkMinuteInDatabase(window: MinuteWindow, call: AiLimitCall, now: number): Promise<void> {
     const where = {
-      userId: call.userId,
+      userId: call.userId as string,
       keySource: { in: COUNTED_KEY_SOURCES },
       // Strictly after: a call exactly a minute old has just left the window,
       // the same boundary the local log and `retryAfterMs` use.
@@ -348,7 +353,7 @@ export class AiLimitsService {
     const where = {
       // A per-org window counts every member's calls: the row-level-security
       // scope (`forOrg`) already confines the count to this organization.
-      ...(window.wholeOrg ? { orgId: call.orgId } : { userId: call.userId }),
+      ...(window.wholeOrg ? { orgId: call.orgId } : { userId: call.userId as string }),
       keySource: window.orgOnly ? 'org' : { in: COUNTED_KEY_SOURCES },
       createdAt: { gte: new Date(utcMidnight(now)) },
     };
@@ -408,12 +413,14 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 function dayWindows(limits: SystemAiLimitsValue | undefined, call: AiLimitCall): DayWindow[] {
   const windows: DayWindow[] = [];
   const perDay = limits?.perUser?.requestsPerDay;
+  // A system call has no user: only the per-organization budget below applies.
+  const forUser = call.userId !== null;
 
-  if (perDay !== undefined) {
+  if (forUser && perDay !== undefined) {
     windows.push({ name: 'perUser.requestsPerDay', max: perDay, orgOnly: false, tokens: false });
   }
 
-  if (call.keySource === 'org') {
+  if (forUser && call.keySource === 'org') {
     const requests = limits?.orgKey?.requestsPerDayPerUser;
     const tokens = limits?.orgKey?.tokensPerDayPerUser;
 

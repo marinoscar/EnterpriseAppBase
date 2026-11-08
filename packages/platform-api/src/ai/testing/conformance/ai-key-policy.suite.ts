@@ -59,6 +59,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { AI_KEYLESS_API_KEY } from '../../core/provider-adapter.interface';
+import { getAiFeature, registerAiFeature } from '../../features/ai-feature.registry';
 import { JobHandlerRegistry } from '../../../jobs/index';
 import type { ConformanceAppSuite } from '../../../testing/index';
 import {
@@ -120,10 +121,21 @@ const IMAGE_BODY = { model: HARNESS_IMAGE_MODEL, prompt: 'a lighthouse' };
 const recordingFor = (app: AiConformanceApp) =>
   app.harness.storage.addObject({ uploadedById: HARNESS_USER, mimeType: 'audio/mpeg', bytes: Buffer.alloc(1200, 1) });
 const SPEECH_BODY = { input: 'hello there', model: HARNESS_SPEECH_MODEL };
+// The suite's own system-call features (`AiService.forSystem`): one that opted in, one that did not.
+const SYSTEM_FEATURE = 'conformance_system_calls';
+const NO_SYSTEM_FEATURE = 'conformance_no_system_calls';
 const IMAGE_REQUEST = { operation: 'images.generate', provider: 'openai', model: HARNESS_IMAGE_MODEL, prompt: 'a lighthouse' };
 
 function register(options: AiKeyPolicyOptions): void {
   const { fixture } = options;
+
+  if (!getAiFeature(SYSTEM_FEATURE)) {
+    registerAiFeature({ id: SYSTEM_FEATURE, label: 'Conformance system calls', needs: ['responses'], systemCalls: true });
+  }
+
+  if (!getAiFeature(NO_SYSTEM_FEATURE)) {
+    registerAiFeature({ id: NO_SYSTEM_FEATURE, label: 'Conformance user-only feature', needs: ['responses'] });
+  }
 
 describe('AI key policy invariant — admin key never spent on a user’s own inference (#435)', () => {
   let app: AiConformanceApp;
@@ -144,6 +156,71 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
     app.reset();
     const holder = await fixture.createUser(app.context, { id: HARNESS_USER, roleName: 'contributor' });
     holderToken = holder.accessToken;
+  });
+
+  describe('system callers (AiService.forSystem): never a user key', () => {
+    const systemRespond = (feature = SYSTEM_FEATURE) =>
+      app.harness.ai.forSystem({ orgId: fixture.defaultOrgId, feature }).respond(BODY);
+
+    beforeEach(() => {
+      app.harness.setTenantKey(fixture.defaultOrgId, null);
+      app.harness.setOrgKey(null);
+      app.harness.addUserKey(HARNESS_USER, HARNESS_USER_KEY, ['fake-model']); // present, and must be ignored
+    });
+
+    it.each(['byok', 'byok_with_org_fallback'] as const)(
+      'with only a user key stored, %s refuses with AI_KEY_REQUIRED and the user key is never handed to the fake',
+      async (keyPolicy) => {
+        app.harness.setPolicy({ keyPolicy });
+
+        await expect(systemRespond()).rejects.toMatchObject({ code: 'AI_KEY_REQUIRED' });
+        expect(app.harness.fake.calls).toEqual([]);
+        expect(keysSeenBy(app.harness.fake, [HARNESS_USER_KEY])).toEqual([]);
+      },
+    );
+
+    it.each(['byok', 'byok_with_org_fallback'] as const)(
+      'with a deployment key stored, %s serves it (keySource org, userId null) and still never the user key',
+      async (keyPolicy) => {
+        app.harness.setPolicy({ keyPolicy });
+        app.harness.setOrgKey(HARNESS_ORG_KEY);
+
+        await systemRespond();
+
+        expect(app.harness.fake.apiKeys).toEqual([HARNESS_ORG_KEY]);
+        expect(app.harness.usageEvents).toEqual([
+          expect.objectContaining({ userId: null, keySource: 'org', feature: SYSTEM_FEATURE }),
+        ]);
+      },
+    );
+
+    it('the organization’s own key wins over the deployment’s', async () => {
+      app.harness.setOrgKey(HARNESS_ORG_KEY);
+      app.harness.setTenantKey(fixture.defaultOrgId, HARNESS_TENANT_KEY);
+
+      await systemRespond();
+
+      expect(app.harness.fake.apiKeys).toEqual([HARNESS_TENANT_KEY]);
+    });
+
+    it('a feature that did not register systemCalls is refused with AI_KEY_REQUIRED even with every key stored', async () => {
+      app.harness.setOrgKey(HARNESS_ORG_KEY);
+      app.harness.setTenantKey(fixture.defaultOrgId, HARNESS_TENANT_KEY);
+
+      await expect(systemRespond(NO_SYSTEM_FEATURE)).rejects.toMatchObject({ code: 'AI_KEY_REQUIRED' });
+      expect(app.harness.fake.calls).toEqual([]);
+    });
+
+    it('is refused under the platform kill switch and the organization kill switch', async () => {
+      app.harness.setOrgKey(HARNESS_ORG_KEY);
+      app.harness.setPolicy({ enabled: false });
+      await expect(systemRespond()).rejects.toMatchObject({ code: 'AI_DISABLED' });
+
+      app.harness.setPolicy({ enabled: true });
+      app.harness.setOrgPolicy(fixture.defaultOrgId, { enabled: false });
+      await expect(systemRespond()).rejects.toMatchObject({ code: 'AI_DISABLED' });
+      expect(app.harness.fake.calls).toEqual([]);
+    });
   });
 
   describe('byok, caller has no key', () => {

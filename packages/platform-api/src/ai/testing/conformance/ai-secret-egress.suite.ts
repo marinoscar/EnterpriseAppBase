@@ -70,6 +70,8 @@ import { AiConfigService } from '../../config/ai-config.service';
 import { AiProviderRegistry } from '../../core/provider-registry';
 import { aiUsageReportSchema } from '../../usage/dto/ai-usage.dto';
 import { AI_KEYLESS_API_KEY } from '../../core/provider-adapter.interface';
+import { AiError } from '../../core/ai-error';
+import { getAiFeature, registerAiFeature } from '../../features/ai-feature.registry';
 import {
   aiConfigResponseSchema,
   aiEmbeddingsResponseSchema,
@@ -177,8 +179,20 @@ function assertNoLeak(label: string, haystack: string): void {
   expect(leaked).toEqual([]);
 }
 
+/** The suite's own opted-in feature for system calls (`AiService.forSystem`). */
+const EGRESS_SYSTEM_FEATURE = 'conformance_egress_system_calls';
+const EGRESS_SYSTEM_IMAGE_FEATURE = 'conformance_egress_system_image';
+
 function register(options: AiSecretEgressOptions): void {
   const { fixture } = options;
+
+  if (!getAiFeature(EGRESS_SYSTEM_FEATURE)) {
+    registerAiFeature({ id: EGRESS_SYSTEM_FEATURE, label: 'Conformance egress system calls', needs: ['responses'], systemCalls: true });
+  }
+
+  if (!getAiFeature(EGRESS_SYSTEM_IMAGE_FEATURE)) {
+    registerAiFeature({ id: EGRESS_SYSTEM_IMAGE_FEATURE, label: 'Conformance egress system image', needs: ['image_edit'], systemCalls: true });
+  }
 
 describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
   // ---- consumer-side context (the #433 HTTP harness) -------------------------
@@ -892,6 +906,63 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
 
     it('captured Nest/Pino log output carries no sentinel', () => {
       assertNoLeak('log output', logLines.join('\n'));
+    });
+  });
+
+  describe('inline media and system callers: bytes in, result inline, no key anywhere', () => {
+    const IMAGE = { data: new Uint8Array([1, 2, 3]), mimeType: 'image/png' };
+    const AUDIO = { data: new Uint8Array(Buffer.alloc(800, 3)), mimeType: 'audio/mpeg' };
+
+    it('editImageInline / transcribeInline: no sentinel in the result, usage rows, stored runs or log output', async () => {
+      const client = app.harness.ai.forUser(HARNESS_USER, { orgId: fixture.defaultOrgId });
+      const image = await client.editImageInline({ model: HARNESS_IMAGE_MODEL, prompt: 'tidy', images: [IMAGE] });
+      const transcript = await client.transcribeInline({ model: HARNESS_TRANSCRIPTION_MODEL, audio: AUDIO });
+
+      assertNoLeak('editImageInline result', JSON.stringify({ ...image, images: image.images.map((i) => i.mimeType) }));
+      assertNoLeak('transcribeInline result', JSON.stringify(transcript));
+      assertNoLeak('ai_usage_events (inline)', JSON.stringify(app.harness.usageEvents));
+      assertNoLeak('ai_runs (inline)', JSON.stringify(app.harness.runRows));
+      assertNoLeak('log output (inline)', logLines.join('\n'));
+      expect(app.harness.usageEvents).toHaveLength(2);
+    });
+
+    it('an inline call the provider fails with an error echoing the key surfaces no key and records none', async () => {
+      const client = app.harness.ai.forUser(HARNESS_USER, { orgId: fixture.defaultOrgId });
+      const port = app.harness.fake.images!;
+      const original = port.edit;
+
+      port.edit = async (_req, ctx) => {
+        throw new AiError('AI_PROVIDER_UNAVAILABLE', `upstream rejected ${ctx.apiKey}`);
+      };
+
+      try {
+        const err = await client
+          .editImageInline({ model: HARNESS_IMAGE_MODEL, prompt: 'tidy', images: [IMAGE] })
+          .then(() => new Error('expected a rejection'), (e: unknown) => e as AiError);
+
+        assertNoLeak('inline error', JSON.stringify({ message: err.message, body: err instanceof AiError ? err.toJSON() : null }));
+        assertNoLeak('ai_usage_events (failed inline)', JSON.stringify(app.harness.usageEvents));
+        assertNoLeak('log output (failed inline)', logLines.join('\n'));
+      } finally {
+        port.edit = original;
+      }
+    });
+
+    it('forSystem calls: the key reaches the provider and nothing else (usage rows carry userId null, no key)', async () => {
+      app.harness.setOrgKey(HARNESS_ORG_KEY);
+
+      const system = app.harness.ai.forSystem({ orgId: fixture.defaultOrgId, feature: EGRESS_SYSTEM_FEATURE });
+      const response = await system.respond({ model: HARNESS_MODEL, input: 'hello' });
+      const image = await app.harness.ai
+        .forSystem({ orgId: fixture.defaultOrgId, feature: EGRESS_SYSTEM_IMAGE_FEATURE })
+        .editImageInline({ model: HARNESS_IMAGE_MODEL, prompt: 'tidy', images: [IMAGE] });
+
+      expect(app.harness.fake.apiKeys).toEqual([HARNESS_ORG_KEY]);
+      assertNoLeak('forSystem response', JSON.stringify(response));
+      assertNoLeak('forSystem image', JSON.stringify(image.images.map((i) => i.mimeType)));
+      assertNoLeak('ai_usage_events (system)', JSON.stringify(app.harness.usageEvents));
+      assertNoLeak('log output (system)', logLines.join('\n'));
+      expect(app.harness.usageEvents.every((row) => row.userId === null)).toBe(true);
     });
   });
 

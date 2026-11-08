@@ -49,8 +49,8 @@ export const AI_TARGET_RESOLVER: unique symbol = Symbol.for('@marinoscar/platfor
  * @stability experimental
  */
 export interface AiTargetContext {
-  /** The caller. */
-  readonly userId: string;
+  /** The caller; `null` for a system call (`AiService.forSystem`), which has no per-user default model. */
+  readonly userId: string | null;
   /** The organization the call runs in, when already known. */
   readonly orgId?: string;
   /** The registered feature the call is made for (`registerAiFeature`), when the caller named one. */
@@ -141,9 +141,10 @@ export class DefaultAiTargetResolver implements AiTargetResolver {
    * through `UserSettingsService.getSettings`, which creates a row when none
    * exists (see `NotificationsService.loadRecipient` for the full argument).
    */
-  private async defaultModel(userId: string): Promise<{ provider: string; modelId: string } | null> {
+  private async defaultModel(userId: string | null): Promise<{ provider: string; modelId: string } | null> {
     // `AiModule.forRoot({ perUserDefaultModel: false })` (#739): not offered.
-    if (!this.options.perUserDefaultModel) return null;
+    // A system call has no user, so no user default.
+    if (!this.options.perUserDefaultModel || userId === null) return null;
 
     const row = await this.prisma.userSettings.findUnique({
       where: { userId },
