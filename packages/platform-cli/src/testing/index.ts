@@ -3,7 +3,13 @@
 export {
   PLATFORM_DOCUMENTED_OPTIONAL_KEYS,
   TEST_CLI_IDENTITY,
+  TUI_CONFORMANCE_CHECKS,
+  checkDashboardReducer,
   checkExecutorCredentialHygiene,
+  checkTuiLabels,
+  checkTuiLazy,
+  checkTuiMenu,
+  checkTuiNoInkImport,
   cliConformanceSuites,
   commentedAssignments,
   composeEnvSpecs,
@@ -26,4 +32,7 @@ export type {
   DeployRegistrationsConformanceOptions,
   CredentialHygieneReport,
   EnvTemplateFragment,
+  TuiConformanceCheck,
+  TuiConformanceOptions,
+  TuiDashboardCheck,
 } from '../engine/index.js';
