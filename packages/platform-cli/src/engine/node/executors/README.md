@@ -70,7 +70,7 @@ Beyond `registerProbedBinary`, an executor's needs can name `module:<name>` and
 step (`registerInstallStep`). Each is a one-call registry in
 `@marinoscar/platform-cli/node`; the signatures and examples are in the
 [package README](../../../node/README.md#extension-point-catalog) and the
-operator view is in [Running worker nodes](../../../../../docs/runbooks/run-worker-nodes.md).
+operator view is in [Running worker nodes](../../../../../../docs/runbooks/run-worker-nodes.md).
 
 ## Three rules worth stating
 
