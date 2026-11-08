@@ -23,6 +23,8 @@ import { defineRegistry } from '../../core/index';
 import { SETTINGS_SECRET_FIELD_NAMES, secretFieldMessage } from './secret-fields';
 import { findDefaultPaths, findSecretFieldPaths, isZodSchema } from './schema-walk';
 import type { SystemSettingsNamespaces } from '../index';
+import type { SettingsTx } from '../data/settings-db';
+import type { SettingsWriteContext } from '../write-hooks';
 
 /**
  * Helpers `SystemSettingsService` lends to a namespace's {@link SystemSettingsNamespace.read}.
@@ -103,6 +105,13 @@ export interface SystemSettingsNamespace<K extends string = string, V = unknown,
    * the caller could mutate.
    */
   merge(current: V, patch: P | undefined): V;
+  /**
+   * Work that must commit or roll back WITH the write of this namespace
+   * (issues #1090, #1105): runs inside the write's transaction, after the row
+   * is written and before commit, when the namespace's stored value changed
+   * (PUT and PATCH alike). A throw rolls the write back. See `write-hooks.ts`.
+   */
+  onWrite?(tx: SettingsTx, context: SettingsWriteContext<V>): Promise<void>;
   /**
    * The org layer (issue #733): the fields an organization may set for itself
    * and how they combine with the system value. Absent means the namespace is
@@ -228,6 +237,7 @@ function validateSystemNamespace(ns: SystemSettingsNamespace): void {
   if (ns.defaults === undefined) throw new Error('defaults is required');
   if (typeof ns.requiredOnPut !== 'boolean') throw new Error('requiredOnPut must be a boolean');
   if (typeof ns.merge !== 'function') throw new Error('merge is required');
+  if (ns.onWrite !== undefined && typeof ns.onWrite !== 'function') throw new Error('onWrite must be a function');
   if (ns.read !== undefined && typeof ns.read !== 'function') throw new Error('read must be a function');
   if (ns.read === undefined && !(ns.storedSchema instanceof z.ZodObject)) {
     throw new Error('storedSchema must be a z.object unless the namespace declares its own read');

@@ -158,6 +158,32 @@ export interface SettingsPrisma {
   user: SettingsDelegate<SettingsUserRow>;
   /** `audit_events`: the settings audit trail. */
   auditEvent: SettingsDelegate<SettingsIdRow>;
+  /**
+   * Prisma's interactive transaction: the write path of a namespace that
+   * declares an `onWrite` hook runs in one (the plain write path does not).
+   */
+  $transaction<T>(fn: (tx: SettingsTx) => Promise<T>, options?: { maxWait?: number; timeout?: number }): Promise<T>;
+}
+
+/**
+ * The client inside a settings write's transaction, as an `onWrite` hook gets
+ * it: the settings delegates plus the tagged-template `$executeRaw` a hook uses
+ * to write another slice's table in the same transaction (a hook casts it to
+ * its own structural type, the way the notifications slice does).
+ *
+ * @stability experimental
+ */
+export interface SettingsTx {
+  /** `system_settings`. */
+  systemSettings: SettingsDelegate<SettingsSystemSettingsRow>;
+  /** `user_settings`. */
+  userSettings: SettingsDelegate<SettingsUserSettingsRow>;
+  /** `users`. */
+  user: SettingsDelegate<SettingsUserRow>;
+  /** `audit_events`. */
+  auditEvent: SettingsDelegate<SettingsIdRow>;
+  /** Prisma's tagged-template `$executeRaw`; resolves the number of rows touched. */
+  $executeRaw(query: TemplateStringsArray, ...values: unknown[]): Promise<number>;
 }
 
 /**

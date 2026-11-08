@@ -11,6 +11,7 @@ import type { ThemeOption, ThemePreference, UserProfileSettingsValue } from '@ma
 import { PLATFORM_PRISMA } from '../../core/index';
 import { PrincipalCache } from '../../identity/index';
 import type { SettingsPrisma, SettingsUserSettingsRow } from '../data/settings-db';
+import { pendingWriteHooks } from '../write-hooks';
 import { SETTINGS_PROFILE_IMAGES, type NormalizedProfileSettings, type SettingsProfileImages } from '../ports';
 import type { UserProfileSettingsExtensions } from '../index';
 import {
@@ -275,17 +276,19 @@ export class UserSettingsService {
     await this.assertProfileImageReference(userId, previousProfile, nextProfile);
     validated.profile = nextProfile;
 
-    const settings = await this.prisma.userSettings.upsert({
-      where: { userId },
-      update: {
-        value: validated as never,
-        version: { increment: 1 },
-      },
-      create: {
-        userId,
-        value: validated as never,
-      },
-    });
+    const settings = await this.writeWithHooks(userId, stored?.value, validated, (db) =>
+      db.userSettings.upsert({
+        where: { userId },
+        update: {
+          value: validated as never,
+          version: { increment: 1 },
+        },
+        create: {
+          userId,
+          value: validated as never,
+        },
+      }),
+    );
 
     // Sync display name to user table if provided
     if (validated.profile.displayName !== undefined) {
@@ -376,13 +379,15 @@ export class UserSettingsService {
     // round-trips through GET. See the note in replaceSettings.
     const validated = currentUserSettingsSchema().parse(merged);
 
-    const settings = await this.prisma.userSettings.update({
-      where: { userId },
-      data: {
-        value: validated as never,
-        version: { increment: 1 },
-      },
-    });
+    const settings = await this.writeWithHooks(userId, current, validated, (db) =>
+      db.userSettings.update({
+        where: { userId },
+        data: {
+          value: validated as never,
+          version: { increment: 1 },
+        },
+      }),
+    );
 
     // Sync display name to user table if changed
     if (dto.profile?.displayName !== undefined) {
@@ -394,6 +399,29 @@ export class UserSettingsService {
     const value = settings.value as unknown as UserSettingsValue;
 
     return this.toResponse(value, settings.updatedAt, settings.version);
+  }
+
+  /**
+   * Writes the settings row, and runs the `onWrite` hooks of the namespaces
+   * whose value changed (issues #1090, #1105) in the SAME transaction, after
+   * the row and before commit: a hook that throws rolls the write back.
+   *
+   * With no hook to run (the common save) this is the plain single write it
+   * always was, with no transaction opened.
+   */
+  private async writeWithHooks<R>(
+    userId: string,
+    before: unknown,
+    after: unknown,
+    write: (db: Pick<SettingsPrisma, 'userSettings'>) => Promise<R>,
+  ): Promise<R> {
+    const steps = pendingWriteHooks(namespaces(), before, after, 'user', userId);
+    if (steps.length === 0) return write(this.prisma);
+    return this.prisma.$transaction(async (tx) => {
+      const row = await write(tx);
+      for (const step of steps) await step(tx);
+      return row;
+    });
   }
 
   // ---------------------------------------------------------------------------

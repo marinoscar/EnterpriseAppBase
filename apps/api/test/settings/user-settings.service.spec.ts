@@ -32,6 +32,9 @@ describe('UserSettingsService', () => {
 
   beforeEach(async () => {
     mockPrisma = createMockPrismaService();
+    // A write that changes the `notifications` namespace runs its `onWrite`
+    // hook in a transaction (#1090); here the transaction client is the mock.
+    mockPrisma.$transaction.mockImplementation(((fn: (tx: unknown) => unknown) => fn(mockPrisma)) as never);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
