@@ -1,23 +1,51 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
-import { RequestUser } from '../interfaces/authenticated-user.interface';
+import {
+  AuthenticatedUser,
+  RequestUser,
+  toRequestUser,
+} from '../interfaces/authenticated-user.interface';
 
 /**
- * Extended Fastify request with user property
+ * The request fields `@CurrentUser()` reads: `requestUser` (the simplified
+ * user `PermissionsGuard`/`RolesGuard` set) and `user` (the full graph the
+ * credential strategy loaded).
  */
 interface FastifyRequestWithUser {
-  user?: RequestUser;
+  user?: AuthenticatedUser;
   requestUser?: RequestUser;
 }
 
 /**
- * Decorator to extract the current authenticated user from the request
+ * The caller as a {@link RequestUser}, whatever guards ran (issue #1103).
  *
- * The decorator can extract properties from either `request.requestUser` (simplified user
- * set by guards) or `request.user` (full authenticated user from JWT strategy).
+ * `request.requestUser` is set only by a guard that checks roles or
+ * permissions, so on a bare `@Auth()` route it is absent and `request.user`
+ * is the raw user graph. This converts that graph with `toRequestUser` (and
+ * remembers the result on the request) instead of leaking it.
+ *
+ * @param request - the Fastify request, or anything shaped like one.
+ * @returns the request user, or `undefined` on a public route.
+ *
+ * @stability stable
+ */
+export function requestUserOf(request: FastifyRequestWithUser | undefined): RequestUser | undefined {
+  if (!request) return undefined;
+  if (request.requestUser) return request.requestUser;
+  if (!request.user) return undefined;
+  request.requestUser = toRequestUser(request.user);
+  return request.requestUser;
+}
+
+/**
+ * Decorator to extract the current authenticated user from the request.
+ *
+ * It always yields a {@link RequestUser} (`id`, `email`, `roles`,
+ * `permissions`, `isActive`, `activeOrgId`), never the raw user graph, on
+ * every `@Auth()` route including one with no permission list.
  *
  * @example
  * ```typescript
- * // Get full user object
+ * // Get the request user
  * @Get('profile')
  * getProfile(@CurrentUser() user: RequestUser) {
  *   return user;
@@ -34,8 +62,7 @@ interface FastifyRequestWithUser {
  */
 export const CurrentUser = createParamDecorator(
   (data: keyof RequestUser | undefined, ctx: ExecutionContext) => {
-    const request = ctx.switchToHttp().getRequest<FastifyRequestWithUser>();
-    const user = request.requestUser || request.user;
+    const user = requestUserOf(ctx.switchToHttp().getRequest<FastifyRequestWithUser>());
 
     return data ? user?.[data] : user;
   },
