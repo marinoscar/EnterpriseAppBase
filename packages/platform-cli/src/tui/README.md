@@ -71,6 +71,37 @@ createCli({ ...APP_CLI_OPTIONS, tuiScreens: [aboutScreen] });
 
 Navigation: `nav.push(route, params?)` opens a registered screen on top, `nav.pop()` goes back (a no-op on the menu), `nav.toMenu(sectionId?)` clears the stack, `nav.current` and `nav.depth` describe it. `onDone` is `nav.pop()`. Only the top frame is mounted: a screen below it receives no keys and its effect cleanups have run, and it remounts with the same `params` when you come back (keep state that must survive in `params`, an app state loader or a selection, not in component state).
 
+### The menu tree (RETRO-G1.1)
+
+`registerTuiMenuNode` (or `createCli({ tuiMenu })`) puts screens in a tree. A **section** is a submenu; an **entry** opens a registered screen from inside one. A screen no entry opens stays at the root with its own `label` and `order` (visible when logged out, no login gate), so an app that never registers a node sees exactly the menu it always had. A screen an entry opens leaves the root list: it appears once.
+
+```ts
+registerTuiScreen({ route: 'node-dashboard', label: 'Dashboard', order: 10, load: async () => (await import('./node-dashboard.screen.js')).NodeDashboard });
+registerTuiMenuNode({ kind: 'section', id: 'node', label: 'Worker node', order: 40 });
+registerTuiMenuNode({ kind: 'entry', id: 'node-dashboard', parent: 'node', route: 'node-dashboard', label: 'Dashboard', order: 10 });
+registerTuiMenuNode({ kind: 'section', id: 'settings', label: 'Settings', order: 45 });
+registerTuiMenuNode({ kind: 'entry', id: 'factory-reset', parent: 'settings', route: 'factory-reset', label: 'Factory reset', order: 90, color: 'red', ellipsis: true });
+```
+
+| Field | On | Meaning |
+|---|---|---|
+| `id` | both | Unique across sections and entries, `[a-z][a-z0-9-]*`; `root` is reserved |
+| `parent` | both | The section it sits in; default `root` |
+| `label`, `order` | both | Text (or a function of `{ loggedIn }`); position among siblings, ties by id |
+| `subtitle` | section | Shown under the breadcrumb instead of the default hint |
+| `route` | entry | A registered screen route (built-in or `registerTuiScreen`) |
+| `ellipsis` | entry | Opens a further input step; drawn with a trailing `…` |
+| `loggedOut` | both | Visible when logged out. Omitted: inherited from the nearest ancestor that sets it (default hidden); an explicit `false` opts one child out |
+| `hideWhenLoggedIn` | both | Hidden once logged in |
+| `color` | both | A theme token (`error`, `success`, ...) or a colour name (`red` maps to `theme.error`); presentation only, off under `NO_COLOR` |
+| `requiresLogin` | entry | Opening the screen while logged out shows the shared notice (`[l] login  [q/Esc] back`) instead; default true unless the entry is visible when logged out |
+
+`parent` and `route` are checked when `createCli` builds the CLI, so registration order is free. A bad node throws there and names its id: unknown parent, a parent that is an entry, unknown route, a cycle, or more than 4 nested sections. A section with no visible entry is hidden.
+
+Keys: Enter opens the highlighted line, Esc goes up one level (nothing at the root), `q` quits from the root only, `1`-`9` jump to the nth line. The digits are drawn (`1. Label`) only once the app registers a node, so a flat menu looks as it did. The header shows `Home › Worker node`. A screen opened from a section returns to that section.
+
+The pure helpers behind `menu.tsx`, for an app's own renderer and for tests: `buildTuiMenuTree(nodes, screens)`, `visibleTuiMenuChildren(sectionId, context, tree?)`, `tuiMenuItemLabel(node, position?, context?)` (the only place the `▸` chevron, the `…` suffix and the accelerator are added), `tuiBreadcrumb(sectionId, context?, tree?)`, `tuiParentSectionId`, `tuiRouteRequiresLogin(route, tree?)` and `tuiMenuColor(theme, color)`. Called without a tree they build one from the registry, with built-in labels unresolved (their route stands in); pass a tree built from the real screens for display. The login gate is presentation only; every call a screen makes is still authorised by the server.
+
 ## Extension-point catalog
 
 The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
@@ -78,6 +109,7 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `registerTuiScreen` | registry | `registerTuiScreen(screen: TuiScreenRegistration): void` | Add an app screen to the TUI menu (EvoPath's Android release screen) | experimental | [example](../../../../apps/cli/src/examples/about.tui.ts) |
+| `registerTuiMenuNode` | registry | `registerTuiMenuNode(node: TuiMenuNode): void` | Place screens in a nested menu: sections with breadcrumbs, a logged-out cascade, colours and accelerators (MemoriaHub's Worker node and Settings submenus) | experimental | [example](../../../../apps/cli/src/examples/nested-menu.tui.ts) |
 | `registerTuiSelection` | registry | `registerTuiSelection<T>(selection: TuiSelectionRegistration<T>): void` | Show the thing the app works inside of (an active project) as a header chip, readable on every screen with `useTuiSelection(id)` | experimental | [example](../../../../apps/cli/src/examples/workspace.tui-selection.ts) |
 | `registerTuiStateLoader` | registry | `registerTuiStateLoader<T>(loader: TuiStateLoaderRegistration<T>): void` | Load app data once for every screen (a database handle, update info), read with `useTuiState(id)` | experimental | [example](../../../../apps/cli/src/examples/build-info.tui-state.ts) |
 | `registerTuiScreenSection` | registry | `registerTuiScreenSection(screenId: string, section: ComponentType<TuiSectionProps> \| { id: string; load: () => Promise<ComponentType<TuiSectionProps>> }, options?: { id?: string }): void` | Add an ink section below the `node` or `deploy` screen's list (a fleet note, a release hint); a section that throws shows a notice and the screen keeps working | experimental | [example](../../../../apps/cli/src/examples/fleet-note.tui-section.tsx) |
@@ -153,9 +185,11 @@ A screen must not print a token or a credential into a frame; the platform scree
 
 ## Conformance suite
 
-None. `menu.registry.test.tsx` in the package pins the built-in order and the refusals; `context.test.tsx` pins the stack (push, pop, top frame only, cleanup), selections, state loaders and the theme; `raw-mode.test.ts` the terminal fallback.
+None. `menu.registry.test.tsx` in the package pins the built-in order and the refusals; `menu-registry.test.ts`, `menu-tree.test.ts` and `menu.render.test.tsx` pin the menu tree (validation, the logged-out cascade, labels, breadcrumbs, the login gate, Esc and accelerators, and the unchanged flat menu); `context.test.tsx` pins the stack (push, pop, top frame only, cleanup), selections, state loaders and the theme; `raw-mode.test.ts` the terminal fallback.
 
 ## Upgrade notes
+
+0.x (RETRO-G1.1): additive: `registerTuiMenuNode`, `createCli({ tuiMenu })` and the menu-tree helpers. With no menu nodes the root menu is the same list; Esc on the root menu no longer quits (use `q` or the Quit line).
 
 0.x (RETRO-G1.4): additive subpath `@marinoscar/platform-cli/tui/ui` (component kit and the promoted screen building blocks); the built-in `node` screen now shows its totals as a meter and its recent jobs as an event log.
 
@@ -166,6 +200,7 @@ None. `menu.registry.test.tsx` in the package pins the built-in order and the re
 ## Troubleshooting
 
 - `TUI screen route "x" is reserved` / `is already a built-in screen`: choose another route id.
+- `TUI menu node "x" has unknown parent` / `opens unknown screen route`: register the section or screen it names (any order); the check runs in `createCli`.
 - `needs exactly one of component or load`: give one, not both.
 - `useTuiApp() was called outside a TuiAppProvider`: the TUI app root mounts the provider; in a test, wrap the screen in `TuiAppProvider`.
 - `This terminal cannot run the interactive interface`: neither stdin nor `/dev/tty` can enter raw mode (serial, hypervisor or LXC consoles); connect with `ssh -t` or use the subcommands.

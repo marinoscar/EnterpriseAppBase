@@ -1336,6 +1336,15 @@ Imports: `@marinoscar/platform-cli/tui`. Example: [`fleet-note.tui-section.tsx`]
 2. **Register it**: `registerTuiScreenSection('node' | 'deploy', Component, { id })`, or `{ id, load }` to load it when the screen opens, or `createCli({ tuiSections })`. Only `node` and `deploy` have a slot.
 3. **It renders below the screen's top-level list**, in registration order. A section that throws, or whose `load` rejects, shows a one-line notice and leaves the screen working.
 
+### Add a nested TUI menu
+
+Imports: `@marinoscar/platform-cli/tui`. Example: [`nested-menu.tui.ts`](../apps/cli/src/examples/nested-menu.tui.ts). Reference: [the TUI slice README](../packages/platform-cli/src/tui/README.md#the-menu-tree-retro-g11).
+
+1. **Register the screens** the menu will open with `registerTuiScreen` (or `tuiScreens`). A screen no menu entry opens stays at the root with its own `label` and `order`.
+2. **Declare sections and entries** with `registerTuiMenuNode({ kind: 'section', id, label, order, subtitle? })` and `registerTuiMenuNode({ kind: 'entry', id, parent, route, label, order })`, or `createCli({ tuiMenu })`. `parent` defaults to `root`; sections nest up to 4 deep; registration order does not matter, and `createCli` throws naming the node for an unknown parent or route, a cycle or too much depth.
+3. **Say who sees it**: `loggedOut: true` on a section cascades to its children (an explicit `false` opts one out), `hideWhenLoggedIn` hides a "Login" entry after sign-in, and `requiresLogin: true` makes opening the screen while logged out show the shared notice instead. This is presentation only; the API still authorises every call.
+4. **Dress it**: `ellipsis` for an entry that asks for more input, `color` for a theme token or colour name (`red` for a destructive action).
+
 ### Share state across TUI screens
 
 Imports: `@marinoscar/platform-cli/tui`. Examples: [`workspace.tui-selection.ts`](../apps/cli/src/examples/workspace.tui-selection.ts), [`build-info.tui-state.ts`](../apps/cli/src/examples/build-info.tui-state.ts). Reference: [the TUI slice README](../packages/platform-cli/src/tui/README.md).

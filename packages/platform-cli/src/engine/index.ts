@@ -459,6 +459,23 @@ export {
   sortTuiScreens,
 } from './tui/screen-registry.js';
 export type { TuiMenuContext, TuiScreenOrder, TuiScreenProps, TuiScreenRegistration } from './tui/screen-registry.js';
+export {
+  listTuiMenuNodes,
+  registerTuiMenuNode,
+  TUI_MENU_MAX_DEPTH,
+  TUI_MENU_ROOT,
+} from './tui/menu-registry.js';
+export type { TuiMenuEntry, TuiMenuLabel, TuiMenuNode, TuiMenuNodeBase, TuiMenuSection } from './tui/menu-registry.js';
+export {
+  buildTuiMenuTree,
+  tuiBreadcrumb,
+  tuiMenuColor,
+  tuiMenuItemLabel,
+  tuiParentSectionId,
+  tuiRouteRequiresLogin,
+  visibleTuiMenuChildren,
+} from './tui/menu-tree.js';
+export type { TuiMenuScreenInfo, TuiMenuTree, TuiMenuTreeEntry, TuiMenuTreeNode, TuiMenuTreeNodeBase, TuiMenuTreeSection } from './tui/menu-tree.js';
 export { listTuiSelections, listTuiStateLoaders, registerTuiSelection, registerTuiStateLoader } from './tui/app-registry.js';
 export type { TuiLoaderContext, TuiSelectionRegistration, TuiStateLoaderRegistration } from './tui/app-registry.js';
 // The app context: React, not ink (README: react is needed by the engine slice).
