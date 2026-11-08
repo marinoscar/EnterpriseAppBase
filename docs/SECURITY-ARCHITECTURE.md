@@ -1740,8 +1740,8 @@ operations open their own transaction and escape the outer one. Use
 the tenant pool, no new variable). Because the two pools share no backend, the
 bypass flag cannot reach a tenant request's connection whatever a bug does. Each
 acquisition names a **registered reason** (`SystemAccessReason`: the platform's
-nine, `backup`, `restore`, `purge`, `doctor`, `retention`, `admin-aggregate`,
-`migration-tooling`, `link-resolution` and `export`, plus any the app added with
+ten, `backup`, `restore`, `purge`, `doctor`, `retention`, `admin-aggregate`,
+`migration-tooling`, `link-resolution`, `export` and `invite-claim`, plus any the app added with
 `registerSystemAccessReason`; an unregistered one throws `ScopedAccessError`),
 which is put on the active span (`db.access.reason`, plus a `db.rls_bypass` event) and
 logged at debug, never used as a metric label. **Only an allowlist of modules
