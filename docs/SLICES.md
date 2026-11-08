@@ -891,7 +891,7 @@ None.
 
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
-| CLI (`platform-cli`) | `/tui` | `engine` | `react` | [README](../packages/platform-cli/src/tui/README.md) |
+| CLI (`platform-cli`) | `/tui`, `/tui/ui` | `engine` | `react` | [README](../packages/platform-cli/src/tui/README.md) |
 
 **Admin and settings cards.**
 
