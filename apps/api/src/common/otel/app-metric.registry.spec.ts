@@ -48,12 +48,12 @@ function rejection(fn: () => void): RegistryError {
 }
 
 describe('app-metric registry', () => {
-  it('holds the 39 platform metrics, then the three event bus metrics, the two organization metrics, the three sharing metrics, the three export metrics, the three user-data metrics and the three webhooks metrics, in declaration order', () => {
+  it('holds the 40 platform metrics, then the three event bus metrics, the two organization metrics, the three sharing metrics, the three export metrics, the three user-data metrics and the three webhooks metrics, in declaration order', () => {
     expect(appMetricRegistry.ids()).toEqual(
       [...PLATFORM_APP_METRICS, ...EVENT_BUS_APP_METRICS, ...ORGANIZATIONS_APP_METRICS, ...SHARING_APP_METRICS, ...EXPORTS_APP_METRICS, ...USER_DATA_APP_METRICS, ...WEBHOOKS_APP_METRICS].map((d) => d.key),
     );
-    expect(PLATFORM_APP_METRICS).toHaveLength(39);
-    expect(appMetricRegistry.size).toBe(56);
+    expect(PLATFORM_APP_METRICS).toHaveLength(40);
+    expect(appMetricRegistry.size).toBe(57);
   });
 
   it('declares every platform attribute key in snake_case and buckets only on histograms', () => {

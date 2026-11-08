@@ -68,6 +68,7 @@ const BASELINE = [
 const ADDED = [
   'user-data/user-data.registries', // #880: the reset registries agree with the schema.
   'backup/backup.mirrors', // PP-14.12 (#930): every mirror target holds the latest backup.
+  'nodes/nodes.credential_delivery', // #1083: whether provider keys are delivered to worker nodes.
 ];
 
 /** The relative order inside each category: what the report preserves. */

@@ -74,7 +74,14 @@ const BASELINE_DEFAULT_SYSTEM_SETTINGS = {
     "staleHeartbeatSeconds": 90,
     "offlineStaleMultiplier": 4,
     "offlineRetentionDays": 30,
-    "jobSecretBrokerEnabled": false
+    "jobSecretBrokerEnabled": false,
+    // #1083: provider-credential delivery to nodes, appended (OFF by default).
+    "credentialDelivery": {
+      "enabled": false,
+      "cacheTtlMinutes": 60,
+      "purposes": [],
+      "epoch": 1
+    }
   },
   "databaseBackup": {
     "enabled": false,
