@@ -23,13 +23,11 @@ export { fetchJobsInsights, jobsInsightsReducer } from './jobs-insights.js';
 export type {
   JobsApi,
   JobsDashboardData,
-  JobsDurationStats,
   JobsEta,
   JobsInsights,
   JobsPollResult,
   JobsStats,
   JobsStatusCounts,
-  JobsTypeStats,
 } from './jobs-insights.js';
 export { embeddedNodeFeed, isDaemonListening } from './node-embedded.js';
 export type { EmbeddedNodeFeedOptions } from './node-embedded.js';

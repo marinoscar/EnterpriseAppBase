@@ -79,14 +79,50 @@ export type DashboardMode = 'attached' | 'embedded' | 'poll';
  * @stability experimental
  */
 export type DashboardFeedMessage<E> =
-  | { kind: 'attempt' }
-  | { kind: 'connected' }
-  | { kind: 'disconnected'; error?: string | undefined }
-  | { kind: 'snapshot'; snapshot: unknown }
-  | { kind: 'frame'; frame: unknown }
-  | { kind: 'event'; event: E }
-  | { kind: 'logs'; lines: LogRecord[] }
-  | { kind: 'error'; message: string };
+  | {
+      /** A connection or poll attempt began. */
+      kind: 'attempt';
+    }
+  | {
+      /** The feed is reaching its source. */
+      kind: 'connected';
+    }
+  | {
+      /** The feed lost its source (a closed socket, a failed poll). */
+      kind: 'disconnected';
+      /** Why, for the frame's notice line. */
+      error?: string | undefined;
+    }
+  | {
+      /** The state to hydrate from (the daemon's on-connect snapshot). */
+      kind: 'snapshot';
+      /** The raw snapshot; the reducer validates it. */
+      snapshot: unknown;
+    }
+  | {
+      /** An unvalidated wire value. */
+      kind: 'frame';
+      /** The raw value; the reducer's `parseEvent` validates it. */
+      frame: unknown;
+    }
+  | {
+      /** An event already typed. */
+      kind: 'event';
+      /** The event. */
+      event: E;
+    }
+  | {
+      /** A log tail. */
+      kind: 'logs';
+      /** The new log lines. */
+      lines: LogRecord[];
+    }
+  | {
+      /** A message from the source itself (the daemon's `error` frame). */
+      kind: 'error';
+      /** The message. */
+      message: string;
+    };
 
 /**
  * A source of dashboard data. `start` resolves once the first attempt has
@@ -95,8 +131,11 @@ export type DashboardFeedMessage<E> =
  * @stability experimental
  */
 export interface DashboardFeed<E> {
+  /** Where the data comes from. */
   readonly mode: DashboardMode;
+  /** Begins feeding `emit`; resolves once the first attempt has settled. */
   start(emit: (message: DashboardFeedMessage<E>) => void): Promise<void>;
+  /** Ends every connection, request and timer. Idempotent. */
   stop(): void;
 }
 
@@ -106,6 +145,7 @@ export interface DashboardFeed<E> {
  * @stability experimental
  */
 export interface DashboardConnection {
+  /** Whether the feed is reaching its source right now. */
   connected: boolean;
   /** Whether the feed was ever reached. Distinguishes "starting" from "gone". */
   everConnected: boolean;
@@ -113,6 +153,7 @@ export interface DashboardConnection {
   error: string | undefined;
   /** Connection or poll attempts so far. */
   attempts: number;
+  /** The feed's transport. */
   mode: DashboardMode;
 }
 
@@ -241,14 +282,17 @@ export class DashboardSource<S, E> {
  * @stability experimental
  */
 export interface DaemonAttachFeedOptions {
+  /** The daemon's socket. */
   socketPath: string;
   /** Which engine's frames to read. Default `node` (the frames with no `channel` field). */
   channel?: string | undefined;
   /** Wait between reconnect attempts. Default 2000. */
   reconnectMs?: number | undefined;
-  /** Test seams. */
+  /** @internal Test seam. */
   connect?: typeof connectToDaemon | undefined;
+  /** @internal Test seam. */
   setTimer?: ((fn: () => void, ms: number) => unknown) | undefined;
+  /** @internal Test seam. */
   clearTimer?: ((handle: unknown) => void) | undefined;
 }
 
@@ -365,8 +409,9 @@ export function daemonAttachFeed<E = unknown>(options: DaemonAttachFeedOptions):
  * @stability experimental
  */
 export interface DashboardEmitter {
-  // `any` because Node's EventEmitter declares its listeners `(...args: any[])`.
+  /** Adds a listener. (`any` because Node's EventEmitter declares `(...args: any[])`.) */
   on(name: string, listener: (...args: any[]) => void): unknown;
+  /** Removes a listener. */
   off(name: string, listener: (...args: any[]) => void): unknown;
 }
 
@@ -442,9 +487,11 @@ export function inProcessFeed<E = unknown>(emitter: DashboardEmitter, options: I
  * @stability experimental
  */
 export interface PollFeedOptions {
+  /** Wait between the end of one poll and the start of the next. */
   intervalMs: number;
-  /** Test seams. */
+  /** @internal Test seam. */
   setTimer?: ((fn: () => void, ms: number) => unknown) | undefined;
+  /** @internal Test seam. */
   clearTimer?: ((handle: unknown) => void) | undefined;
 }
 
@@ -520,7 +567,9 @@ export function pollFeed<E>(fetch: (signal: AbortSignal) => Promise<E>, options:
  * @stability experimental
  */
 export interface SelectDashboardFeedDeps<E> {
+  /** The daemon's socket. */
   socketPath: string;
+  /** Which engine's frames to read when attaching. Default `node`. */
   channel?: string | undefined;
   /** Whether a daemon is listening. A probe, never a command. */
   isDaemonRunning(): Promise<boolean>;

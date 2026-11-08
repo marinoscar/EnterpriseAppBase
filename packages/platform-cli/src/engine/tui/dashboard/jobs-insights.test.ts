@@ -4,21 +4,10 @@ import { ApiError } from '../../errors.js';
 import { fetchJobsInsights, jobsInsightsReducer, type JobsInsights, type JobsStats } from './jobs-insights.js';
 
 const counts = { pending: 1, running: 2, succeeded: 3, failed: 4 };
-const stats: JobsStats = {
-  total: 10,
-  byStatus: counts,
-  byType: [],
-  scheduled: 0,
-  stuckRunning: 0,
-  stuckThresholdMinutes: 3,
-  generatedAt: '2026-01-01T00:00:00.000Z',
-};
+const stats: JobsStats = { byStatus: counts, scheduled: 0, stuckRunning: 0, stuckThresholdMinutes: 3 };
 const insights: JobsInsights = {
   windowDays: 7,
-  generatedAt: '2026-01-01T00:00:00.000Z',
-  concurrency: 2,
-  live: { total: 10, byStatus: counts, scheduled: 0, rateLimited: 0, retried: 0 },
-  history: { overall: { samples: 0, avgMs: null, p50Ms: null, p95Ms: null, throughputPerMin: 0 } },
+  history: { overall: { throughputPerMin: 0, p50Ms: null, p95Ms: null } },
   eta: [],
 };
 

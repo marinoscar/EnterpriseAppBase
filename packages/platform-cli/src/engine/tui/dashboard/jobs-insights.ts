@@ -15,69 +15,78 @@ import type { DashboardReducer } from './source.js';
 // a missing optional one renders as a dash.
 // =============================================================================
 
-/** Per-status job counts. */
+/**
+ * Per-status job counts.
+ *
+ * @stability experimental
+ */
 export interface JobsStatusCounts {
+  /** Waiting to run. */
   pending: number;
+  /** Running now. */
   running: number;
+  /** Finished successfully. */
   succeeded: number;
+  /** Failed for good. */
   failed: number;
 }
 
-/** One job type's row of the queue summary. */
-export interface JobsTypeStats {
-  type: string;
-  label: string;
-  total: number;
-  byStatus: JobsStatusCounts;
-}
-
 /**
- * `GET /api/admin/jobs/stats`.
+ * The part of `GET /api/admin/jobs/stats` the dashboard reads. The server
+ * sends more; the rest is ignored.
  *
  * @stability experimental
  */
 export interface JobsStats {
-  total: number;
+  /** Counts per status. */
   byStatus: JobsStatusCounts;
-  byType: JobsTypeStats[];
+  /** Pending jobs waiting out a backoff. */
   scheduled: number;
+  /** Running jobs the lease reaper would reclaim now. */
   stuckRunning: number;
+  /** The age, in minutes, past which a running job counts as stuck. */
   stuckThresholdMinutes: number;
-  generatedAt: string;
 }
 
-/** Duration percentiles over succeeded jobs. */
-export interface JobsDurationStats {
-  samples: number;
-  avgMs: number | null;
-  p50Ms: number | null;
-  p95Ms: number | null;
-  throughputPerMin: number;
-}
-
-/** One type's completion estimate. */
+/**
+ * One job type's completion estimate.
+ *
+ * @stability experimental
+ */
 export interface JobsEta {
-  type: string;
+  /** The type's display label. */
   label: string;
+  /** Jobs waiting. */
   pending: number;
+  /** Jobs running. */
   running: number;
+  /** Jobs still to finish. */
   remaining: number;
-  avgMs: number;
-  basis: string;
+  /** Estimated time to finish them, in milliseconds. */
   estimatedMs: number;
 }
 
 /**
- * `GET /api/admin/jobs/insights`.
+ * The part of `GET /api/admin/jobs/insights` the dashboard reads.
  *
  * @stability experimental
  */
 export interface JobsInsights {
+  /** Days of history the percentiles cover. */
   windowDays: number;
-  generatedAt: string;
-  concurrency: number;
-  live: { total: number; byStatus: JobsStatusCounts; scheduled: number; rateLimited: number; retried: number };
-  history: { overall: JobsDurationStats };
+  /** Duration and throughput over succeeded jobs in the window. */
+  history: {
+    /** All types together. */
+    overall: {
+      /** Jobs finished per minute. */
+      throughputPerMin: number;
+      /** Median duration in milliseconds; null with no samples. */
+      p50Ms: number | null;
+      /** 95th-percentile duration in milliseconds; null with no samples. */
+      p95Ms: number | null;
+    };
+  };
+  /** Completion estimate per type. */
   eta: JobsEta[];
 }
 
@@ -87,8 +96,24 @@ export interface JobsInsights {
  * @stability experimental
  */
 export type JobsPollResult =
-  | { kind: 'ok'; at: string; stats: JobsStats; insights: JobsInsights }
-  | { kind: 'forbidden'; at: string; message: string };
+  | {
+      /** The server answered. */
+      kind: 'ok';
+      /** When the poll finished (ISO 8601). */
+      at: string;
+      /** The queue summary. */
+      stats: JobsStats;
+      /** Throughput and estimates. */
+      insights: JobsInsights;
+    }
+  | {
+      /** The server refused (403: no `jobs:read`). */
+      kind: 'forbidden';
+      /** When the poll finished (ISO 8601). */
+      at: string;
+      /** What to tell the user. */
+      message: string;
+    };
 
 /**
  * The jobs dashboard's data.
@@ -96,7 +121,9 @@ export type JobsPollResult =
  * @stability experimental
  */
 export interface JobsDashboardData {
+  /** The last queue summary. */
   stats: JobsStats | undefined;
+  /** The last throughput report. */
   insights: JobsInsights | undefined;
   /** When the last successful poll finished. */
   updatedAt: string | undefined;
@@ -139,6 +166,7 @@ export const jobsInsightsReducer: DashboardReducer<JobsDashboardData, JobsPollRe
  * @stability experimental
  */
 export interface JobsApi {
+  /** A GET returning the unwrapped payload. */
   get<T>(path: string, options?: { signal?: AbortSignal | undefined; query?: Record<string, string | number | undefined> }): Promise<T>;
 }
 

@@ -415,6 +415,11 @@
       "file": "packages/platform-contract/src/storage/objects-init-upload.ts",
       "symbol": "z.enum(PART_UPLOAD_AUTH_MODES)",
       "reason": "wire enum over PART_UPLOAD_AUTH_MODES, which stays closed"
+    },
+    {
+      "file": "packages/platform-cli/src/engine/tui/dashboard/source.ts",
+      "symbol": "DashboardMode",
+      "reason": "the three transports a dashboard feed can have (daemon attach, in-process, poll); a feed reports its own mode and a screen only branches on it, so a fourth transport is a new feed function, not a registered id"
     }
   ]
 }

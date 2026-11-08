@@ -511,6 +511,8 @@ export type {
   DashboardSourceOptions,
   InProcessFeedOptions,
   JobsApi,
+  JobsEta,
+  JobsStatusCounts,
   JobsDashboardData,
   JobsInsights,
   JobsPollResult,
@@ -520,6 +522,7 @@ export type {
 } from './tui/dashboard/index.js';
 export { createNodeDashboardReducer, nodeDashboardReducer } from './node/node-dashboard-source.js';
 export type { NodeDashboardData } from './node/node-dashboard-source.js';
+export type { LogLevel, LogRecord } from './node/logger.js';
 export { listDaemonChannels, registerDaemonChannel } from './node/daemon-channels.js';
 export type { DaemonChannel, DaemonChannelEmitter } from './node/daemon-channels.js';
 export {

@@ -30,7 +30,9 @@ import type { LogRecord } from './logger.js';
  * @stability experimental
  */
 export interface DaemonChannelEmitter {
+  /** Adds a listener. */
   on(name: string, listener: (payload: unknown) => void): unknown;
+  /** Removes a listener. */
   off(name: string, listener: (payload: unknown) => void): unknown;
 }
 
