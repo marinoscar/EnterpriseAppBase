@@ -465,3 +465,98 @@ describe('selectDashboardFeed', () => {
     expect(feed.mode).toBe('embedded');
   });
 });
+
+describe('pollFeed refresh (seam #1115)', () => {
+  const reducer: DashboardReducer<{ last: number }, number> = {
+    initial: () => ({ last: 0 }),
+    hydrate: (s) => s,
+    reduce: (_s, e) => ({ last: e }),
+    parseEvent: () => undefined,
+  };
+
+  it('polls now: clears the waiting timer and fetches without rebuilding the source', async () => {
+    const timers = new Map<number, () => void>();
+    const cleared: number[] = [];
+    let next = 0;
+    let value = 0;
+    const fetches: number[] = [];
+    const source = new DashboardSource(
+      reducer,
+      pollFeed(
+        async () => {
+          value += 1;
+          fetches.push(value);
+          return value;
+        },
+        {
+          intervalMs: 60_000,
+          setTimer: (fn) => {
+            next += 1;
+            timers.set(next, fn);
+            return next;
+          },
+          clearTimer: (handle) => {
+            cleared.push(handle as number);
+            timers.delete(handle as number);
+          },
+        },
+      ),
+    );
+    expect(source.refresh()).toBe(false); // not started yet
+    await source.start();
+    expect(source.getState().last).toBe(1);
+    expect(timers.size).toBe(1);
+
+    expect(source.refresh()).toBe(true);
+    await vi.waitFor(() => expect(source.getState().last).toBe(2));
+    expect(cleared).toEqual([1]);
+    expect(fetches).toEqual([1, 2]);
+    // The interval restarts from the refreshed poll: exactly one timer waits.
+    expect([...timers.keys()]).toEqual([2]);
+
+    source.stop();
+    expect(source.refresh()).toBe(false);
+    expect(fetches).toEqual([1, 2]);
+  });
+
+  it('during a request in flight, polls again as soon as it settles (still one at a time)', async () => {
+    const pending: Array<(value: number) => void> = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const timers: Array<() => void> = [];
+    const feed = pollFeed<number>(
+      () =>
+        new Promise<number>((resolve) => {
+          inFlight += 1;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          pending.push((v) => {
+            inFlight -= 1;
+            resolve(v);
+          });
+        }),
+      { intervalMs: 60_000, setTimer: (fn) => timers.push(fn), clearTimer: () => {} },
+    );
+    const source = new DashboardSource(reducer, feed);
+    const started = source.start();
+    expect(pending).toHaveLength(1);
+    source.refresh();
+    source.refresh();
+    expect(pending).toHaveLength(1); // no second concurrent request
+    pending.shift()!(1);
+    await started;
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    expect(timers).toHaveLength(0); // the refresh replaced the wait
+    pending.shift()!(2);
+    await vi.waitFor(() => expect(source.getState().last).toBe(2));
+    expect(timers).toHaveLength(1);
+    expect(maxInFlight).toBe(1);
+    source.stop();
+  });
+
+  it('a source over a push feed cannot refresh', async () => {
+    const feed: DashboardFeed<number> = { mode: 'embedded', start: async () => undefined, stop: () => undefined };
+    const source = new DashboardSource(reducer, feed);
+    await source.start();
+    expect(source.refresh()).toBe(false);
+  });
+});
