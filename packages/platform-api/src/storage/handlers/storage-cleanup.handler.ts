@@ -48,6 +48,7 @@ import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/comm
 import { JobHandler } from '../../jobs/index';
 import { JobHandlerRegistry } from '../../jobs/index';
 import { STORAGE_PROVIDER, StorageProvider } from '../providers';
+import { StorageProviderRouter } from '../providers/storage-provider-router';
 import { STORAGE_SYSTEM_DATA, type StorageSystemData } from '../ports';
 import type { Job } from '../../jobs/index';
 import { DEFAULT_STALE_UPLOAD_HOURS, STORAGE_OPTIONS, type ResolvedStorageModuleOptions } from '../storage.options';
@@ -109,6 +110,8 @@ export class StorageCleanupHandler implements JobHandler, OnModuleInit {
     @Optional()
     @Inject(STORAGE_OPTIONS)
     private readonly options?: ResolvedStorageModuleOptions,
+    // Aborts on the provider the row records, not the active one.
+    @Optional() private readonly router?: StorageProviderRouter,
   ) {}
 
   /** Self-registration — the only wiring a handler needs. */
@@ -167,6 +170,8 @@ export class StorageCleanupHandler implements JobHandler, OnModuleInit {
       select: {
         id: true,
         storageKey: true,
+        storageProvider: true,
+        bucket: true,
         s3UploadId: true,
       },
     });
@@ -182,7 +187,8 @@ export class StorageCleanupHandler implements JobHandler, OnModuleInit {
         // again. With this order, a failed abort leaves a row an operator (or
         // the next sweep) can retry.
         if (upload.s3UploadId) {
-          await this.storageProvider.abortMultipartUpload(
+          const provider = this.router ? await this.router.forObject(upload) : this.storageProvider;
+          await provider.abortMultipartUpload(
             upload.storageKey,
             upload.s3UploadId
           );

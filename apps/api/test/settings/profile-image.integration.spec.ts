@@ -12,7 +12,7 @@ import {
   setupMockUserSettings,
 } from '../fixtures/mock-setup.helper';
 import { createMockTestUser, authHeader } from '../helpers/auth-mock.helper';
-import { STORAGE_PROVIDER } from '@marinoscar/platform-api/storage';
+import { installMockStorageProvider } from '../helpers/mock-storage-provider.helper';
 import { createMockStorageProvider } from '../mocks/storage-provider.mock';
 import { AVATAR_MAX_BYTES } from '@marinoscar/platform-api/storage';
 
@@ -32,14 +32,7 @@ describe('Profile Image Integration (#367)', () => {
     mockStorageProvider = createMockStorageProvider();
     context = await createTestApp({ useMockDatabase: true });
 
-    const storageProviderToken = context.module.get(STORAGE_PROVIDER, {
-      strict: false,
-    });
-    if (storageProviderToken) {
-      // `kind` is a getter on the real provider (it answers from the settings snapshot): leave it be.
-      const { kind: _kind, ...methods } = mockStorageProvider;
-      Object.assign(storageProviderToken, methods);
-    }
+    installMockStorageProvider(context, mockStorageProvider);
   });
 
   afterAll(async () => {

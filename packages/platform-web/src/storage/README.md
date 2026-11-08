@@ -85,7 +85,7 @@ Supporting exports (experimental): `createStorageConfigClient`, `reportsBucketMi
 
 ## Data
 
-None. The page reads and writes `/api/admin/storage-config` only; the objects client calls `/api/storage/objects*` and `/api/storage/status`. File bytes of a resumable upload go straight to the presigned part URLs, never through the API.
+None. The page reads and writes `/api/admin/storage-config` only; the objects client calls `/api/storage/objects*` and `/api/storage/status`. File bytes of a resumable upload go straight to the presigned part URLs (`partUploadAuth: 'none'`, no `Authorization` header), never through the API; for a driver with no presigned URLs (`partUploadAuth: 'bearer'`) the URLs are the API's own part route and the PUT carries the caller's credential. `partUrls(id, { partNumbers })` fetches more URLs than `init`'s first ten (at most 100 per call), and `uploadStatus(id)` lists the parts the backend already holds, for a resume.
 
 ## Permissions and settings
 

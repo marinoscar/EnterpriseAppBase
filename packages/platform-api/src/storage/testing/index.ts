@@ -7,6 +7,7 @@
 export {
   checkOrgScopedKeys,
   checkStorageKeyPrefixes,
+  checkStorageRouting,
   checkStorageSettingsSchemas,
   storageConformanceSuite,
 } from './conformance';

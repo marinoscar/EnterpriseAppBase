@@ -1,7 +1,8 @@
-import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Readable } from 'node:stream';
 
 import { STORAGE_PROVIDER } from '../providers/storage-provider.interface';
+import { StorageProviderRouter } from '../providers/storage-provider-router';
 import type { StorageProvider } from '../providers/storage-provider.interface';
 import {
   isAvatarObjectFor,
@@ -58,6 +59,8 @@ export class AvatarService {
     @Inject(STORAGE_SYSTEM_DATA) private readonly system: StorageSystemData,
     @Inject(STORAGE_PROVIDER)
     private readonly storageProvider: StorageProvider,
+    // Reads the bytes from the provider the row records, not the active one.
+    @Optional() private readonly router?: StorageProviderRouter,
   ) {}
 
   /**
@@ -123,7 +126,8 @@ export class AvatarService {
     }
 
     try {
-      const stream = await this.storageProvider.download(object.storageKey);
+      const provider = this.router ? await this.router.forObject(object) : this.storageProvider;
+      const stream = await provider.download(object.storageKey);
       return { stream, mimeType: object.mimeType, size: object.size };
     } catch (error) {
       this.logger.warn(

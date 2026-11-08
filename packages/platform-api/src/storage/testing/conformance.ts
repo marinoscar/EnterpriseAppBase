@@ -13,8 +13,13 @@
 //      key without an organization; `orgKeyPrefixes` returns exactly them;
 //   3. no-secret: the `storage` settings namespace and the admin view cannot
 //      carry the secret access key.
+//   4. routing: an object recorded on driver A stays addressable on driver A
+//      (its recorded bucket, its own signing) after the active driver becomes B,
+//      and a legacy row, the active location and an app-bound provider route to
+//      the provider in force.
 // =============================================================================
 
+import { Logger } from '@nestjs/common';
 import {
   STORAGE_SECRET_FIELD_NAMES,
   storageConfigResponseSchema,
@@ -32,6 +37,12 @@ import {
   type StorageKeyPrefixDef,
 } from '../storage-key-prefix.registry';
 import { STORAGE_SLICE_KEY_PREFIXES } from '../storage-key-prefixes';
+import { StorageProviderRouter } from '../providers/storage-provider-router';
+import type { StorageProvider } from '../providers/storage-provider.interface';
+import type { StorageConfigService } from '../config/storage-config.service';
+import type { StorageConfigResolution } from '../config/storage-config';
+import { requireStorageDriver } from '../drivers/storage-driver';
+import '../drivers/builtin-storage-drivers';
 
 declare module '../../testing/index' {
   interface PlatformConformanceSuiteOptions {
@@ -53,6 +64,7 @@ export interface StorageConformanceOptions {
 const FILE_PREFIXES = 'storage-key-prefixes';
 const FILE_KEYS = 'storage-object-keys';
 const FILE_SCHEMAS = 'storage-schemas';
+const FILE_ROUTING = 'storage-routing';
 
 /** A fixed UUID for the key checks; never a real organization. */
 const PROBE_ORG = '00000000-0000-4000-8000-000000000001';
@@ -136,6 +148,107 @@ export function checkStorageSettingsSchemas(): ConformanceFinding[] {
 }
 
 /**
+ * Check 4: per-row routing. Two built-in drivers are configured (offline: a
+ * presigned URL is computed locally, nothing is fetched); the active one is
+ * flipped from A to B and back, and an object recorded on A must keep signing
+ * against A's bucket and host each time.
+ *
+ * @returns one finding per violated rule.
+ *
+ * @stability experimental
+ */
+export async function checkStorageRouting(): Promise<ConformanceFinding[]> {
+  const findings: ConformanceFinding[] = [];
+  const fail = (message: string) => findings.push({ file: FILE_ROUTING, message });
+
+  const resolutions: Record<string, StorageConfigResolution> = {
+    s3: {
+      configured: true,
+      config: {
+        provider: 's3',
+        bucket: 'routing-s3-bucket',
+        region: 'us-east-1',
+        settings: { bucket: 'routing-s3-bucket', region: 'us-east-1', endpoint: '', accessKeyId: 'AKIAROUTINGS3', forcePathStyle: null },
+        secrets: { secretAccessKey: 'routing-secret-s3' },
+      },
+    },
+    r2: {
+      configured: true,
+      config: {
+        provider: 'r2',
+        bucket: 'routing-r2-bucket',
+        region: 'auto',
+        endpoint: 'https://routingacct.r2.cloudflarestorage.com',
+        settings: { bucket: 'routing-r2-bucket', accountId: 'routingacct', region: '', endpoint: '', accessKeyId: 'AKIAROUTINGR2', forcePathStyle: null },
+        secrets: { secretAccessKey: 'routing-secret-r2' },
+      },
+    },
+  };
+
+  const providers: StorageProvider[] = [];
+  const buildActive = async (id: string): Promise<StorageProvider> => {
+    const resolution = resolutions[id];
+    if (!resolution.configured) throw new Error('unreachable');
+    const built = await requireStorageDriver(id).build({
+      settings: resolution.config.settings,
+      secret: async (name) => resolution.config.secrets[name] ?? null,
+      logger: new Logger('storage-routing'),
+      partSize: 5 * 1024 * 1024,
+    });
+    providers.push(built);
+    return built;
+  };
+
+  try {
+    for (const activeId of ['s3', 'r2']) {
+      const config = {
+        activeProvider: async () => activeId,
+        resolveDriver: async (id: string) => resolutions[id],
+      } as unknown as StorageConfigService;
+      const current = await buildActive(activeId);
+      const router = new StorageProviderRouter(
+        { resolveCurrent: async () => current } as unknown as StorageProvider,
+        config,
+        { get: <T>(_key: string, fallback?: T) => fallback as T } as never,
+      );
+
+      // An object recorded on r2 stays on r2; one recorded on s3 stays on s3.
+      for (const [recorded, host] of [['r2', 'r2.cloudflarestorage.com'], ['s3', 'amazonaws.com']] as const) {
+        const resolution = resolutions[recorded];
+        if (!resolution.configured) continue;
+        const provider = await router.forLocation({ provider: recorded, bucket: resolution.config.bucket });
+        const url = await provider.getSignedDownloadUrl('routing/probe.txt', { expiresIn: 60 });
+
+        if (provider.kind !== recorded) fail(`active=${activeId}: a row recorded on "${recorded}" was routed to "${provider.kind}"`);
+        if (!url.includes(resolution.config.bucket)) fail(`active=${activeId}: a row recorded on "${recorded}" signed outside its bucket`);
+        if (!url.includes(host)) fail(`active=${activeId}: a row recorded on "${recorded}" signed against the wrong host`);
+      }
+
+      // A row whose recorded bucket differs from the driver's current one signs against the recorded bucket.
+      const moved = await router.forLocation({ provider: 'r2', bucket: 'routing-r2-previous' });
+      if (!(await moved.getSignedDownloadUrl('routing/probe.txt')).includes('routing-r2-previous')) {
+        fail(`active=${activeId}: a row recorded on a previous bucket was not routed to that bucket`);
+      }
+
+      // A legacy row (no recorded location) and an unrecorded provider use the one in force.
+      if ((await router.forLocation(null)) !== current) fail(`active=${activeId}: a legacy row was not routed to the active provider`);
+      if ((await router.forObject({ storageProvider: null, bucket: null })) !== current) {
+        fail(`active=${activeId}: a row with no recorded provider was not routed to the active provider`);
+      }
+    }
+
+    // An app-bound provider routes itself: the router must hand it back for every row.
+    const bound = { kind: 'app-bound' } as unknown as StorageProvider;
+    const boundRouter = new StorageProviderRouter(bound);
+    if ((await boundRouter.forLocation({ provider: 'r2', bucket: 'x' })) !== bound) fail('an app-bound provider was bypassed by the router');
+  } finally {
+    for (const provider of providers) (provider as { destroy?: () => void }).destroy?.();
+  }
+
+  return findings;
+}
+
+/**
  * The `storage` conformance suite. Registered when
  * `@marinoscar/platform-api/storage/testing` is imported.
  *
@@ -187,6 +300,12 @@ export const storageConformanceSuite: ConformanceSuite<StorageConformanceOptions
         name: 'no-secret: the storage settings, their response and the admin view carry no secret-named field',
         run: (report, expect) => {
           expect(report.findings.filter((finding) => finding.file === FILE_SCHEMAS)).toEqual([]);
+        },
+      },
+      {
+        name: 'storage-routing: an object stays on the provider and bucket it was written to after the active driver changes',
+        run: async (_report, expect) => {
+          expect(await checkStorageRouting()).toEqual([]);
         },
       },
     ];

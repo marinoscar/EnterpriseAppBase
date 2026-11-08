@@ -371,6 +371,74 @@ contributes no row.
 driver runs. It cannot prove everything: a driver that buffers a whole upload
 in memory is indistinguishable from one that pipes it, from outside (§5).
 
+### 2.9 Per-row routing and resumable uploads (#1079)
+
+`STORAGE_PROVIDER` answers "the configuration in force right now". That is
+right for a write and wrong for reading an object that already exists, once an
+administrator has switched drivers: the row still names the driver and bucket
+it was written through (`storage_objects.storage_provider`, `.bucket`).
+
+**`StorageProviderRouter`** turns a row back into a provider:
+
+| Row | Resolves to |
+|---|---|
+| no recorded provider (legacy) | the active provider's client |
+| the active driver and bucket | the active provider's client (the same cached client; none is built twice) |
+| another driver, or another bucket of the same driver | a client built for that driver, from `StorageConfigService.resolveDriver(id)` (that driver's `storage.drivers.<id>` settings and its secrets, read from the credential address it declares), with the row's bucket when it differs from the driver's current one; cached by configuration fingerprint, so a rotated secret or an edited setting takes effect on the next call |
+| a driver that is unregistered or incomplete | the active provider's client, with one warning per driver (rows written before #373 recorded `s3` whatever provider took the bytes, so a 503 would lock them out) |
+| any row, when the app bound its own provider (`forRoot({ provider })`) | that provider (it routes itself) |
+
+Consumers that read by row go through it: the objects API (download URL, delete,
+and every call of an in-flight multipart upload, so a switch mid-upload cannot
+misroute the parts), the post-upload processing read, the avatar download and
+delete, and the stale-upload sweep's abort. New writes (`upload/init`, the
+simple upload) go to the active driver and record its `kind` and bucket. The
+three built-in S3 flavours share one secret slot (`storage/default`), so a
+non-active built-in resolves with whatever key is stored there; a driver an app
+registers keeps its secrets at `storage_<id>`, isolated.
+
+**Optional multipart extensions** on `StorageProvider` (all absent on a plain
+presigned driver; nothing changes for it):
+
+| Member | Meaning |
+|---|---|
+| `partUploadMode` | `'presigned'` (default) or `'proxied'`: how a client uploads part N |
+| `uploadPart(key, uploadId, n, body, size)` | `proxied` only: write one part as the stream arrives; never buffer; discard on a stream error |
+| `listUploadedParts(key, uploadId)` | the parts the backend holds (S3 `ListParts`; a disk's part files) |
+
+The wire (`@marinoscar/platform-contract/storage`):
+
+- `POST upload/init` returns at most 10 part URLs and `partUploadAuth`
+  (`none`: presigned, send no `Authorization`; `bearer`: this API's part route).
+  `POST :id/upload/part-urls` (`{ partNumbers }`, at most 100) returns more in
+  the same shape.
+- `PUT :id/upload/parts/:partNumber` (`storage:write`, owner-scoped, `404` for
+  another user's upload) streams the raw body to `uploadPart`. The platform
+  bounds the stream to the exact part size, so the size rule is the same for
+  every driver; an overrun drains and discards the rest of the request so the
+  `400` can still be sent. It answers `200`, an empty body, the quoted MD5 in
+  `ETag`.
+- `GET :id/upload/status` reports the parts the backend holds, so a client that
+  uploaded straight to S3 and crashed resumes from the truth; a driver without
+  `listUploadedParts` keeps the chunk rows.
+- `POST :id/upload/complete` compares the client's part list with the backend's
+  before completing: `409 UPLOAD_PARTS_MISSING` (`details.partNumbers`: re-send
+  those, session kept) or `409 UPLOAD_SESSION_INVALID` (abort, re-initialise).
+  Refusals of the part route carry `details.reason` `UPLOAD_NOT_ACTIVE`,
+  `PART_OUT_OF_RANGE`, `PART_SIZE_MISMATCH` or `PRESIGNED_PARTS_REQUIRED`
+  (`400`), and `RAW_BODY_REQUIRED` (`415`).
+
+The part route needs its body unread: the app calls
+`registerStoragePartBodyParser(fastifyInstance)` once before `listen()`. It
+registers Fastify's `*` fallback parser, scoped in effect to the part route (for
+every other route it answers the `415` Fastify already answered).
+
+Rejected: widening every `StorageProvider` method with a location argument (a
+signature change for every implementation, for a need only row readers have);
+keying the part route's size check on each driver (the platform's bounded
+stream enforces it once); a `Content-Length`-only size rule (a chunked or lying
+body would pass).
+
 ## 3. Configuration and permissions
 
 **Settings:** the `storage` namespace (§2.1) and the active driver's credentials (the built-ins' `storage` credential; another driver's `storage_<id>` purpose).
@@ -663,10 +731,11 @@ later prints.
 - **No copy on switch.** A bucket-to-bucket copy of unbounded data is a queue
   job with its own design (resumability, conflicts, uploads mid-copy), not a
   clause in a `PUT`.
-- **No per-object historical provider resolution.** It would thread a
-  provider identity through every method or cache a client per past
-  configuration. `storage_objects.bucket`/`.storage_provider` already record
-  where each object is.
+- **Per-row provider resolution is a router, not a wider interface (#1079).**
+  Threading a provider identity through every `StorageProvider` method would
+  change every implementation. The router resolves a row's recorded
+  `(storage_provider, bucket)` once and hands back a normal provider, with its
+  own small client cache; see §2.9.
 - **`getBucket()` stays synchronous.** Making it async is the right long-term
   fix but touches every consumer, including backup call sites inside a retry
   loop around an `INSERT`.
@@ -723,6 +792,12 @@ Against a real provider, follow the
   replaced `OBJECT_PROCESSOR` with `ObjectProcessorRegistry`, added scopes and
   org-aware keys to the key-prefix registry, and split the purge into
   `runStoragePurge` and the thin `apps/api/src/storage-purge.main.ts`.
+- #1079 added per-row provider routing (`StorageProviderRouter`,
+  `StorageConfigService.resolveDriver`) and the resumable-upload seams:
+  `partUploadAuth`, `POST upload/part-urls`, the API-proxied
+  `PUT upload/parts/:n`, backend-reported upload status (S3 `ListParts`), and
+  `409 UPLOAD_PARTS_MISSING` / `UPLOAD_SESSION_INVALID` on complete. Copy-only
+  migration between providers is a follow-up.
 - #925 (PP-14.7, epic #918) opened the provider kind: `registerStorageDriver`
   and the `storage-driver` pluggable kind, the `{ provider, drivers }` shape of
   the `storage` namespace with read-time compatibility for the flat fields, the

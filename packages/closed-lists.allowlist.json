@@ -400,6 +400,21 @@
       "file": "packages/platform-web/src/telemetry/ui/components/dashboard/TopProblems.tsx",
       "symbol": "TopProblemsKind",
       "reason": "the two lists the top problems card shows"
+    },
+    {
+      "file": "packages/platform-api/src/storage/providers/storage-provider.types.ts",
+      "symbol": "StoragePartUploadMode",
+      "reason": "the two ways a part reaches a backend (a presigned URL, or the API's own route); a wire protocol discriminator the objects API branches on, not an implementation id"
+    },
+    {
+      "file": "packages/platform-contract/src/storage/objects-init-upload.ts",
+      "symbol": "PART_UPLOAD_AUTH_MODES",
+      "reason": "the two credential modes of a part PUT (none for a presigned URL, bearer for the API's part route); a wire protocol discriminator, not an implementation id"
+    },
+    {
+      "file": "packages/platform-contract/src/storage/objects-init-upload.ts",
+      "symbol": "z.enum(PART_UPLOAD_AUTH_MODES)",
+      "reason": "wire enum over PART_UPLOAD_AUTH_MODES, which stays closed"
     }
   ]
 }

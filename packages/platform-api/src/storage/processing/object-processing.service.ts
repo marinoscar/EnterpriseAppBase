@@ -1,5 +1,6 @@
-import { Injectable, Logger, Inject } from '@nestjs/common';
+import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
 import { STORAGE_PROVIDER, StorageProvider } from '../providers';
+import { StorageProviderRouter } from '../providers/storage-provider-router';
 import type { ObjectProcessor } from './object-processor.interface';
 import { ObjectProcessorRegistry } from './object-processor.registry';
 import { buildProcessedMetadata } from './processing-metadata';
@@ -60,7 +61,13 @@ export class ObjectProcessingService {
     // #736: processors self-register here from their own `onModuleInit`
     // (the optional `OBJECT_PROCESSOR` injection is gone).
     private readonly registry: ObjectProcessorRegistry,
+    // Reads the bytes from the provider the row records, not the active one.
+    @Optional() private readonly router?: StorageProviderRouter,
   ) {}
+
+  private providerFor(object: StorageObject): Promise<StorageProvider> {
+    return this.router ? this.router.forObject(object) : Promise.resolve(this.storageProvider);
+  }
 
   /** The registered processors that want `object`, in priority order. */
   applicableProcessors(object: StorageObject): ObjectProcessor[] {
@@ -111,7 +118,7 @@ export class ObjectProcessingService {
 
         const result = await processor.process(
           object,
-          () => this.storageProvider.download(object.storageKey),
+          async () => (await this.providerFor(object)).download(object.storageKey),
         );
 
         if (result.success && result.metadata) {

@@ -91,6 +91,7 @@ jest.mock('@aws-sdk/client-s3', () => ({
   UploadPartCommand: commandMock('UploadPartCommand'),
   CompleteMultipartUploadCommand: commandMock('CompleteMultipartUploadCommand'),
   AbortMultipartUploadCommand: commandMock('AbortMultipartUploadCommand'),
+  ListPartsCommand: commandMock('ListPartsCommand'),
   NotFound: MockNotFound,
 }));
 
@@ -110,6 +111,7 @@ import {
   S3StorageProvider,
   type S3StorageProviderConfig,
 } from '../../../../src/storage/providers/s3/s3-storage.provider';
+import { MultipartSessionNotFoundError } from '../../../../src/storage/providers/storage-provider.types';
 
 const SECRET = 'super-secret-access-key-value';
 
@@ -757,6 +759,50 @@ describe('S3StorageProvider', () => {
   describe('getBucket', () => {
     it('reports the bucket it was configured with', () => {
       expect(fromSettings({ bucket: 'my-bucket' }).getBucket()).toBe('my-bucket');
+    });
+  });
+
+  describe('multipart extensions', () => {
+    it('declares presigned part upload', () => {
+      expect(fromSettings({ bucket: 'my-bucket' }).partUploadMode).toBe('presigned');
+    });
+
+    it('lists the parts S3 holds, following the pagination marker', async () => {
+      s3SendMock.mockReset();
+      s3SendMock
+        .mockResolvedValueOnce({
+          Parts: [{ PartNumber: 1, Size: 10, ETag: '"a"' }],
+          IsTruncated: true,
+          NextPartNumberMarker: '1',
+        })
+        .mockResolvedValueOnce({ Parts: [{ PartNumber: 2, Size: 4, ETag: '"b"' }], IsTruncated: false });
+
+      const parts = await fromSettings({ bucket: 'my-bucket' }).listUploadedParts('k', 'up-1');
+
+      expect(parts).toEqual([
+        { partNumber: 1, size: 10, eTag: '"a"' },
+        { partNumber: 2, size: 4, eTag: '"b"' },
+      ]);
+      expect(s3SendMock.mock.calls[0][0]).toMatchObject({ __command: 'ListPartsCommand', input: { Bucket: 'my-bucket', Key: 'k', UploadId: 'up-1' } });
+      expect(s3SendMock.mock.calls[1][0].input.PartNumberMarker).toBe('1');
+    });
+
+    it('answers an empty list for an upload with no parts yet', async () => {
+      s3SendMock.mockReset();
+      s3SendMock.mockResolvedValueOnce({ IsTruncated: false });
+      expect(await fromSettings({ bucket: 'my-bucket' }).listUploadedParts('k', 'up-1')).toEqual([]);
+    });
+
+    it('turns NoSuchUpload into MultipartSessionNotFoundError', async () => {
+      s3SendMock.mockReset();
+      s3SendMock.mockRejectedValueOnce(Object.assign(new Error('gone'), { name: 'NoSuchUpload' }));
+      await expect(fromSettings({ bucket: 'my-bucket' }).listUploadedParts('k', 'up-1')).rejects.toBeInstanceOf(MultipartSessionNotFoundError);
+    });
+
+    it('lets any other error through', async () => {
+      s3SendMock.mockReset();
+      s3SendMock.mockRejectedValueOnce(new Error('boom'));
+      await expect(fromSettings({ bucket: 'my-bucket' }).listUploadedParts('k', 'up-1')).rejects.toThrow('boom');
     });
   });
 });

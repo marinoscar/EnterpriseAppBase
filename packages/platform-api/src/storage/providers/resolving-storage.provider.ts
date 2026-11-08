@@ -129,6 +129,20 @@ export class ResolvingStorageProvider implements StorageProvider {
     return this.storageConfig.lastKnownProvider();
   }
 
+  /**
+   * The BUILT provider for the configuration in force right now (a 503 while
+   * unconfigured), for the caller that needs members this wrapper cannot
+   * answer synchronously (`partUploadMode`, `listUploadedParts`, `uploadPart`)
+   * or wants to hand the real client around. `StorageProviderRouter` is the
+   * caller. Do not keep the result: the next configuration change supersedes it.
+   *
+   * @returns the active driver's provider.
+   * @throws StorageNotConfiguredError (503) when storage is not configured.
+   */
+  async resolveCurrent(): Promise<StorageProvider> {
+    return this.delegate();
+  }
+
   // ---------------------------------------------------------------------------
   // StorageProvider — all thirteen methods, each one line of delegation
   // ---------------------------------------------------------------------------

@@ -201,4 +201,99 @@ describe('describeStorageDriverConformance', () => {
     const typed = await runKit(driver({ settingsSchema: z.object({ n: z.number() }), defaults: { n: 1 } }), { settings: { n: 'x' } });
     expect(failures(typed).length).toBeGreaterThan(0);
   });
+
+  describe('the multipart extensions', () => {
+    /** An in-memory proxied driver: parts are kept per upload, written as the stream is read. */
+    function proxiedProvider(overrides: Partial<StorageProvider> = {}): StorageProvider {
+      const parts = new Map<string, Map<number, { size: number; eTag: string }>>();
+      return memoryProvider('memory-test', {
+        partUploadMode: 'proxied',
+        async initMultipartUpload(key: string) {
+          parts.set(key, new Map());
+          return { uploadId: key, key };
+        },
+        async uploadPart(key: string, _uploadId: string, partNumber: number, body: Readable) {
+          let size = 0;
+          for await (const chunk of body) size += (chunk as Buffer).length; // counts, keeps nothing: streamed
+          parts.get(key)!.set(partNumber, { size, eTag: `etag-${partNumber}` });
+          return { eTag: `etag-${partNumber}` };
+        },
+        async listUploadedParts(key: string) {
+          return [...(parts.get(key) ?? new Map()).entries()].map(([partNumber, part]) => ({ partNumber, ...part }));
+        },
+        async abortMultipartUpload(key: string) {
+          parts.delete(key);
+        },
+        ...overrides,
+      });
+    }
+
+    const small = { proxiedPartBytes: 8 * 1024 * 1024 };
+
+    it('passes a streaming proxied driver on multipartList and proxiedPart', async () => {
+      const outcome = await runKit(driver({ build: () => proxiedProvider() }), small);
+
+      expect(failures(outcome)).toEqual([]);
+      const ids = Object.keys(outcome).map((name) => name.slice(1, name.indexOf(']')));
+      expect(ids).toEqual(expect.arrayContaining(['multipartList', 'proxiedPart']));
+    });
+
+    it('fails a proxied driver that buffers the whole part', async () => {
+      const outcome = await runKit(
+        driver({
+          build: () =>
+            proxiedProvider({
+              async uploadPart(_key: string, _uploadId: string, _partNumber: number, body: Readable) {
+                const held: Buffer[] = [];
+                for await (const chunk of body) held.push(Buffer.from(chunk as Buffer));
+                const whole = Buffer.concat(held);
+                return { eTag: `etag-${whole.length}` };
+              },
+            }),
+        }),
+        { proxiedPartBytes: 64 * 1024 * 1024 },
+      );
+
+      expect(failures(outcome).some((name) => name.startsWith('[proxiedPart]'))).toBe(true);
+      expect(outcome[failures(outcome).find((name) => name.startsWith('[proxiedPart]'))!]).toMatch(/Expected|toBeLessThan/);
+    });
+
+    it('fails a driver that keeps a part whose stream failed', async () => {
+      const outcome = await runKit(
+        driver({
+          build: () => {
+            const kept: number[] = [];
+            return proxiedProvider({
+              async uploadPart(_key: string, _uploadId: string, partNumber: number, body: Readable) {
+                kept.push(partNumber);
+                try {
+                  for await (const chunk of body) void chunk;
+                } catch {
+                  return { eTag: 'swallowed' };
+                }
+                return { eTag: 'ok' };
+              },
+              async listUploadedParts() {
+                return kept.map((partNumber) => ({ partNumber, size: 0, eTag: 'x' }));
+              },
+            });
+          },
+        }),
+        small,
+      );
+
+      expect(failures(outcome).some((name) => name.startsWith('[proxiedPart]') || name.startsWith('[multipartList]'))).toBe(true);
+    });
+
+    it('fails listUploadedParts that misses an uploaded part', async () => {
+      const outcome = await runKit(driver({ build: () => proxiedProvider({ async listUploadedParts() { return []; } }) }), small);
+
+      expect(failures(outcome).some((name) => name.startsWith('[multipartList]'))).toBe(true);
+    });
+
+    it('does nothing for a plain presigned driver (neither extension is declared)', async () => {
+      const outcome = await runKit(driver());
+      expect(failures(outcome)).toEqual([]);
+    });
+  });
 });

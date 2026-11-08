@@ -43,6 +43,13 @@
 //   - `testConnection` NEVER THROWS and NEVER returns secret material: with
 //     valid settings, with the driver's defaults and no secrets, and with a
 //     sentinel secret the driver must not echo into its message, details or checks;
+//   - multipart extensions, when the provider declares them: `listUploadedParts`
+//     reports the parts of an in-flight upload (and, for a driver that takes
+//     presigned parts, the kit PUTs them through `putPart`); a `proxied` driver
+//     accepts a STREAMED `uploadPart` larger than the process's buffer budget
+//     (it samples external memory while the lazily generated part is consumed),
+//     discards a part whose stream ends short, and completes an upload built
+//     from API parts;
 //   - `provision`, when defined, can be repeated;
 //   - `location` and `missing`, when defined, are pure and well formed.
 // =============================================================================
@@ -50,6 +57,8 @@
 import { Logger } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
+import { runInNewContext } from 'node:vm';
+import { setFlagsFromString } from 'node:v8';
 import { STORAGE_DRIVER_ID_PATTERN } from '@marinoscar/platform-contract/storage';
 
 import type { StorageProvider } from '../providers/storage-provider.interface';
@@ -87,6 +96,8 @@ export type StorageDriverConformanceScenario =
   | 'listKeys'
   | 'testConnection'
   | 'provision'
+  | 'multipartList'
+  | 'proxiedPart'
   | 'pure';
 
 /**
@@ -115,6 +126,18 @@ export interface StorageDriverConformanceOptions extends StorageDriverConformanc
   skip?: readonly StorageDriverConformanceScenario[];
   /** Size of the streamed upload in bytes. Default 6 MiB. */
   streamedBytes?: number;
+  /**
+   * PUTs one part to a presigned part URL (`getSignedUploadUrl`), so the kit can
+   * exercise `listUploadedParts` on a driver that takes presigned parts. Without
+   * it the `multipartList` scenario only runs for `proxied` drivers.
+   */
+  putPart?: (url: string, body: Buffer) => Promise<void>;
+  /**
+   * Size in bytes of the part the `proxiedPart` scenario streams. Default 64 MiB:
+   * the scenario fails when the driver still holds more than half of it (after a
+   * forced collection) while the part is consumed, i.e. when it buffers the part.
+   */
+  proxiedPartBytes?: number;
 }
 
 /** A value no driver may ever echo back from `testConnection`. */
@@ -137,7 +160,26 @@ const PROVIDER_METHODS = [
 ] as const;
 
 const DEFAULT_STREAMED_BYTES = 6 * 1024 * 1024;
+const DEFAULT_PROXIED_PART_BYTES = 64 * 1024 * 1024;
+const PROXIED_SAMPLE_BYTES = 4 * 1024 * 1024;
 const STREAM_CHUNK_BYTES = 64 * 1024;
+
+/**
+ * A function that runs a full garbage collection, or `null` when the runtime
+ * will not give one. Enabled at run time (`--expose-gc` through V8's flags), so
+ * the kit needs no launch flag: external memory (Buffers) is only reclaimed
+ * lazily, and without a forced collection a driver that streams correctly still
+ * looks like one that holds the part.
+ */
+function gcFunction(): (() => void) | null {
+  try {
+    setFlagsFromString('--expose-gc');
+    const gc = runInNewContext('gc') as unknown;
+    return typeof gc === 'function' ? (gc as () => void) : null;
+  } catch {
+    return null;
+  }
+}
 
 async function collect(stream: Readable): Promise<Buffer> {
   const chunks: Buffer[] = [];
@@ -416,6 +458,119 @@ export function describeStorageDriverConformance(
         }
       });
     }
+
+    scenario('multipartList', 'listUploadedParts reports the parts the backend holds for an in-flight upload', async () => {
+      await withProvider(async (provider) => {
+        if (provider.listUploadedParts === undefined) return;
+
+        const key = `${keyPrefix()}multipart.bin`;
+        const first = Buffer.alloc(1024, 1);
+        const second = Buffer.alloc(2048, 2);
+        const proxied = provider.partUploadMode === 'proxied';
+
+        if (!proxied && options.putPart === undefined) return;
+
+        const { uploadId } = await provider.initMultipartUpload(key, { mimeType: 'application/octet-stream' });
+
+        try {
+          expect(await provider.listUploadedParts(key, uploadId)).toEqual([]);
+
+          for (const [index, body] of [first, second].entries()) {
+            const partNumber = index + 1;
+            if (proxied) {
+              const stored = await provider.uploadPart!(key, uploadId, partNumber, Readable.from([body]), body.length);
+              expect(typeof stored.eTag).toBe('string');
+            } else {
+              await options.putPart!(await provider.getSignedUploadUrl(key, uploadId, partNumber, 60), body);
+            }
+          }
+
+          const held = await provider.listUploadedParts(key, uploadId);
+          expect(held.map((part) => part.partNumber).sort((a, b) => a - b)).toEqual([1, 2]);
+          expect(held.find((part) => part.partNumber === 1)?.size).toBe(first.length);
+          expect(held.find((part) => part.partNumber === 2)?.size).toBe(second.length);
+          for (const part of held) expect(part.eTag.length).toBeGreaterThan(0);
+        } finally {
+          await provider.abortMultipartUpload(key, uploadId);
+        }
+      });
+    });
+
+    scenario('proxiedPart', 'a proxied driver streams a part larger than the buffer budget, and discards a short one', async () => {
+      await withProvider(async (provider) => {
+        if (provider.partUploadMode !== 'proxied') return;
+        expect(typeof provider.uploadPart).toBe('function');
+
+        const key = `${keyPrefix()}proxied.bin`;
+        const partBytes = options.proxiedPartBytes ?? DEFAULT_PROXIED_PART_BYTES;
+        const { uploadId } = await provider.initMultipartUpload(key, { mimeType: 'application/octet-stream' });
+
+        try {
+          // 1. A part bigger than the budget, produced lazily; sample external
+          //    memory as each chunk is pulled. A driver that buffers the part
+          //    holds all of it at once.
+          //    External memory is sampled after a FORCED collection every few
+          //    MiB, so garbage the driver has already let go of is not counted:
+          //    only bytes it still holds are. (Skipped where the runtime offers
+          //    no way to collect.)
+          const gc = gcFunction();
+          gc?.();
+          const baseline = process.memoryUsage().arrayBuffers;
+          let peak = 0;
+          let produced = 0;
+          let sinceSample = 0;
+          const source = Readable.from(
+            (function* () {
+              while (produced < partBytes) {
+                const size = Math.min(STREAM_CHUNK_BYTES, partBytes - produced);
+                produced += size;
+                sinceSample += size;
+                if (gc !== null && sinceSample >= PROXIED_SAMPLE_BYTES) {
+                  sinceSample = 0;
+                  gc();
+                  peak = Math.max(peak, process.memoryUsage().arrayBuffers - baseline);
+                }
+                yield Buffer.allocUnsafeSlow(size).fill(7);
+              }
+            })(),
+            { objectMode: false, highWaterMark: STREAM_CHUNK_BYTES },
+          );
+
+          const stored = await provider.uploadPart!(key, uploadId, 1, source, partBytes);
+          expect(typeof stored.eTag).toBe('string');
+          expect(produced).toBe(partBytes);
+          if (gc !== null) expect(peak).toBeLessThan(partBytes / 2);
+
+          // 2. A body that fails part-way (the platform errors the stream when it
+          //    ends short or runs long) must not leave a part behind.
+          let refused = false;
+          try {
+            let sent = false;
+            const failing = new Readable({
+              read() {
+                if (sent) {
+                  this.destroy(new Error('stream ended early'));
+                  return;
+                }
+                sent = true;
+                this.push(Buffer.alloc(16, 1));
+              },
+            });
+            await provider.uploadPart!(key, uploadId, 2, failing, partBytes);
+          } catch {
+            refused = true;
+          }
+          expect(refused).toBe(true);
+
+          if (provider.listUploadedParts !== undefined) {
+            const held = await provider.listUploadedParts(key, uploadId);
+            expect(held.map((part) => part.partNumber)).toEqual([1]);
+          }
+        } finally {
+          await provider.abortMultipartUpload(key, uploadId);
+        }
+      });
+    });
 
     scenario('pure', 'location and missing are pure and well formed', () => {
       const settings = def.settingsSchema.parse({ ...def.defaults, ...options.settings });

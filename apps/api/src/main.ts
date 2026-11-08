@@ -12,6 +12,7 @@ import fastifyCookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
 import {
   STORAGE_OPTIONS,
+  registerStoragePartBodyParser,
   simpleUploadFileSizeLimit,
   type ResolvedStorageModuleOptions,
 } from '@marinoscar/platform-api/storage';
@@ -122,6 +123,11 @@ async function bootstrap() {
       files: 1,
     },
   });
+
+  // The API-proxied multipart part route (`PUT .../upload/parts/:partNumber`,
+  // served only for a storage driver with no presigned URLs) receives its body
+  // as the unread request stream. A no-op for every other route.
+  registerStoragePartBodyParser(app.getHttpAdapter().getInstance());
 
   // Global prefix for all routes
   app.setGlobalPrefix('api');

@@ -4,11 +4,13 @@ import {
   Injectable,
   Logger,
   PayloadTooLargeException,
+  Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 
 import { STORAGE_PROVIDER } from '../providers/storage-provider.interface';
+import { StorageProviderRouter } from '../providers/storage-provider-router';
 import type { StorageProvider } from '../providers/storage-provider.interface';
 import { UserSettingsService } from '../../settings/index';
 import {
@@ -71,6 +73,8 @@ export class ProfileImageService {
     // avatar therefore goes through the SYSTEM client, reason `purge`, behind
     // the same owner and key-prefix check as before (#725).
     @Inject(STORAGE_SYSTEM_DATA) private readonly system: StorageSystemData,
+    // Deletes from the provider the row records, not the active one.
+    @Optional() private readonly router?: StorageProviderRouter,
   ) {}
 
   /**
@@ -237,7 +241,7 @@ export class ProfileImageService {
         return null;
       }
 
-      if (!(await this.deleteStoredBytes(object.storageKey))) {
+      if (!(await this.deleteStoredBytes(object.storageKey, object))) {
         return null;
       }
 
@@ -270,9 +274,14 @@ export class ProfileImageService {
     }
   }
 
-  private async deleteStoredBytes(storageKey: string): Promise<boolean> {
+  /** Deletes the bytes from the provider the row records (the active one for a rollback of a just-written upload). */
+  private async deleteStoredBytes(
+    storageKey: string,
+    row?: { storageProvider: string | null; bucket: string | null },
+  ): Promise<boolean> {
     try {
-      await this.storageProvider.delete(storageKey);
+      const provider = row && this.router ? await this.router.forObject(row) : this.storageProvider;
+      await provider.delete(storageKey);
       return true;
     } catch (error) {
       this.logger.warn(
