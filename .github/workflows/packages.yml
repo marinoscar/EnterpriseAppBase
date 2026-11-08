@@ -94,8 +94,10 @@ jobs:
           - { name: 'api 2/4', ws: '@marinoscar/platform-api', args: '--shard=2/4' }
           - { name: 'api 3/4', ws: '@marinoscar/platform-api', args: '--shard=3/4' }
           - { name: 'api 4/4', ws: '@marinoscar/platform-api', args: '--shard=4/4' }
-          - { name: 'web 1/2', ws: '@marinoscar/platform-web', args: '--shard=1/2' }
-          - { name: 'web 2/2', ws: '@marinoscar/platform-web', args: '--shard=2/2' }
+          - { name: 'web 1/4', ws: '@marinoscar/platform-web', args: '--shard=1/4' }
+          - { name: 'web 2/4', ws: '@marinoscar/platform-web', args: '--shard=2/4' }
+          - { name: 'web 3/4', ws: '@marinoscar/platform-web', args: '--shard=3/4' }
+          - { name: 'web 4/4', ws: '@marinoscar/platform-web', args: '--shard=4/4' }
           - { name: 'cli 1/2', ws: '@marinoscar/platform-cli', args: '--shard=1/2' }
           - { name: 'cli 2/2', ws: '@marinoscar/platform-cli', args: '--shard=2/2' }
           - { name: 'contract, ai-providers, db, infra', ws: '', args: '' }
