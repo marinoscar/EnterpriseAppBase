@@ -1,6 +1,7 @@
 import { BUILTIN_TUI_SCREENS, listRegisteredTuiScreens, sortTuiScreens, type TuiScreenRegistration } from './screen-registry.js';
 import { DeployScreen } from './screens/deploy.js';
 import { InvokeScreen } from './screens/invoke.js';
+import { JobsScreen } from './screens/jobs.js';
 import { LoginScreen } from './screens/login.js';
 import { LogoutScreen } from './screens/logout.js';
 import { NodeScreen } from './screens/node.js';
@@ -20,6 +21,7 @@ const COMPONENTS: Record<string, TuiScreenRegistration['component']> = {
   login: LoginScreen,
   invoke: InvokeScreen,
   status: StatusScreen,
+  jobs: JobsScreen,
   node: NodeScreen,
   deploy: DeployScreen,
   logout: LogoutScreen,
@@ -31,6 +33,10 @@ const LABELS: Record<string, TuiScreenRegistration['label']> = {
   // the spot, and the screen itself produces the real, specific error.
   invoke: ({ loggedIn }) => (loggedIn ? 'Call an endpoint' : 'Call an endpoint  (not logged in)'),
   status: 'Status',
+  // The server decides who may see it (`jobs:read`): a caller without the
+  // permission gets a notice on the screen, not a crash. Hiding the entry for
+  // callers without it waits on the menu tree's visibility rules (G1.1).
+  jobs: ({ loggedIn }) => (loggedIn ? 'Jobs queue  (server)' : 'Jobs queue  (not logged in)'),
   // Not gated on being logged in either: Enroll is exactly what an
   // unconfigured machine needs, and hiding the entry would hide the fix.
   node: 'Worker node  (this machine)',

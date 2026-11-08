@@ -79,7 +79,7 @@ const RESERVED_ROUTES: readonly string[] = ['menu', 'quit'];
 
 /**
  * The platform's own screens, in menu order: `login` 10, `invoke` 20,
- * `status` 30, `node` 40, `deploy` 50, `logout` 60. An app screen picks an
+ * `status` 30, `jobs` 35, `node` 40, `deploy` 50, `logout` 60. An app screen picks an
  * `order` relative to these. Their components are attached when the TUI
  * starts; the ids and orders are here so a duplicate is caught without
  * loading the UI.
@@ -90,6 +90,7 @@ export const BUILTIN_TUI_SCREENS: readonly TuiScreenOrder[] = Object.freeze([
   { route: 'login', order: 10 },
   { route: 'invoke', order: 20 },
   { route: 'status', order: 30 },
+  { route: 'jobs', order: 35 },
   { route: 'node', order: 40 },
   { route: 'deploy', order: 50 },
   { route: 'logout', order: 60 },
