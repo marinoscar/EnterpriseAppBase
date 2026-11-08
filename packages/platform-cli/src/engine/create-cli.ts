@@ -22,6 +22,9 @@ import { registerDeployStep, type DeployStepRegistration } from './deploy/steps/
 import { setCliIdentity, type CliIdentity } from './identity.js';
 import type { JobExecutor } from './node/executors/index.js';
 import { registerNodeExecutor } from './node/executors/registry.js';
+import { setMemoryValveExitCode } from './node/runtime-tuning.js';
+import { registerWorkerEnvAlias } from './node/worker-env-aliases.js';
+import type { WorkerEnvKey } from './node/worker-env.js';
 import { buildProgram, run, type RunOptions } from './program.js';
 import { freezeCliRegistries } from './registries.js';
 import { registerTuiMenuNode, type TuiMenuNode } from './tui/menu-registry.js';
@@ -130,6 +133,25 @@ export interface CreateCliOptions {
   deploySteps?: readonly DeployStepRegistration[] | undefined;
   /** Executors for the app's node-eligible job types. Same as `registerNodeExecutor`. */
   nodeExecutors?: readonly JobExecutor[] | undefined;
+  /**
+   * Worker runtime options. Both default to the platform's behaviour.
+   *
+   * - `envAliases`: legacy variable names per `WORKER_ENV` key, read when the
+   *   canonical one is unset (the canonical name wins; one deprecation line per
+   *   alias in use; the credential and the re-exec latch cannot be aliased).
+   *   Same as `registerWorkerEnvAlias`.
+   * - `memoryValveExitCode`: exit code of the memory valve and of the
+   *   `RestartForceExitStatus=` in the generated systemd unit; 64 to 113,
+   *   default 71.
+   */
+  node?:
+    | {
+        /** Legacy variable names per worker variable. */
+        envAliases?: Partial<Record<WorkerEnvKey, readonly string[]>> | undefined;
+        /** Exit code of the memory valve: 64 to 113, default 71. */
+        memoryValveExitCode?: number | undefined;
+      }
+    | undefined;
   /** Env-key metadata for the app's own `.env.example` keys. Same as `registerEnvSpecFragment`. */
   envSpecFragments?: readonly EnvSpecFragment[] | undefined;
   /** Kinds of generated value for `EnvVarMetadata.generate`. Same as `registerEnvGenerator`; registered before the fragments that name them. */
@@ -213,6 +235,10 @@ export function createCli(options: CreateCliOptions): CliInstance {
   for (const file of options.edgeConfigFiles ?? []) registerEdgeConfigFile(file);
   for (const step of options.deploySteps ?? []) registerDeployStep(step);
   for (const executor of options.nodeExecutors ?? []) registerNodeExecutor(executor);
+  for (const [key, names] of Object.entries(options.node?.envAliases ?? {})) {
+    for (const name of names ?? []) registerWorkerEnvAlias(key as WorkerEnvKey, name);
+  }
+  if (options.node?.memoryValveExitCode !== undefined) setMemoryValveExitCode(options.node.memoryValveExitCode);
   for (const path of options.proxy?.streamPaths ?? []) registerProxyStreamPath(path);
 
   const program = buildProgram();

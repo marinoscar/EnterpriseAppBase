@@ -16,7 +16,16 @@ import {
 } from './capabilities.js';
 import { MemoryWatchdog, memoryWatchdogEnabled } from './memory-watchdog.js';
 import { writeHeapSnapshot } from './heap-snapshot.js';
-import { resolveDefaultConcurrency } from './runtime-tuning.js';
+import {
+  currentHeapLimitMb,
+  memoryValveDisabled,
+  memoryValveExitCode,
+  resolveDefaultConcurrency,
+  resolveNativeThreads,
+  runWorkerRuntimeHooks,
+} from './runtime-tuning.js';
+import { appliedWorkerEnvAliases } from './worker-env-aliases.js';
+import { cpus } from 'node:os';
 import { snapshotsDir } from './paths.js';
 import { NodeVitalsProvider } from './node-vitals.js';
 
@@ -144,6 +153,16 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
       exit(EXIT_MISSING_CAPABILITY);
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Runtime hooks (#1072): once, after the re-exec, before anything can claim
+  // ---------------------------------------------------------------------------
+  // A hook that throws aborts the start with a named error: a worker that is
+  // only half tuned would leak native memory where the watchdog cannot see it.
+  const runtimeEnv = options.env ?? process.env;
+  const cores = safeCores();
+  const nativeThreads = resolveNativeThreads(cores, runtimeEnv);
+  await runWorkerRuntimeHooks({ concurrency: config.node.concurrency, cores, nativeThreads, env: runtimeEnv });
 
   const api = options.createApi?.(config) ?? HttpNodeApi.create(config.serverUrl, config.token);
 
@@ -287,6 +306,13 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
     concurrency: config.node.concurrency,
     types: engine.claimableTypes(),
     headless,
+    heapLimitMb: currentHeapLimitMb(),
+    nativeThreads,
+    valveExitCode: memoryValveExitCode(),
+    valve: watchdog === undefined ? 'off (watchdog disabled)' : memoryValveDisabled() ? 'off (sampling only)' : 'armed',
+    ...(appliedWorkerEnvAliases().length > 0
+      ? { envAliases: appliedWorkerEnvAliases().map((alias) => `${alias.legacy}->${alias.canonical}`) }
+      : {}),
   });
 
   if (!headless) {
@@ -300,6 +326,14 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
   }
 
   return { engine, host, logger, config, watchdog, finished };
+}
+
+function safeCores(): number {
+  try {
+    return cpus().length;
+  } catch {
+    return 1;
+  }
 }
 
 /**

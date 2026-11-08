@@ -1214,6 +1214,7 @@ its entries, so it cannot drift the way a hand-typed copy would. Run
 | `APPCTL_MEMORY_WATCHDOG` | `false` to disable the memory watchdog and its pre-OOM valve. |
 | `APPCTL_MEMORY_THRESHOLD` | heapUsed/heapLimit fraction at which the valve fires. Default ~0.9. |
 | `APPCTL_HEAP_SNAPSHOTS` | `false` to disable ALL THREE heap-snapshot paths. |
+| `APPCTL_NATIVE_THREADS` | Thread cap for native image/codec libraries (libvips and the like), per pipeline. A positive whole number; unset means half the cores, between 1 and 4. Handed to every registered worker runtime hook. |
 <!-- GENERATED:WORKER_ENV_TABLE:END -->
 
 With `APPCTL_SERVER_URL` and `APPCTL_TOKEN` set and no config file at all, the
@@ -1331,6 +1332,7 @@ builds the same CLI, and a duplicate id throws at startup.
 | A screen in the menu | `tuiScreens` (`registerTuiScreen`, `/tui`) | [`examples/about.tui.ts`](src/examples/about.tui.ts), [`about.screen.tsx`](src/examples/about.screen.tsx) |
 | A step in `deploy install` / `update` | `deploySteps` (`registerDeployStep`, `/deploy`) | [`examples/announce.deploy-step.ts`](src/examples/announce.deploy-step.ts) |
 | A node-eligible job type | `nodeExecutors` (`registerNodeExecutor`, `/node`) | [`examples/echo.executor.ts`](src/examples/echo.executor.ts) |
+| A native-library tuning step before the first job | `registerWorkerRuntimeHook` (`/node`); legacy names via `node.envAliases`, valve exit code via `node.memoryValveExitCode` | [`examples/native-threads.runtime-hook.ts`](src/examples/native-threads.runtime-hook.ts) |
 | Metadata for `app.env.example` keys | `envSpecFragments` (`registerEnvSpecFragment`, `/core`) | the platform's `telemetry` fragment |
 | A "newer CLI available" line at start | `updateNotice` (with `githubRawManifest`; `APPCTL_NO_UPDATE_CHECK=1` turns it off) | [`examples/coach.update-notice.ts`](src/examples/coach.update-notice.ts) |
 

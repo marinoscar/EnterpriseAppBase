@@ -591,6 +591,18 @@ export {
   listRegisteredNodeExecutors,
   registerNodeExecutor,
 } from './node/executors/registry.js';
+export {
+  WorkerRuntimeHookError,
+  listWorkerRuntimeHooks,
+  memoryValveExitCode,
+  registerWorkerRuntimeHook,
+  resolveNativeThreads,
+  setMemoryValveExitCode,
+} from './node/runtime-tuning.js';
+export type { WorkerRuntimeContext, WorkerRuntimeHook } from './node/runtime-tuning.js';
+export { listWorkerEnvAliases, registerWorkerEnvAlias } from './node/worker-env-aliases.js';
+export { workerEnv } from './node/worker-env.js';
+export type { WorkerEnvKey } from './node/worker-env.js';
 export { freezeCliRegistries, resetCliRegistriesForTests } from './registries.js';
 
 // Conformance (#715): the `cli` suite and the checks behind it.

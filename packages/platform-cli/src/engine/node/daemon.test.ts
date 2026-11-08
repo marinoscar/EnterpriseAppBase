@@ -216,6 +216,30 @@ describe('startDaemonHost', () => {
     );
   });
 
+  it('returns the snapshot path from a heap-snapshot command (parity, #1072)', async () => {
+    const { pidPath, socketPath } = paths();
+    const host = await startDaemonHost(fakeEngine(), logger(), {
+      pidPath,
+      socketPath,
+      writeHeapSnapshot: async () => ({ path: '/var/lib/worker/snapshots/manual.heapsnapshot', size: 42 }),
+    });
+    cleanups.push(() => host.close());
+
+    const messages: DaemonMessage[] = [];
+    const client = await connectToDaemon({ socketPath, onMessage: (message) => messages.push(message) });
+    cleanups.push(() => client.close());
+
+    client.send({ type: 'heap-snapshot' });
+    await waitFor(() =>
+      messages.some(
+        (message) =>
+          message.type === 'ack' &&
+          message.command === 'heap-snapshot' &&
+          JSON.stringify(message.detail).includes('/var/lib/worker/snapshots/manual.heapsnapshot'),
+      ),
+    );
+  });
+
   it('broadcasts events to every attached client', async () => {
     const { pidPath, socketPath } = paths();
     const host = await startDaemonHost(fakeEngine(), logger(), { pidPath, socketPath });

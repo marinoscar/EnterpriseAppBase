@@ -56,6 +56,8 @@ import { serverUrlEnvVar, tokenEnvVar } from '../config.js';
  * a user sets. Adding a variable means adding it here first — #278's guard
  * asserts this map and the container files agree in BOTH directions, so a
  * variable that exists in only one of the two places is a failing test.
+ *
+ * @stability experimental
  */
 export function workerEnv() {
   return {
@@ -94,10 +96,20 @@ export function workerEnv() {
     memoryThreshold: envVar('MEMORY_THRESHOLD'),
     /** `false` to disable ALL THREE heap-snapshot paths. */
     heapSnapshots: envVar('HEAP_SNAPSHOTS'),
+    /**
+     * Thread cap for native image/codec libraries (libvips and the like), per
+     * pipeline. A positive whole number; unset means half the cores, between 1
+     * and 4. Handed to every registered worker runtime hook.
+     */
+    nativeThreads: envVar('NATIVE_THREADS'),
   } as const;
 }
 
-/** The key set of `WORKER_ENV`, for exhaustive iteration in guards and docs. */
+/**
+ * The key set of `WORKER_ENV`, for exhaustive iteration in guards and docs.
+ *
+ * @stability experimental
+ */
 export type WorkerEnvKey = keyof ReturnType<typeof workerEnv>;
 
 /** Every variable name the worker reads, deduplicated and sorted. */

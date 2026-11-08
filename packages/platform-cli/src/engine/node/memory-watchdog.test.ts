@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { SnapshotResult } from './heap-snapshot.js';
 import {
@@ -10,7 +10,7 @@ import {
   trendMbPerHour,
   type MemorySample,
 } from './memory-watchdog.js';
-import { EXIT_MEMORY_VALVE } from './runtime-tuning.js';
+import { EXIT_MEMORY_VALVE, disableMemoryValve, resetRuntimeTuningForTests, setMemoryValveExitCode } from './runtime-tuning.js';
 import { workerEnv } from './worker-env.js';
 
 const MB = 1024 * 1024;
@@ -206,5 +206,83 @@ describe('the pre-OOM valve', () => {
     clock += MIN_TREND_WINDOW_MS;
     watchdog.sample();
     expect(watchdog.getState().trendMbPerHour).not.toBeNull();
+  });
+});
+
+describe('the valve switches and bounds (issue #1072)', () => {
+  afterEach(() => {
+    resetRuntimeTuningForTests();
+    vi.useRealTimers();
+  });
+
+  function build(heapUsedMb: number, overrides: Partial<ConstructorParameters<typeof MemoryWatchdog>[0]> = {}) {
+    const exits: number[] = [];
+    const snapshot = vi.fn((): SnapshotResult => ({ written: true, path: '/tmp/x.heapsnapshot', size: 1 }));
+    const watchdog = new MemoryWatchdog({
+      snapshotDir: '/tmp',
+      readMemory: () => ({ rss: 0, heapUsed: heapUsedMb * MB, heapTotal: 0, external: 0, arrayBuffers: 0 }),
+      readHeapLimit: () => 4096 * MB,
+      snapshot,
+      stop: async () => {},
+      exit: (code) => exits.push(code),
+      log: () => {},
+      ...overrides,
+    });
+    return { watchdog, exits, snapshot };
+  }
+
+  it('fires at the configured fraction and not before', async () => {
+    const below = build(3000, { threshold: 0.8 }); // ~73%
+    await below.watchdog.tick();
+    expect(below.exits).toEqual([]);
+
+    const above = build(3400, { threshold: 0.8 }); // ~83%
+    await above.watchdog.tick();
+    expect(above.exits).toEqual([EXIT_MEMORY_VALVE]);
+  });
+
+  it('exits with the code an app chose', async () => {
+    setMemoryValveExitCode(75);
+    const { watchdog, exits } = build(3800);
+    await watchdog.tick();
+    expect(exits).toEqual([75]);
+  });
+
+  it('keeps sampling but never fires when the valve is disabled', async () => {
+    disableMemoryValve();
+    const { watchdog, exits, snapshot } = build(4000);
+    expect(watchdog.valveArmed).toBe(false);
+    await watchdog.tick();
+    await watchdog.tick();
+    expect(exits).toEqual([]);
+    expect(snapshot).not.toHaveBeenCalled();
+    expect(watchdog.getState().samples).toBe(2);
+    expect(watchdog.getState().fired).toBe(false);
+  });
+
+  it('is inert when the watchdog itself is switched off', () => {
+    expect(memoryWatchdogEnabled({ [workerEnv().memoryWatchdog]: '0' })).toBe(false);
+  });
+
+  it('exits even when the drain never settles', async () => {
+    vi.useFakeTimers();
+    const { watchdog, exits } = build(3800, { stop: () => new Promise<void>(() => {}), drainTimeoutMs: 5_000 });
+    const ticking = watchdog.tick();
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(exits).toEqual([]);
+    await vi.advanceTimersByTimeAsync(2);
+    await ticking;
+    expect(exits).toEqual([EXIT_MEMORY_VALVE]);
+  });
+
+  it('defaults the drain bound to 60 seconds', async () => {
+    vi.useFakeTimers();
+    const { watchdog, exits } = build(3800, { stop: () => new Promise<void>(() => {}) });
+    const ticking = watchdog.tick();
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(exits).toEqual([]);
+    await vi.advanceTimersByTimeAsync(2);
+    await ticking;
+    expect(exits).toHaveLength(1);
   });
 });

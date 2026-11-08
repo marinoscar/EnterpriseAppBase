@@ -19,6 +19,7 @@
         "APPCTL_HEAP_TUNED": "",
         "APPCTL_MEMORY_THRESHOLD": "",
         "APPCTL_MEMORY_WATCHDOG": "",
+        "APPCTL_NATIVE_THREADS": "",
         "APPCTL_NODE_ID": "",
         "APPCTL_NODE_NAME": "",
         "APPCTL_POLL_INTERVAL_MS": "",
