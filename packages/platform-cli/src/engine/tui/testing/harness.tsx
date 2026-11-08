@@ -19,7 +19,7 @@ import {
   type TuiMenuScreenInfo,
 } from '../menu-tree.js';
 import { MenuScreen } from '../screens/menu.js';
-import type { TuiMenuNode } from '../menu-registry.js';
+import type { TuiMenuNode, TuiMenuSlots } from '../menu-registry.js';
 import type { TuiScreenProps } from '../screen-registry.js';
 import { resolveTuiTheme, type TuiTheme } from '../theme.js';
 
@@ -435,6 +435,8 @@ export interface RenderTuiMenuOptions extends Omit<TuiRenderOptions, 'session'> 
   loggedIn: boolean;
   /** Open at this section. Default the root. */
   section?: string | undefined;
+  /** The root menu's banner and footnote. Default the ones `setTuiRootMenuSlots` set. */
+  rootSlots?: TuiMenuSlots | undefined;
 }
 
 /**
@@ -461,7 +463,7 @@ export interface TuiMenuHandle extends TuiTestHandle {
  */
 export async function renderTuiMenu(options: RenderTuiMenuOptions): Promise<TuiMenuHandle> {
   const nodes = options.nodes ?? listTuiMenuNodes();
-  const tree = buildTuiMenuTree(nodes, options.screens);
+  const tree = buildTuiMenuTree(nodes, options.screens, options.rootSlots);
   const initialStack: TuiNavFrame[] = [
     options.section === undefined ? MENU_FRAME : { kind: 'menu', sectionId: options.section },
   ];

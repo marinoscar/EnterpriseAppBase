@@ -27,8 +27,8 @@ import { registerWorkerEnvAlias } from './node/worker-env-aliases.js';
 import type { WorkerEnvKey } from './node/worker-env.js';
 import { buildProgram, run, type RunOptions } from './program.js';
 import { freezeCliRegistries } from './registries.js';
-import { registerTuiMenuNode, type TuiMenuNode } from './tui/menu-registry.js';
-import { registerTuiScreen, type TuiScreenRegistration } from './tui/screen-registry.js';
+import { registerTuiMenuNode, setTuiRootMenuSlots, type TuiMenuNode, type TuiMenuSlots } from './tui/menu-registry.js';
+import { hideTuiScreen, registerTuiScreen, type TuiScreenRegistration } from './tui/screen-registry.js';
 import { registerTuiSelection, registerTuiStateLoader, type TuiSelectionRegistration, type TuiStateLoaderRegistration } from './tui/app-registry.js';
 import { setTuiThemeOverrides, type TuiThemeOverrides } from './tui/theme.js';
 import { registerTuiScreenSection, type TuiSectionRegistration } from './tui/section-registry.js';
@@ -115,8 +115,17 @@ export interface CreateCliOptions {
   extraCommands?: readonly CliCommandRegistration[] | undefined;
   /** Screens added to the TUI menu. Same as `registerTuiScreen`. */
   tuiScreens?: readonly TuiScreenRegistration[] | undefined;
+  /**
+   * Screens kept out of the root menu, built-in (`login`, `invoke`, `status`,
+   * `jobs`, `node`, `deploy`, `logout`) or the app's; still routable. Same as
+   * `hideTuiScreen`. To swap a built-in for the app's own screen, register it
+   * with `replaceBuiltin: true` instead.
+   */
+  tuiHiddenScreens?: readonly string[] | undefined;
   /** Sections and entries of the TUI menu tree. Same as `registerTuiMenuNode`. */
   tuiMenu?: readonly TuiMenuNode[] | undefined;
+  /** The root menu's banner and footnote. Same as `setTuiRootMenuSlots`. */
+  tuiMenuRoot?: TuiMenuSlots | undefined;
   /** Colour tokens, brand hues and glyphs of the TUI. Colour is still off under `NO_COLOR`. */
   tuiTheme?: TuiThemeOverrides | undefined;
   /** Selections shown as a chip in the TUI header. Same as `registerTuiSelection`. */
@@ -224,7 +233,9 @@ export function createCli(options: CreateCliOptions): CliInstance {
   for (const [key, annotation] of Object.entries(options.envAnnotations ?? {})) annotateEnvKey(key, annotation);
   for (const command of options.extraCommands ?? []) registerCliCommand(command);
   for (const screen of options.tuiScreens ?? []) registerTuiScreen(screen);
+  for (const route of options.tuiHiddenScreens ?? []) hideTuiScreen(route);
   for (const node of options.tuiMenu ?? []) registerTuiMenuNode(node);
+  if (options.tuiMenuRoot !== undefined) setTuiRootMenuSlots(options.tuiMenuRoot);
   for (const { screen, id, component, load } of options.tuiSections ?? []) {
     registerTuiScreenSection(screen, component ?? { id, load: load as NonNullable<typeof load> }, { id });
   }

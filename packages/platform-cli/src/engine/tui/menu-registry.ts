@@ -67,11 +67,70 @@ export interface TuiMenuNodeBase {
 }
 
 /**
+ * What a menu slot's content function is given.
+ *
+ * @stability experimental
+ */
+export interface TuiMenuSlotContext {
+  /** Whether a token is stored. */
+  loggedIn: boolean;
+  /** The terminal width, so wide header art can fall back to a short title. */
+  columns: number;
+  /** The section the menu shows (`root` at the top). */
+  sectionId: string;
+  /** What the app's state loaders loaded (`useTuiState`), by loader id; empty until they settle. */
+  state: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * A slot's text: a line, several lines (a string may also hold `\n`), or a
+ * function of {@link TuiMenuSlotContext} returning either (`undefined` or an
+ * empty list draws nothing). Plain text only, so registering it never loads
+ * ink and it reads the same in monochrome.
+ *
+ * @stability experimental
+ */
+export type TuiMenuSlotContent =
+  | string
+  | readonly string[]
+  | ((context: TuiMenuSlotContext) => string | readonly string[] | undefined);
+
+/**
+ * A banner or footnote of a menu (seam #1115). Each line is truncated to the
+ * terminal width rather than wrapped, so header art never smears at 40 or 24
+ * columns; give a function that checks `columns` to draw something shorter.
+ *
+ * @stability experimental
+ */
+export interface TuiMenuSlot {
+  /** The text. */
+  content: TuiMenuSlotContent;
+  /**
+   * A theme token name or a plain colour, resolved like a node's `color` (no
+   * colour under `NO_COLOR`). Default `banner` for a banner, `dim` for a footnote.
+   */
+  color?: TuiColor;
+}
+
+/**
+ * The optional slots of a menu: a banner above the entries and a footnote
+ * below them (header art, "update available", a support line).
+ *
+ * @stability experimental
+ */
+export interface TuiMenuSlots {
+  /** Drawn at the top of the menu, above the subtitle line. */
+  banner?: TuiMenuSlot | undefined;
+  /** Drawn under the entries. */
+  footnote?: TuiMenuSlot | undefined;
+}
+
+/**
  * A submenu.
  *
  * @stability experimental
  */
-export interface TuiMenuSection extends TuiMenuNodeBase {
+export interface TuiMenuSection extends TuiMenuNodeBase, TuiMenuSlots {
   /** Discriminant. */
   kind: 'section';
   /** Shown under the breadcrumb instead of the default hint. */
@@ -106,6 +165,21 @@ export type TuiMenuNode = TuiMenuSection | TuiMenuEntry;
 
 const ID_PATTERN = /^[a-z][a-z0-9-]*$/;
 
+function validateSlot(where: string, name: string, slot: unknown): void {
+  if (slot === undefined) return;
+  const content = (slot as { content?: unknown } | null)?.content;
+  const ok =
+    typeof content === 'string' ||
+    typeof content === 'function' ||
+    (Array.isArray(content) && content.every((line) => typeof line === 'string'));
+  if (typeof slot !== 'object' || slot === null || !ok) {
+    throw new Error(`${where} has an invalid ${name}: pass \`{ content }\` with a string, a list of strings or a function returning one.`);
+  }
+}
+
+let rootSlots: TuiMenuSlots = {};
+let rootSlotsFrozenBy: string | undefined;
+
 const registry = createCliRegistry<TuiMenuNode>({
   name: 'TUI menu node',
   registerFn: 'registerTuiMenuNode',
@@ -136,8 +210,48 @@ const registry = createCliRegistry<TuiMenuNode>({
     if (node.kind === 'entry' && (typeof node.route !== 'string' || node.route === '')) {
       throw new Error(`TUI menu entry "${id}" needs the route of a registered screen.`);
     }
+    if (node.kind === 'section') {
+      validateSlot(`TUI menu section "${id}"`, 'banner', node.banner);
+      validateSlot(`TUI menu section "${id}"`, 'footnote', node.footnote);
+    }
   },
 });
+
+/**
+ * Sets the root menu's banner and footnote (seam #1115); a section takes its
+ * own through `banner` and `footnote` on the node. A second call replaces the
+ * first. Same as `createCli({ tuiMenuRoot })`.
+ *
+ * @param slots - The banner and the footnote; `{}` or `undefined` removes both.
+ * @throws Error when a slot has no valid `content`, or when `createCli` has already built the CLI.
+ * @stability experimental
+ * @extensionPoint slot
+ * @example
+ * ```ts
+ * setTuiRootMenuSlots({
+ *   banner: { content: ({ columns }) => (columns >= 40 ? ['╔═╗ Product X', '╚═╝ control panel'] : 'Product X') },
+ *   footnote: { content: ({ state }) => (state['update'] === undefined ? undefined : 'An update is available.'), color: 'warning' },
+ * });
+ * ```
+ */
+export function setTuiRootMenuSlots(slots: TuiMenuSlots | undefined): void {
+  if (rootSlotsFrozenBy !== undefined) {
+    throw new Error(`The TUI root menu slots were set after ${rootSlotsFrozenBy}; set them before (or pass tuiMenuRoot to createCli).`);
+  }
+  validateSlot('The TUI root menu', 'banner', slots?.banner);
+  validateSlot('The TUI root menu', 'footnote', slots?.footnote);
+  rootSlots = Object.freeze({ ...(slots ?? {}) });
+}
+
+/**
+ * The root menu's slots set with {@link setTuiRootMenuSlots}.
+ *
+ * @returns The slots (`{}` when none are set).
+ * @stability experimental
+ */
+export function getTuiRootMenuSlots(): TuiMenuSlots {
+  return rootSlots;
+}
 
 /**
  * Adds a section or an entry to the TUI menu tree.
@@ -224,9 +338,12 @@ export function freezeTuiMenuRegistry(by: string): void {
   const routes = [...BUILTIN_TUI_SCREENS, ...listRegisteredTuiScreens()].map((screen) => screen.route);
   validateTuiMenuNodes(registry.list(), routes);
   registry.freeze(by);
+  rootSlotsFrozenBy = by;
 }
 
 /** Empties the registry. Tests only. */
 export function resetTuiMenuRegistryForTests(): void {
   registry.reset();
+  rootSlots = {};
+  rootSlotsFrozenBy = undefined;
 }
