@@ -14,6 +14,13 @@
 
 import { z } from 'zod';
 
+import {
+  nodeCredentialDeliveryPatchSchema,
+  nodeCredentialDeliveryPutSchema,
+  nodeCredentialDeliveryResponseSchema,
+  nodeCredentialDeliverySettingsSchema,
+} from './credential-delivery.js';
+
 /**
  * Worker-fleet policy (`nodes`), as stored.
  *
@@ -37,6 +44,8 @@ export const systemNodesSchema = z.object({
   offlineRetentionDays: z.number().int().min(1).max(3650),
   /** Whether a node may be brokered a short-lived credential for its job. */
   jobSecretBrokerEnabled: z.boolean(),
+  /** Provider-credential delivery to nodes (#1083); absent reads as OFF. */
+  credentialDelivery: nodeCredentialDeliverySettingsSchema.optional(),
 });
 
 /**
@@ -61,6 +70,8 @@ export const systemNodesPatchSchema = z.object({
   offlineRetentionDays: z.number().int().min(1).max(3650).optional(),
   /** Whether nodes may be brokered job credentials. */
   jobSecretBrokerEnabled: z.boolean().optional(),
+  /** Provider-credential delivery to nodes (#1083). */
+  credentialDelivery: nodeCredentialDeliverySettingsSchema.optional(),
 });
 
 /**
@@ -78,6 +89,8 @@ export const nodesSettingsSchema = z.object({
   offlineRetentionDays: z.number().int().min(1).max(3650),
   /** Whether nodes may be brokered job credentials. */
   jobSecretBrokerEnabled: z.boolean(),
+  /** Provider-credential delivery to nodes (#1083); optional, so a body written before it still validates. */
+  credentialDelivery: nodeCredentialDeliveryPutSchema.optional(),
 });
 
 /**
@@ -95,6 +108,8 @@ export const nodesSettingsPatchSchema = z.object({
   offlineRetentionDays: z.number().int().min(1).max(3650).optional(),
   /** Whether nodes may be brokered job credentials. */
   jobSecretBrokerEnabled: z.boolean().optional(),
+  /** Provider-credential delivery to nodes (#1083), field by field; `epoch` is server-written and stripped. */
+  credentialDelivery: nodeCredentialDeliveryPatchSchema.optional(),
 });
 
 /**
@@ -119,4 +134,6 @@ export const nodesResponseSchema = z.object({
   offlineRetentionDays: z.number(),
   /** Whether nodes may be brokered job credentials. */
   jobSecretBrokerEnabled: z.boolean(),
+  /** Provider-credential delivery to nodes (#1083). */
+  credentialDelivery: nodeCredentialDeliveryResponseSchema.optional(),
 });

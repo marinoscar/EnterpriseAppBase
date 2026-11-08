@@ -89,3 +89,31 @@ export {
   systemNodesSchema,
 } from './settings-schemas.js';
 export type { NodesSettingsPatchInput, SystemNodesValue } from './settings-schemas.js';
+
+// ---- ./credential-delivery.ts: provider-credential delivery to nodes (#1083)
+export {
+  DEFAULT_NODE_CREDENTIAL_CACHE_TTL_MINUTES,
+  MAX_NODE_CREDENTIAL_CACHE_TTL_MINUTES,
+  MAX_NODE_CREDENTIAL_PURPOSES,
+  MIN_NODE_CREDENTIAL_CACHE_TTL_MINUTES,
+  NODE_CREDENTIAL_DELIVERY_REFUSALS,
+  NODE_CREDENTIAL_PURPOSE_ID_PATTERN,
+  NODE_CREDENTIAL_VERSION_LENGTH,
+  NODE_SERVER_CAPABILITY_CREDENTIAL_DELIVERY,
+  nodeCredentialDeliveryPatchSchema,
+  nodeCredentialDeliveryPutSchema,
+  nodeCredentialDeliveryResponseSchema,
+  nodeCredentialDeliverySettingsSchema,
+  nodeCredentialDeliveryStateSchema,
+  nodeCredentialIssueRequestSchema,
+  nodeCredentialIssueResponseSchema,
+  nodeCredentialRevokeAllResponseSchema,
+} from './credential-delivery.js';
+export type {
+  NodeCredentialDeliveryPatchInput,
+  NodeCredentialDeliverySettings,
+  NodeCredentialDeliveryState,
+  NodeCredentialIssueRequest,
+  NodeCredentialIssueResponse,
+  NodeCredentialRevokeAllResponse,
+} from './credential-delivery.js';
