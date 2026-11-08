@@ -454,20 +454,36 @@ export { TEST_CLI_IDENTITY, resetCliForTests, testDeployStepContext, useTestCliI
 // env-spec fragments.
 export {
   BUILTIN_TUI_SCREENS,
+  hideTuiScreen,
+  listHiddenTuiScreens,
   listRegisteredTuiScreens,
   registerTuiScreen,
   sortTuiScreens,
+  tuiMenuScreens,
 } from './tui/screen-registry.js';
-export type { TuiMenuContext, TuiScreenOrder, TuiScreenProps, TuiScreenRegistration } from './tui/screen-registry.js';
+export type { TuiMenuContext, TuiMenuScreen, TuiScreenOrder, TuiScreenProps, TuiScreenRegistration } from './tui/screen-registry.js';
 export {
+  getTuiRootMenuSlots,
   listTuiMenuNodes,
   registerTuiMenuNode,
+  setTuiRootMenuSlots,
   TUI_MENU_MAX_DEPTH,
   TUI_MENU_ROOT,
 } from './tui/menu-registry.js';
-export type { TuiMenuEntry, TuiMenuLabel, TuiMenuNode, TuiMenuNodeBase, TuiMenuSection } from './tui/menu-registry.js';
+export type {
+  TuiMenuEntry,
+  TuiMenuLabel,
+  TuiMenuNode,
+  TuiMenuNodeBase,
+  TuiMenuSection,
+  TuiMenuSlot,
+  TuiMenuSlotContent,
+  TuiMenuSlotContext,
+  TuiMenuSlots,
+} from './tui/menu-registry.js';
 export {
   buildTuiMenuTree,
+  resolveTuiMenuSlot,
   tuiBreadcrumb,
   tuiMenuColor,
   tuiMenuItemLabel,

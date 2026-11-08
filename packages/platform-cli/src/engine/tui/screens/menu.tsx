@@ -4,10 +4,11 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { cliName } from '../../identity.js';
 import { allTuiScreens } from '../builtin-screens.js';
 import { useTuiApp } from '../context.js';
-import { Frame } from '../layout.js';
+import { Frame, useTerminalSize } from '../layout.js';
 import { listTuiMenuNodes, TUI_MENU_ROOT } from '../menu-registry.js';
 import {
   buildTuiMenuTree,
+  resolveTuiMenuSlot,
   tuiBreadcrumb,
   tuiMenuColor,
   tuiMenuItemLabel,
@@ -84,7 +85,8 @@ export function MenuScreen({ onSelect, onQuit, tree: treeProp }: MenuScreenProps
   // The session comes from the app context, which reads the config once and
   // again on `session.refresh()` (the login and logout screens call it). The
   // menu used to re-read the file on every mount for the same freshness.
-  const { session, nav, theme } = useTuiApp();
+  const { session, nav, theme, appState } = useTuiApp();
+  const { columns } = useTerminalSize();
   const loggedIn = session.loggedIn;
 
   const tree = useMemo(() => treeProp ?? buildTuiMenuTree(listTuiMenuNodes(), allTuiScreens()), [treeProp]);
@@ -143,6 +145,16 @@ export function MenuScreen({ onSelect, onQuit, tree: treeProp }: MenuScreenProps
     }
   });
 
+  // THE SLOTS (seam #1115): a banner above the subtitle and a footnote under
+  // the entries, plain text from the app. Each line is truncated, never
+  // wrapped, so header art cannot smear at 40 or 24 columns, and the colour
+  // goes through the theme, so `NO_COLOR` draws none.
+  const slotContext = { loggedIn, columns, sectionId, state: appState };
+  const banner = resolveTuiMenuSlot(section.banner, slotContext);
+  const footnote = resolveTuiMenuSlot(section.footnote, slotContext);
+  const bannerColour = tuiMenuColor(theme, section.banner?.color ?? 'banner');
+  const footnoteColour = tuiMenuColor(theme, section.footnote?.color ?? 'dim');
+
   const accelerators = tree.customised;
   const hints = atRoot
     ? ['↑↓ move', 'enter select', ...(accelerators ? ['1-9 jump'] : []), 'q quit', 'ctrl-c exit']
@@ -151,6 +163,15 @@ export function MenuScreen({ onSelect, onQuit, tree: treeProp }: MenuScreenProps
   return (
     <Frame title={atRoot ? 'Menu' : tuiBreadcrumb(sectionId, { loggedIn }, tree)} hints={hints}>
       <Box flexDirection="column" gap={1}>
+        {banner.length > 0 ? (
+          <Box flexDirection="column">
+            {banner.map((line, i) => (
+              <Text key={`banner-${i}`} wrap="truncate-end" {...textColor(bannerColour)}>
+                {line}
+              </Text>
+            ))}
+          </Box>
+        ) : null}
         <Text dimColor>
           {atRoot
             ? session.serverUrl === undefined
@@ -175,6 +196,15 @@ export function MenuScreen({ onSelect, onQuit, tree: treeProp }: MenuScreenProps
             );
           })}
         </Box>
+        {footnote.length > 0 ? (
+          <Box flexDirection="column">
+            {footnote.map((line, i) => (
+              <Text key={`footnote-${i}`} wrap="truncate-end" {...textColor(footnoteColour)}>
+                {line}
+              </Text>
+            ))}
+          </Box>
+        ) : null}
       </Box>
     </Frame>
   );

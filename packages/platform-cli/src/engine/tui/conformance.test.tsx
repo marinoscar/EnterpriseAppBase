@@ -269,3 +269,57 @@ describe('the tui suite', () => {
     expect(names).toContain('labels: every label is non-empty logged in and logged out');
   });
 });
+
+describe('per-check skips through runPlatformConformance (seam #1115)', () => {
+  const testApi = (names: string[]): ConformanceTestApi => ({
+    describe: (_name, body) => body(),
+    it: (name) => void names.push(name),
+    expect: () => ({ toEqual: () => undefined }),
+  });
+
+  it('accepts `tui: { skip: { <check>: reason } }` and runs every other check', () => {
+    const names: string[] = [];
+    const tables: string[] = [];
+    runPlatformConformance({
+      suites: { tui: { screens: [], nodes: [], skip: { 'no-ink-import': 'the app ships no registration module' } } },
+      testApi: testApi(names),
+      summaryOutput: (table) => void tables.push(table),
+    });
+    expect(names).toContain('no-ink-import: skipped by the app (the app ships no registration module)');
+    expect(names).toContain('labels: every label is non-empty logged in and logged out');
+    expect(tables[0]).toMatch(/tui\s+run/);
+  });
+
+  it('still rejects an unknown check or an empty reason in the map', () => {
+    expect(() =>
+      runPlatformConformance({ suites: { tui: { skip: { nope: 'x' } as never } }, testApi: testApi([]) }),
+    ).toThrow(/unknown check "nope"/);
+    expect(() => runPlatformConformance({ suites: { tui: { skip: { labels: '' } } }, testApi: testApi([]) })).toThrow(
+      /skipped without a reason/,
+    );
+  });
+
+  it('keeps `tui: { skip: "reason" }` as a whole-suite skip', () => {
+    const names: string[] = [];
+    runPlatformConformance({ suites: { tui: { skip: 'no TUI in this app' } }, testApi: testApi(names) });
+    expect(names).toEqual(['tui: skipped by the app (no TUI in this app)']);
+  });
+});
+
+describe('hidden and replaced built-in screens (seam #1115)', () => {
+  it('a hidden built-in with no entry is not reported by menu-references', () => {
+    const screens: TuiScreenRegistration[] = [{ ...lazy('login'), replaceBuiltin: true }];
+    expect(checkTuiMenu([], screens, ['invoke', 'status', 'jobs', 'node', 'logout'])).toEqual([]);
+  });
+
+  it('the suite is green for an app that hides and replaces built-ins', async () => {
+    const results = await runCases({
+      screens: [{ ...lazy('login'), replaceBuiltin: true }, { ...lazy('setup'), hidden: true }],
+      hiddenScreens: ['invoke', 'status', 'jobs', 'node', 'logout'],
+      importEntries: [join(FIXTURES, 'pure.mjs')],
+      nodes: [],
+    });
+    expect([...results].filter(([, message]) => message !== undefined)).toEqual([]);
+    expect([...results.keys()]).toContain('screens-render: screen "login" renders at 24 columns');
+  }, 60_000);
+});

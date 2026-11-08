@@ -1,10 +1,14 @@
 import {
+  getTuiRootMenuSlots,
   listTuiMenuNodes,
   TUI_MENU_ROOT,
   type TuiMenuLabel,
   type TuiMenuNode,
+  type TuiMenuSlot,
+  type TuiMenuSlotContext,
+  type TuiMenuSlots,
 } from './menu-registry.js';
-import { BUILTIN_TUI_SCREENS, listRegisteredTuiScreens, type TuiMenuContext } from './screen-registry.js';
+import { tuiMenuScreens, type TuiMenuContext } from './screen-registry.js';
 import type { TuiColor, TuiTheme } from './theme.js';
 
 // =============================================================================
@@ -31,6 +35,8 @@ export interface TuiMenuScreenInfo {
   label: TuiMenuLabel;
   /** Its root menu order. */
   order: number;
+  /** Not listed at the root when no entry opens it (`hideTuiScreen`, `hidden: true`). */
+  hidden?: boolean | undefined;
 }
 
 /**
@@ -65,6 +71,10 @@ export interface TuiMenuTreeSection extends TuiMenuTreeNodeBase {
   kind: 'section';
   /** Replaces the default hint under the breadcrumb. */
   subtitle: string | undefined;
+  /** Drawn above the subtitle line; resolve it with {@link resolveTuiMenuSlot}. */
+  banner?: TuiMenuSlot | undefined;
+  /** Drawn under the entries; resolve it with {@link resolveTuiMenuSlot}. */
+  footnote?: TuiMenuSlot | undefined;
   /** Children, sorted by order then id. */
   children: TuiMenuTreeNode[];
 }
@@ -122,17 +132,23 @@ function byOrder(a: { order: number; id: string }, b: { order: number; id: strin
  *
  * Every screen that no entry opens becomes a root entry with its own label and
  * order (visible when logged out, no login gate), so a CLI with no menu nodes
- * lists exactly the screens it always did. A screen that an entry opens is
+ * lists exactly the screens it always did; a screen flagged `hidden` is left
+ * out instead. A screen that an entry opens is
  * left out of the root, so it appears once. Children sort by `order`, then id.
  * References are assumed valid (`createCli` checks them when it freezes); an
  * unresolvable node is placed at the root rather than lost.
  *
  * @param nodes - The registered nodes.
  * @param screens - Every screen (built-in and app) with its root label and order.
+ * @param rootSlots - The root menu's banner and footnote. Default the ones `setTuiRootMenuSlots` set.
  * @returns The tree.
  * @stability experimental
  */
-export function buildTuiMenuTree(nodes: readonly TuiMenuNode[], screens: readonly TuiMenuScreenInfo[]): TuiMenuTree {
+export function buildTuiMenuTree(
+  nodes: readonly TuiMenuNode[],
+  screens: readonly TuiMenuScreenInfo[],
+  rootSlots: TuiMenuSlots = getTuiRootMenuSlots(),
+): TuiMenuTree {
   const sections = new Map<string, TuiMenuTreeSection>();
   const root: TuiMenuTreeSection = {
     kind: 'section',
@@ -144,6 +160,8 @@ export function buildTuiMenuTree(nodes: readonly TuiMenuNode[], screens: readonl
     hideWhenLoggedIn: false,
     color: undefined,
     subtitle: undefined,
+    banner: rootSlots.banner,
+    footnote: rootSlots.footnote,
     children: [],
   };
   sections.set(root.id, root);
@@ -159,6 +177,8 @@ export function buildTuiMenuTree(nodes: readonly TuiMenuNode[], screens: readonl
       hideWhenLoggedIn: node.hideWhenLoggedIn === true,
       color: node.color,
       subtitle: node.subtitle,
+      banner: node.banner,
+      footnote: node.footnote,
       children: [],
     });
   }
@@ -191,7 +211,7 @@ export function buildTuiMenuTree(nodes: readonly TuiMenuNode[], screens: readonl
   }
   const referenced = new Set(entries.map((entry) => entry.route));
   for (const screen of screens) {
-    if (referenced.has(screen.route)) continue;
+    if (referenced.has(screen.route) || screen.hidden === true) continue;
     const entry: TuiMenuTreeEntry = {
       kind: 'entry',
       // Not a valid registered id, so it can never collide with one.
@@ -217,11 +237,7 @@ export function buildTuiMenuTree(nodes: readonly TuiMenuNode[], screens: readonl
 
 /** The tree from the registry, with built-in labels unknown (their route stands in): for pure callers and tests. */
 function defaultTree(): TuiMenuTree {
-  const screens: TuiMenuScreenInfo[] = [
-    ...BUILTIN_TUI_SCREENS.map(({ route, order }) => ({ route, order, label: route })),
-    ...listRegisteredTuiScreens(),
-  ];
-  return buildTuiMenuTree(listTuiMenuNodes(), screens);
+  return buildTuiMenuTree(listTuiMenuNodes(), tuiMenuScreens());
 }
 
 /** The effective logged-out flag: the nearest explicit one, walking up; false at the root. */
@@ -329,6 +345,28 @@ export function tuiRouteRequiresLogin(route: string, tree: TuiMenuTree = default
   const opening = tree.entries.filter((entry) => entry.route === route);
   if (opening.length === 0) return false;
   return opening.every((entry) => entry.requiresLogin ?? !effectiveLoggedOut(entry, tree));
+}
+
+/**
+ * The lines a menu slot draws: its content (or what its function returns)
+ * split on newlines. A function that throws draws nothing, so a broken
+ * banner can never take the menu down with it.
+ *
+ * @param slot - A banner or footnote; `undefined` draws nothing.
+ * @param context - The login state, width, section and app state.
+ * @returns The lines; empty for nothing.
+ * @stability experimental
+ */
+export function resolveTuiMenuSlot(slot: TuiMenuSlot | undefined, context: TuiMenuSlotContext): string[] {
+  if (slot === undefined) return [];
+  let content: string | readonly string[] | undefined;
+  try {
+    content = typeof slot.content === 'function' ? slot.content(context) : slot.content;
+  } catch {
+    return [];
+  }
+  if (content === undefined) return [];
+  return (typeof content === 'string' ? [content] : [...content]).flatMap((line) => String(line).split('\n'));
 }
 
 const NAMED_COLOURS: Readonly<Record<string, 'error' | 'success' | 'warning' | 'info' | 'dim' | 'accent' | 'primary'>> = {

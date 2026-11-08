@@ -1,4 +1,10 @@
-import { BUILTIN_TUI_SCREENS, listRegisteredTuiScreens, sortTuiScreens, type TuiScreenRegistration } from './screen-registry.js';
+import {
+  BUILTIN_TUI_SCREENS,
+  listHiddenTuiScreens,
+  listRegisteredTuiScreens,
+  sortTuiScreens,
+  type TuiScreenRegistration,
+} from './screen-registry.js';
 import { DeployScreen } from './screens/deploy.js';
 import { InvokeScreen } from './screens/invoke.js';
 import { JobsScreen } from './screens/jobs.js';
@@ -58,7 +64,17 @@ export function builtinTuiScreens(): TuiScreenRegistration[] {
   });
 }
 
-/** Every screen the menu lists: the built-ins, then the app's, sorted by order then route id. */
+/**
+ * Every screen the router can open, sorted by order then route id: the
+ * built-ins an app did not replace (`replaceBuiltin`), then the app's. A
+ * screen hidden from the root menu (`hideTuiScreen`, `hidden: true`) is still
+ * here, flagged `hidden`, so an entry or `nav.push` can open it.
+ */
 export function allTuiScreens(): TuiScreenRegistration[] {
-  return sortTuiScreens([...builtinTuiScreens(), ...listRegisteredTuiScreens()]);
+  const registered = listRegisteredTuiScreens();
+  const hidden = listHiddenTuiScreens();
+  const replaced = new Set(registered.filter((screen) => screen.replaceBuiltin === true).map((screen) => screen.route));
+  const flag = (screen: TuiScreenRegistration): TuiScreenRegistration =>
+    screen.hidden !== true && hidden.includes(screen.route) ? { ...screen, hidden: true } : screen;
+  return sortTuiScreens([...builtinTuiScreens().filter((screen) => !replaced.has(screen.route)), ...registered].map(flag));
 }

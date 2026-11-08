@@ -13,7 +13,7 @@ import {
   type TuiMenuNode,
 } from './menu-registry.js';
 import { buildTuiMenuTree, tuiRouteRequiresLogin, visibleTuiMenuChildren, type TuiMenuTree } from './menu-tree.js';
-import { BUILTIN_TUI_SCREENS, listRegisteredTuiScreens, type TuiScreenRegistration } from './screen-registry.js';
+import { BUILTIN_TUI_SCREENS, listRegisteredTuiScreens, tuiMenuScreens, type TuiScreenRegistration } from './screen-registry.js';
 import { listTuiScreenSections, TUI_SECTION_SCREENS } from './section-registry.js';
 import type { TuiTheme } from './theme.js';
 
@@ -115,30 +115,36 @@ export interface TuiConformanceOptions {
   nodes?: readonly TuiMenuNode[] | undefined;
   /** Replaces the registered app screens (a test seam). */
   screens?: readonly TuiScreenRegistration[] | undefined;
+  /** Replaces the routes `hideTuiScreen` collected (a test seam). */
+  hiddenScreens?: readonly string[] | undefined;
 }
 
 // -----------------------------------------------------------------------------
 // The pure checks
 // -----------------------------------------------------------------------------
 
-function builtinScreenInfos() {
-  return BUILTIN_TUI_SCREENS.map(({ route, order }) => ({ route, order, label: route }));
-}
-
-/** The tree the suite checks: the built-ins with their route as label, then the app's screens. */
-function treeOf(nodes: readonly TuiMenuNode[], screens: readonly TuiScreenRegistration[]): TuiMenuTree {
-  return buildTuiMenuTree(nodes, [...builtinScreenInfos(), ...screens]);
+/**
+ * The tree the suite checks: the built-ins the app did not replace (their
+ * route as label), then the app's screens, with hidden screens left off the
+ * root (`hideTuiScreen`, `hidden: true`).
+ */
+function treeOf(nodes: readonly TuiMenuNode[], screens: readonly TuiScreenRegistration[], hidden?: readonly string[]): TuiMenuTree {
+  return buildTuiMenuTree(nodes, tuiMenuScreens(screens, hidden));
 }
 
 /**
  * Checks the menu: references, reachability, cycles and depth.
  *
+ * A screen hidden from the root (`hideTuiScreen`, `hidden: true`) that no
+ * entry opens is not a problem: hiding a replaced built-in is the point.
+ *
  * @param nodes - The menu nodes.
  * @param screens - The app screens (the built-in routes are added).
+ * @param hidden - The hidden routes. Default the ones `hideTuiScreen` collected.
  * @returns One message per problem; empty when the menu is sound.
  * @stability experimental
  */
-export function checkTuiMenu(nodes: readonly TuiMenuNode[], screens: readonly TuiScreenRegistration[]): string[] {
+export function checkTuiMenu(nodes: readonly TuiMenuNode[], screens: readonly TuiScreenRegistration[], hidden?: readonly string[]): string[] {
   const routes = [...BUILTIN_TUI_SCREENS, ...screens].map((screen) => screen.route);
   const problems: string[] = [];
   // `validateTuiMenuNodes` stops at the first problem; check node by node so a
@@ -152,7 +158,7 @@ export function checkTuiMenu(nodes: readonly TuiMenuNode[], screens: readonly Tu
     }
   }
   if (problems.length > 0) return problems;
-  const tree = treeOf(nodes, screens);
+  const tree = treeOf(nodes, screens, hidden);
   const reached = new Set<string>();
   const walk = (sectionId: string, loggedIn: boolean): void => {
     if (reached.has(`${sectionId}:${loggedIn}`)) return;
@@ -481,7 +487,7 @@ export function registerTuiConformance(api: ConformanceTestApi, options: TuiConf
 
   api.describe('tui conformance', () => {
     run('menu-references', 'every entry opens a registered screen, every section is reachable, no cycles, depth within the cap', () =>
-      expectNone(checkTuiMenu(nodes(), screens())),
+      expectNone(checkTuiMenu(nodes(), screens(), options.hiddenScreens)),
     );
     run('lazy-screens', 'every app screen and section loads lazily', () => expectNone(checkTuiLazy(screens(), options.allowEager)));
     run('no-ink-import', 'importing the TUI entries loads no ink', async () =>
@@ -506,7 +512,7 @@ export function registerTuiConformance(api: ConformanceTestApi, options: TuiConf
       );
     }
     run('login-gate', 'every login-gated entry shows the notice when logged out', async () => {
-      const tree = treeOf(nodes(), screens());
+      const tree = treeOf(nodes(), screens(), options.hiddenScreens);
       const gated = [...new Set(tree.entries.map((entry) => entry.route))].filter((route) => tuiRouteRequiresLogin(route, tree));
       const problems: string[] = [];
       for (const route of gated) problems.push(...(await checkTuiLoginGate(route)));

@@ -168,7 +168,10 @@ export interface CliPlatformConformanceOptions {
   /**
    * One entry per suite: its options to run it, or `{ skip: 'reason' }` to opt
    * out (the reason is required; `false` throws). A suite left out does not
-   * run; an unknown key throws, so a typo cannot disable a check.
+   * run; an unknown key throws, so a typo cannot disable a check. A `skip`
+   * that is an object is not an opt-out but the suite's per-check reason map
+   * (`tui: { skip: { 'no-color': 'why' } }`): the suite runs and reports each
+   * skipped check with its reason.
    */
   suites: CliPlatformConformanceSuites;
   /** Defaults to the globals `describe`/`it`/`expect`. */
@@ -253,8 +256,16 @@ function optionKeyOf(id: string): string {
   return id.replace(/-([a-z0-9])/g, (_match, char: string) => char.toUpperCase());
 }
 
+/**
+ * A whole-suite opt-out is `{ skip: 'reason' }`. A `skip` holding an OBJECT is
+ * a suite's own option instead: the `tui` suite's per-check reason map
+ * (`tui: { skip: { 'no-color': 'why' } }`, seam #1115), which the suite
+ * validates and reports case by case.
+ */
 function isSkip(value: unknown): value is CliConformanceSkip {
-  return typeof value === 'object' && value !== null && 'skip' in value;
+  if (typeof value !== 'object' || value === null || !('skip' in value)) return false;
+  const skip = (value as { skip: unknown }).skip;
+  return typeof skip !== 'object' || skip === null || Array.isArray(skip);
 }
 
 function globalTestApi(): ConformanceTestApi {

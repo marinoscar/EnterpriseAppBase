@@ -137,6 +137,13 @@ export interface DashboardFeed<E> {
   start(emit: (message: DashboardFeedMessage<E>) => void): Promise<void>;
   /** Ends every connection, request and timer. Idempotent. */
   stop(): void;
+  /**
+   * Fetches now instead of waiting for the next tick (a dashboard's `[r]`
+   * key), without rebuilding the feed. Optional: `pollFeed` implements it; a
+   * push feed (a daemon socket, an emitter) has nothing to fetch. A no-op
+   * before `start` and after `stop`.
+   */
+  refresh?(): void;
 }
 
 /**
@@ -213,6 +220,19 @@ export class DashboardSource<S, E> {
     if (this.started || this.stopped) return;
     this.started = true;
     await this.feed.start((message) => this.receive(message));
+  }
+
+  /**
+   * Asks the feed for fresh data now (a dashboard's `[r]` key), keeping this
+   * source, its state and its subscribers. A no-op before `start`, after
+   * `stop`, and for a feed with no `refresh` (a push feed).
+   *
+   * @returns Whether the feed was asked: false when it cannot refresh or the source is not running.
+   */
+  refresh(): boolean {
+    if (!this.started || this.stopped || this.feed.refresh === undefined) return false;
+    this.feed.refresh();
+    return true;
   }
 
   /**
@@ -500,6 +520,11 @@ export interface PollFeedOptions {
  * after the last settled. `stop()` aborts the request in flight and clears
  * the timer, so unmounting a screen never leaves either behind.
  *
+ * `refresh()` polls now (seam #1115): the waiting timer is cleared and a
+ * request starts at once; when one is already in flight, the next one starts
+ * as soon as it settles instead of `intervalMs` later. Still one request at a
+ * time, and the interval restarts from the refreshed poll.
+ *
  * A failed poll is reported as a disconnect with the message and polling
  * continues; a poll that needs to say something specific (a 403) returns it
  * as an event instead of throwing.
@@ -516,10 +541,15 @@ export function pollFeed<E>(fetch: (signal: AbortSignal) => Promise<E>, options:
   let controller: AbortController | undefined;
   let timer: unknown;
   let stopped = false;
+  let started = false;
+  let inFlight = false;
+  let again = false;
   let emit: ((message: DashboardFeedMessage<E>) => void) | undefined;
 
   const poll = async (): Promise<void> => {
     if (stopped) return;
+    inFlight = true;
+    again = false;
     controller = new AbortController();
     const signal = controller.signal;
     emit?.({ kind: 'attempt' });
@@ -531,8 +561,14 @@ export function pollFeed<E>(fetch: (signal: AbortSignal) => Promise<E>, options:
     } catch (error) {
       if (stopped || signal.aborted) return;
       emit?.({ kind: 'disconnected', error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      inFlight = false;
     }
     if (stopped) return;
+    if (again) {
+      void poll();
+      return;
+    }
     timer = setTimer(() => {
       timer = undefined;
       void poll();
@@ -542,8 +578,22 @@ export function pollFeed<E>(fetch: (signal: AbortSignal) => Promise<E>, options:
   return {
     mode: 'poll',
     async start(sink) {
+      if (started) return;
+      started = true;
       emit = sink;
       await poll();
+    },
+    refresh() {
+      if (!started || stopped) return;
+      if (inFlight) {
+        again = true;
+        return;
+      }
+      if (timer !== undefined) {
+        clearTimer(timer);
+        timer = undefined;
+      }
+      void poll();
     },
     stop() {
       if (stopped) return;

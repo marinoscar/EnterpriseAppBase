@@ -72,6 +72,21 @@ export interface TuiScreenRegistration extends TuiScreenOrder {
    * resolving to the component), so ink stays out of every non-TUI run.
    */
   load?: (() => Promise<ComponentType<TuiScreenProps>>) | undefined;
+  /**
+   * Keep the screen out of the root menu (seam #1115). It stays routable: a
+   * menu entry (`registerTuiMenuNode`) or `nav.push(route)` still opens it.
+   * Default `false`: a screen no entry opens is listed at the root.
+   */
+  hidden?: boolean | undefined;
+  /**
+   * Register this screen in place of the platform's built-in screen with the
+   * same `route` (`login`, `invoke`, `status`, `jobs`, `node`, `deploy`,
+   * `logout`); the built-in is then neither listed nor mounted (seam #1115).
+   * Without it, reusing a built-in route throws. Replacing `node` or `deploy`
+   * also drops their `registerTuiScreenSection` sections, which only the
+   * built-in screens render.
+   */
+  replaceBuiltin?: boolean | undefined;
 }
 
 /** The route ids the router itself owns. */
@@ -99,7 +114,12 @@ export const BUILTIN_TUI_SCREENS: readonly TuiScreenOrder[] = Object.freeze([
 const ROUTE_PATTERN = /^[a-z][a-z0-9-]*$/;
 
 const registered: TuiScreenRegistration[] = [];
+const hiddenRoutes = new Set<string>();
 let frozenBy: string | undefined;
+
+function isBuiltinRoute(route: string): boolean {
+  return BUILTIN_TUI_SCREENS.some((builtin) => builtin.route === route);
+}
 
 /**
  * Adds a screen to the TUI menu, after the platform's own (by `order`).
@@ -129,8 +149,15 @@ export function registerTuiScreen(screen: TuiScreenRegistration): void {
   if (RESERVED_ROUTES.includes(screen.route)) {
     throw new Error(`TUI screen route "${screen.route}" is reserved by the TUI router.`);
   }
-  if (BUILTIN_TUI_SCREENS.some((builtin) => builtin.route === screen.route)) {
-    throw new Error(`TUI screen route "${screen.route}" is already a built-in screen; choose another route id.`);
+  if (screen.replaceBuiltin === true && !isBuiltinRoute(screen.route)) {
+    throw new Error(
+      `TUI screen "${screen.route}" sets replaceBuiltin, but no built-in screen has that route (built-ins: ${BUILTIN_TUI_SCREENS.map((builtin) => builtin.route).join(', ')}).`,
+    );
+  }
+  if (isBuiltinRoute(screen.route) && screen.replaceBuiltin !== true) {
+    throw new Error(
+      `TUI screen route "${screen.route}" is already a built-in screen; choose another route id, or pass \`replaceBuiltin: true\` to replace it.`,
+    );
   }
   if (registered.some((existing) => existing.route === screen.route)) {
     throw new Error(`TUI screen route "${screen.route}" is already registered.`);
@@ -168,13 +195,108 @@ export function sortTuiScreens<T extends TuiScreenOrder>(screens: readonly T[]):
   return [...screens].sort((a, b) => a.order - b.order || (a.route < b.route ? -1 : a.route > b.route ? 1 : 0));
 }
 
-/** Refuses later registrations; `createCli` calls it. */
+/**
+ * Keeps a screen (built-in or app) out of the root menu, so an app that
+ * replaces the platform's `login` or `jobs` with its own flow does not list
+ * them (seam #1115). The screen stays routable: a menu entry that opens it
+ * still works, and so does `nav.push(route)`. The route is checked when
+ * `createCli` freezes the registries, so it may be hidden before an app
+ * screen with that route is registered. Same as `createCli({ tuiHiddenScreens })`.
+ *
+ * @param route - A built-in route (`login`, `invoke`, `status`, `jobs`, `node`, `deploy`, `logout`) or an app screen's.
+ * @throws Error when the route id is malformed or reserved, or when `createCli` has already built the CLI.
+ * @stability experimental
+ * @extensionPoint registry
+ * @example
+ * ```ts
+ * for (const route of ['invoke', 'jobs', 'logout']) hideTuiScreen(route);
+ * ```
+ */
+export function hideTuiScreen(route: string): void {
+  if (frozenBy !== undefined) {
+    throw new Error(`TUI screen "${route}" was hidden after ${frozenBy}; hide it before (or pass it to createCli).`);
+  }
+  if (typeof route !== 'string' || !ROUTE_PATTERN.test(route)) {
+    throw new Error(`TUI screen route "${String(route)}" is invalid: use lowercase letters, digits and hyphens.`);
+  }
+  if (RESERVED_ROUTES.includes(route)) {
+    throw new Error(`TUI screen route "${route}" is reserved by the TUI router and cannot be hidden.`);
+  }
+  hiddenRoutes.add(route);
+}
+
+/**
+ * The routes hidden with {@link hideTuiScreen} (not those with `hidden: true`).
+ *
+ * @returns A frozen copy, in the order they were hidden.
+ * @stability experimental
+ */
+export function listHiddenTuiScreens(): readonly string[] {
+  return Object.freeze([...hiddenRoutes]);
+}
+
+/**
+ * One screen as the menu tree sees it: route, order, label and whether it is
+ * hidden from the root.
+ *
+ * @stability experimental
+ */
+export interface TuiMenuScreen extends TuiScreenOrder {
+  /** The root menu label; a built-in's route stands in for its label. */
+  label: TuiScreenRegistration['label'];
+  /** Not listed at the root when no entry opens it. */
+  hidden: boolean;
+}
+
+/**
+ * The screens the menu tree is built from, without components: the built-ins
+ * an app did not replace (with their route standing in for a label), then
+ * the app's, each with `hidden` resolved from {@link hideTuiScreen} and the
+ * registration's own flag. Pure: for the conformance suite and tests.
+ *
+ * @param screens - The app screens. Default the registered ones.
+ * @param hidden - The hidden routes. Default the ones {@link hideTuiScreen} collected.
+ * @returns The screens, unsorted.
+ * @stability experimental
+ */
+export function tuiMenuScreens(
+  screens: readonly TuiScreenRegistration[] = registered,
+  hidden: readonly string[] = [...hiddenRoutes],
+): TuiMenuScreen[] {
+  const replaced = new Set(screens.filter((screen) => screen.replaceBuiltin === true).map((screen) => screen.route));
+  return [
+    ...BUILTIN_TUI_SCREENS.filter((builtin) => !replaced.has(builtin.route)).map(({ route, order }) => ({
+      route,
+      order,
+      label: route,
+      hidden: hidden.includes(route),
+    })),
+    ...screens.map((screen) => ({
+      route: screen.route,
+      order: screen.order,
+      label: screen.label,
+      hidden: screen.hidden === true || hidden.includes(screen.route),
+    })),
+  ];
+}
+
+/**
+ * Checks the hidden routes, then refuses later registrations; `createCli` calls it.
+ *
+ * @throws Error when a hidden route names no built-in and no registered screen; nothing is frozen then.
+ */
 export function freezeTuiScreenRegistry(by: string): void {
+  for (const route of hiddenRoutes) {
+    if (!isBuiltinRoute(route) && !registered.some((screen) => screen.route === route)) {
+      throw new Error(`TUI screen "${route}" is hidden, but no built-in or registered screen has that route.`);
+    }
+  }
   frozenBy = by;
 }
 
 /** Empties the registry. Tests only. */
 export function resetTuiScreenRegistryForTests(): void {
   registered.length = 0;
+  hiddenRoutes.clear();
   frozenBy = undefined;
 }
