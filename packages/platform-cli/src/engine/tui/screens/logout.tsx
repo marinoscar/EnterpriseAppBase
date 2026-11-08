@@ -14,6 +14,8 @@ import {
 } from '../../config.js';
 import { formatError } from '../../errors.js';
 import { ErrorNotice, Field, Frame } from '../layout.js';
+import { useOptionalTuiApp, useTuiTheme } from '../context.js';
+import { textColor } from '../theme.js';
 
 // =============================================================================
 // The logout screen  (issue #145, epic #110)
@@ -85,6 +87,8 @@ const CONFIRM_ITEMS: ConfirmItem[] = [
 ];
 
 export function LogoutScreen({ onDone }: LogoutScreenProps): ReactNode {
+  const app = useOptionalTuiApp();
+  const theme = useTuiTheme();
   const [summary, setSummary] = useState<ConfigSummary | undefined>(undefined);
   const [phase, setPhase] = useState<Phase>({ kind: 'confirm' });
 
@@ -127,7 +131,9 @@ export function LogoutScreen({ onDone }: LogoutScreenProps): ReactNode {
     }
 
     if (mounted.current) setPhase({ kind: 'done', revoked, removedFile });
-  }, []);
+    // The menu and the header read the session from the app context.
+    void app?.session.refresh();
+  }, [app]);
 
   useInput(
     (_input, key) => {
@@ -163,7 +169,7 @@ export function LogoutScreen({ onDone }: LogoutScreenProps): ReactNode {
               // The one case where logout genuinely cannot do what it says.
               // Saying so beats deleting a file that was not being used and
               // reporting success while the environment keeps the CLI logged in.
-              <Text color="yellow">
+              <Text {...textColor(theme.warning)}>
                 ! {tokenEnvVar()} is set, and it takes precedence over the file. Removing the file
                 will not log this shell out — unset the variable as well.
               </Text>
@@ -187,7 +193,7 @@ export function LogoutScreen({ onDone }: LogoutScreenProps): ReactNode {
       return (
         <Frame title="Logout" hints={['esc cancel']}>
           <Box>
-            <Text color="cyan">
+            <Text {...textColor(theme.primary)}>
               <Spinner type="dots" />
             </Text>
             <Text> Revoking the token and clearing local state…</Text>
@@ -199,7 +205,7 @@ export function LogoutScreen({ onDone }: LogoutScreenProps): ReactNode {
       return (
         <Frame title="Logout" hints={['enter return to the menu', 'esc return to the menu']}>
           <Box flexDirection="column" gap={1}>
-            <Text color="green" bold>
+            <Text {...textColor(theme.success)} bold>
               ✔ Logged out.
             </Text>
             <Box flexDirection="column">
@@ -232,6 +238,7 @@ export function LogoutScreen({ onDone }: LogoutScreenProps): ReactNode {
 }
 
 function RevocationLine({ outcome }: { outcome: RevocationOutcome }): ReactNode {
+  const theme = useTuiTheme();
   switch (outcome.kind) {
     case 'revoked':
       return <Text dimColor>Token revoked on the server.</Text>;
@@ -241,7 +248,7 @@ function RevocationLine({ outcome }: { outcome: RevocationOutcome }): ReactNode 
       // Loud, because the user believes they have logged out and the
       // credential is still live. Naming the page is the actionable part.
       return (
-        <Text color="yellow">
+        <Text {...textColor(theme.warning)}>
           ! The token could NOT be revoked on the server and is still valid: {outcome.message}{' '}
           Revoke it from the Access Tokens page.
         </Text>

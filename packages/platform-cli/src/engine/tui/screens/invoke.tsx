@@ -17,6 +17,8 @@ import { formatError } from '../../errors.js';
 import { formatJson } from '../../output.js';
 import { resolveRequestBody } from '../../request-body.js';
 import { ErrorNotice, Field, Frame } from '../layout.js';
+import { useTuiTheme } from '../context.js';
+import { textColor } from '../theme.js';
 import { ScrollBox } from '../scroll-box.js';
 
 // =============================================================================
@@ -82,6 +84,7 @@ type Step =
   | { kind: 'failed'; message: string };
 
 export function InvokeScreen({ onDone }: InvokeScreenProps): ReactNode {
+  const theme = useTuiTheme();
   const [step, setStep] = useState<Step>({ kind: 'method' });
   const [path, setPath] = useState('/api/auth/me');
   const [body, setBody] = useState('');
@@ -268,7 +271,7 @@ export function InvokeScreen({ onDone }: InvokeScreenProps): ReactNode {
       return (
         <Frame title="Call an endpoint" hints={['esc cancel']}>
           <Box>
-            <Text color="cyan">
+            <Text {...textColor(theme.primary)}>
               <Spinner type="dots" />
             </Text>
             <Text>
@@ -295,7 +298,7 @@ export function InvokeScreen({ onDone }: InvokeScreenProps): ReactNode {
                   red. The distinction a user needs at a glance is "did it work",
                   and a 404 and a 500 are both "no" even though only one is
                   their fault. */}
-              <Text color={step.status >= 200 && step.status < 300 ? 'green' : 'red'} bold>
+              <Text {...textColor(step.status >= 200 && step.status < 300 ? theme.success : theme.error)} bold>
                 {step.status}
               </Text>
               <Text dimColor> ({Math.round(step.durationMs)}ms)</Text>

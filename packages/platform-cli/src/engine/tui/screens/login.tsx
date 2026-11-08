@@ -14,6 +14,8 @@ import {
 } from '../../device-login.js';
 import { formatError } from '../../errors.js';
 import { ErrorNotice, Field, Frame, useIsMounted, useTerminalSize } from '../layout.js';
+import { useOptionalTuiApp, useTuiTheme } from '../context.js';
+import { textColor } from '../theme.js';
 
 // =============================================================================
 // The login screen  (issue #145, epic #110)
@@ -62,6 +64,8 @@ type Phase =
   | { kind: 'failed'; message: string; hint: string };
 
 export function LoginScreen({ onDone }: LoginScreenProps): ReactNode {
+  const app = useOptionalTuiApp();
+  const theme = useTuiTheme();
   const isMounted = useIsMounted();
 
   const [serverUrl, setServerUrl] = useState<string>(() => storedServerUrl() ?? '');
@@ -159,6 +163,8 @@ export function LoginScreen({ onDone }: LoginScreenProps): ReactNode {
 
         if (!isMounted()) return;
         setPhase({ kind: 'done', user, path, serverUrl: trimmed });
+        // The menu and the header read the session from the app context.
+        void app?.session.refresh();
       } catch (error) {
         // A cancellation is the user pressing Esc, not a failure. Reporting it
         // would flash a red error onto a screen that is already unmounting.
@@ -167,7 +173,7 @@ export function LoginScreen({ onDone }: LoginScreenProps): ReactNode {
         setPhase({ kind: 'failed', message: formatError(error), hint: hintFor(error) });
       }
     },
-    [isMounted],
+    [isMounted, app],
   );
 
   // Esc returns to the menu from any phase; `r` retries a failed attempt.
@@ -221,7 +227,7 @@ export function LoginScreen({ onDone }: LoginScreenProps): ReactNode {
       return (
         <Frame title="Login" hints={['esc cancel']}>
           <Box>
-            <Text color="cyan">
+            <Text {...textColor(theme.primary)}>
               <Spinner type="dots" />
             </Text>
             <Text> Requesting a device code from {serverUrl}…</Text>
@@ -245,9 +251,9 @@ export function LoginScreen({ onDone }: LoginScreenProps): ReactNode {
       return (
         <Frame title="Login" hints={['esc cancel']}>
           <Box flexDirection="column" gap={1}>
-            <Text color="green">✔ Approved.</Text>
+            <Text {...textColor(theme.success)}>✔ Approved.</Text>
             <Box>
-              <Text color="cyan">
+              <Text {...textColor(theme.primary)}>
                 <Spinner type="dots" />
               </Text>
               {/* "Verifying" is the honest word: `completeLogin` calls
@@ -269,7 +275,7 @@ export function LoginScreen({ onDone }: LoginScreenProps): ReactNode {
       return (
         <Frame title="Login" hints={['enter return to the menu', 'esc return to the menu']}>
           <Box flexDirection="column" gap={1}>
-            <Text color="green" bold>
+            <Text {...textColor(theme.success)} bold>
               ✔ Logged in to {phase.serverUrl}
             </Text>
             <Box flexDirection="column">
@@ -328,6 +334,7 @@ function DeviceCodePanel({
   browserNote: string | undefined;
   unclassified: string | undefined;
 }): ReactNode {
+  const theme = useTuiTheme();
   const { columns, narrow } = useTerminalSize();
 
   const spaced = grant.userCode.split('').join(' ');
@@ -338,7 +345,7 @@ function DeviceCodePanel({
   const boxed = !narrow && grant.userCode.length + 8 <= columns;
 
   const codeText = (
-    <Text bold color="cyan">
+    <Text bold {...textColor(theme.primary)}>
       {code}
     </Text>
   );
@@ -351,7 +358,7 @@ function DeviceCodePanel({
           cannot be copied, and one silently shortened with an ellipsis is
           worse — it looks complete and is not. The terminal's own soft wrap is
           the least-bad handling, so it is left to do it. */}
-      <Text color="blue">{grant.verificationUriComplete}</Text>
+      <Text {...textColor(theme.info)}>{grant.verificationUriComplete}</Text>
 
       <Text>2. Enter this code:</Text>
       {boxed ? (
@@ -371,7 +378,7 @@ function DeviceCodePanel({
       <PollStatus poll={poll} />
 
       {unclassified === undefined ? null : (
-        <Text color="yellow">! {unclassified}</Text>
+        <Text {...textColor(theme.warning)}>! {unclassified}</Text>
       )}
     </Box>
   );
@@ -386,6 +393,7 @@ function DeviceCodePanel({
  * error out of nowhere.
  */
 function PollStatus({ poll }: { poll: DevicePollState | undefined }): ReactNode {
+  const theme = useTuiTheme();
   if (poll === undefined) {
     return <Text dimColor>Waiting…</Text>;
   }
@@ -394,7 +402,7 @@ function PollStatus({ poll }: { poll: DevicePollState | undefined }): ReactNode 
     case 'polling':
       return (
         <Box>
-          <Text color="cyan">
+          <Text {...textColor(theme.primary)}>
             <Spinner type="dots" />
           </Text>
           <Text> Waiting for you to approve… </Text>
@@ -406,12 +414,12 @@ function PollStatus({ poll }: { poll: DevicePollState | undefined }): ReactNode 
       // consequence is that approval will be noticed more slowly. A user
       // watching an unexplained slowdown assumes the CLI is broken.
       return (
-        <Text color="yellow">
+        <Text {...textColor(theme.warning)}>
           ! The server asked us to slow down; now polling every {poll.intervalSeconds}s.
         </Text>
       );
     case 'approved':
-      return <Text color="green">✔ Approved.</Text>;
+      return <Text {...textColor(theme.success)}>✔ Approved.</Text>;
   }
 }
 
