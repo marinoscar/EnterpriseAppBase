@@ -11,6 +11,7 @@ import '../../common/permissions/permission.manifest';
 
 import { IdentityModule } from '@marinoscar/platform-api/identity';
 
+import { ANDROID_IDENTITY } from '../android-app/android-app.config';
 import { IdentityHostModule } from './identity-host.module';
 
 // =============================================================================
@@ -35,4 +36,6 @@ import { IdentityHostModule } from './identity-host.module';
 export const identityModule = IdentityModule.forRoot({
   imports: [IdentityHostModule],
   enableTestAuth: process.env.NODE_ENV !== 'production',
+  // A device-flow `returnUri` may be https or the Android companion's deep link.
+  deviceFlow: { returnUriSchemes: [ANDROID_IDENTITY.deepLinkScheme] },
 });

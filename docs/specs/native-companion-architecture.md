@@ -92,6 +92,8 @@ The platform has no `addJavascriptInterface`, no `postMessage` channel and no cu
 | d | Device-flow pairing in a Custom Tab | web session to native credential | a `pat_` token |
 | e | Digital Asset Links | server to the browser | trust: full-screen mode, no URL bar |
 
+Channel d also carries `clientInfo.returnUri`: the pairing request names a deep link (`<scheme>://...`) or an https App Link, validated at issuance against `IdentityModule.forRoot({ deviceFlow: { returnUriSchemes } })` (default `https:` only) and followed by the activation page only after a successful approval, so the user lands back in the native screen.
+
 **a. Launch URL (`?source=twa&appVersion=&appVersionCode=`).**
 
 - **Mechanism.** `TwaLauncher.getLaunchingUrl()` builds `<server>/?source=twa&appVersion=<versionName>&appVersionCode=<versionCode>` through `ServerUrls.twaLaunchUrl`, from the installed package's version. An https link on the server's host opens at that page with the same parameters (`twaLaunchUrlFor`). The manifest's `DEFAULT_URL` is a placeholder, so one APK works against any deployment. The web app calls `captureTwaLaunch()` once at startup and keeps the flags in `sessionStorage` under a per-app key prefix; `isRunningInTwa()` is true for the stored flag or an `android-app://` referrer; `getInstalledAppVersion()` returns the build.

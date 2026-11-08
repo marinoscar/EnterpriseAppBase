@@ -9,8 +9,18 @@ import java.time.Instant
 
 // Wire format: docs/DEVICE-AUTH.md (RFC 8628). Reference client: the CLI's device login (@marinoscar/platform-cli).
 
+/**
+ * [returnUri] is where the activation page sends the user after a successful approval (the app's deep link or an
+ * https App Link). The server accepts `https:` and the schemes of `IdentityModule.forRoot({ deviceFlow })`; null is
+ * omitted from the request (`explicitNulls = false`).
+ */
 @Serializable
-data class DeviceClientInfo(val deviceName: String, val userAgent: String, val tokenType: String = "pat")
+data class DeviceClientInfo(
+    val deviceName: String,
+    val userAgent: String,
+    val tokenType: String = "pat",
+    val returnUri: String? = null,
+)
 
 @Serializable
 data class DeviceCodeRequest(val clientInfo: DeviceClientInfo)

@@ -6,7 +6,9 @@ import {
   Optional, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes, createHash } from 'node:crypto';
-import { PLATFORM_PRISMA } from '../../core/index';
+import { INVALID_RETURN_URI_CODE, isAllowedReturnUri } from '@marinoscar/platform-contract/identity';
+import { PLATFORM_PRISMA, registerErrorCode } from '../../core/index';
+import { DEFAULT_IDENTITY_OPTIONS, IDENTITY_OPTIONS, type ResolvedIdentityModuleOptions } from '../identity.options';
 import type { IdentityPrisma } from '../ports';
 import { AuthService } from '../auth/auth.service';
 import { PatService } from '../pat/pat.service';
@@ -28,6 +30,12 @@ import {
   type IdentityQueryArgs,
 } from '../data/identity-db';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
+
+registerErrorCode({
+  code: INVALID_RETURN_URI_CODE,
+  status: 400,
+  description: 'The device flow clientInfo.returnUri is not an https URI or one of the deployment\'s allowed deep-link schemes.',
+});
 
 /**
  * Service for handling Device Authorization Flow (RFC 8628)
@@ -76,12 +84,15 @@ export class DeviceAuthService {
     // and braces: the `did` check is never cached, so revocation is immediate
     // regardless; a test graph without `PrincipalCacheModule` works without it.
     @Optional() private readonly principalCache?: PrincipalCache,
+    @Optional() @Inject(IDENTITY_OPTIONS)
+    private readonly identityOptions: ResolvedIdentityModuleOptions = DEFAULT_IDENTITY_OPTIONS,
   ) {}
 
   /**
    * Generate a new device code pair
    */
-  async generateDeviceCode(clientInfo?: Record<string, any>) {
+  async generateDeviceCode(rawClientInfo?: Record<string, any>) {
+    const clientInfo = this.normalizeClientInfo(rawClientInfo);
     const expiryMinutes = this.configService.get<number>(
       'deviceAuth.expiryMinutes',
       15,
@@ -309,6 +320,25 @@ export class DeviceAuthService {
   }
 
   /**
+   * Validate the `returnUri` against the deployment's allowlist (400
+   * `INVALID_RETURN_URI`) and map the deprecated `name` alias onto `deviceName`.
+   */
+  private normalizeClientInfo(clientInfo?: Record<string, any>): Record<string, any> | undefined {
+    if (!clientInfo) return clientInfo;
+    const { name, ...rest } = clientInfo;
+    const out: Record<string, any> = { ...rest };
+    if (out.deviceName === undefined && typeof name === 'string' && name !== '') out.deviceName = name;
+    if (out.returnUri !== undefined && !isAllowedReturnUri(out.returnUri, this.identityOptions.deviceFlow.returnUriSchemes)) {
+      throw new BadRequestException({
+        code: INVALID_RETURN_URI_CODE,
+        message: 'The returnUri is not an accepted https or deep-link URI',
+        details: { reason: INVALID_RETURN_URI_CODE },
+      });
+    }
+    return out;
+  }
+
+  /**
    * Get activation info for the frontend
    */
   async getActivationInfo(userCode?: string) {
@@ -344,10 +374,19 @@ export class DeviceAuthService {
       throw new BadRequestException('This code has already been processed');
     }
 
+    // The stored `returnUri` was checked at issuance; check it again against
+    // today's allowlist so a narrowed configuration never echoes an old value.
+    const stored = record.clientInfo as Record<string, any> | undefined;
+    let clientInfo = stored;
+    if (stored && typeof stored === 'object' && stored.returnUri !== undefined) {
+      const { returnUri, ...rest } = stored;
+      clientInfo = isAllowedReturnUri(returnUri, this.identityOptions.deviceFlow.returnUriSchemes) ? stored : rest;
+    }
+
     return {
       verificationUri,
       userCode: record.userCode,
-      clientInfo: record.clientInfo as Record<string, any> | undefined,
+      clientInfo,
       expiresAt: record.expiresAt.toISOString(),
     };
   }

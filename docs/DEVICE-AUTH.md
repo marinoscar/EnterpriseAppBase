@@ -118,10 +118,16 @@ Content-Type: application/json
 }
 ```
 
-`clientInfo` and every field in it are optional. The schema accepts exactly
-three fields: `deviceName`, `userAgent` and `tokenType` (`"session"`, the
-default, or `"pat"`). Unknown keys are silently stripped, so check spelling. An
-unrecognized `tokenType` value is a `400`.
+`clientInfo` and every field in it are optional. The schema accepts `deviceName`
+(at most 100 characters; `name` is a deprecated alias), `userAgent` (at most
+1024), `tokenType` (`"session"`, the default, or `"pat"`), the informational
+`hostname` (255) and `platform` (50), and `returnUri` (at most 512). Unknown keys
+are silently stripped, so check spelling. An unrecognized `tokenType`, an
+over-long value, or a `returnUri` that is not `https:` or one of the app's
+`IdentityModule.forRoot({ deviceFlow: { returnUriSchemes } })` schemes
+(`400`, `code: 'INVALID_RETURN_URI'`) is rejected. After the user approves, the
+activation page sends them to `returnUri` (an app deep link or App Link) and
+never on deny or expiry; the URI carries no code or token.
 
 #### 2. Server Returns Codes
 

@@ -24,9 +24,12 @@ import { z } from 'zod';
 
 import {
   AUTH_ERROR_CODES,
+  DEVICE_NAME_MAX_LENGTH,
+  DEVICE_RETURN_URI_MAX_LENGTH,
   DEVICE_SESSION_STATUSES,
   DEVICE_TOKEN_ERROR_CODES,
   DEVICE_TOKEN_TYPES,
+  DEVICE_USER_AGENT_MAX_LENGTH,
   DEVICE_USER_CODE_PATTERN,
   ORG_INVITE_STATUSES,
   ORG_MEMBER_STATUSES,
@@ -37,6 +40,7 @@ import {
   ROLE_SCOPES,
   TENANCY_MODES,
   USER_EXTENSION_ID_PATTERN,
+  parseReturnUriScheme,
 } from './constants.js';
 
 // =============================================================================
@@ -406,12 +410,31 @@ export const deviceTokenTypeSchema: z.ZodEnum<DeviceTokenTypeEnum> = z.enum(DEVI
  * @stability stable
  */
 export const deviceClientInfoSchema = z.object({
-  /** A name for the device, shown to the approving user. */
-  deviceName: z.string().optional(),
-  /** The device's user agent. */
-  userAgent: z.string().optional(),
+  /** A name for the device, shown to the approving user, and the PAT name. At most 100 characters. */
+  deviceName: z.string().trim().max(DEVICE_NAME_MAX_LENGTH).optional(),
+  /** The device's user agent. At most 1024 characters. */
+  userAgent: z.string().max(DEVICE_USER_AGENT_MAX_LENGTH).optional(),
   /** The credential to mint on the poll after approval. */
   tokenType: deviceTokenTypeSchema.default('session'),
+  /** Informational: the requesting machine's host name, shown on the activation page. */
+  hostname: z.string().max(255).optional(),
+  /** Informational: the requesting machine's platform, such as `linux` or `android`. */
+  platform: z.string().max(50).optional(),
+  /**
+   * Where the activation page sends the user after a SUCCESSFUL approval, to
+   * return them to the requesting app. At most 512 characters, an absolute URI
+   * whose scheme is `https:` or one of the deployment's allowed deep-link
+   * schemes (`IdentityModule.forRoot({ deviceFlow: { returnUriSchemes } })`).
+   * The shape is checked here; the scheme allowlist is the API's (a refusal is
+   * a 400 with `code: 'INVALID_RETURN_URI'`).
+   */
+  returnUri: z
+    .string()
+    .max(DEVICE_RETURN_URI_MAX_LENGTH)
+    .refine((value) => parseReturnUriScheme(value) !== null, { message: 'returnUri must be an absolute URI' })
+    .optional(),
+  /** Deprecated alias of `deviceName`, for clients already shipped: used when `deviceName` is absent. */
+  name: z.string().trim().max(DEVICE_NAME_MAX_LENGTH).optional(),
 });
 
 /**

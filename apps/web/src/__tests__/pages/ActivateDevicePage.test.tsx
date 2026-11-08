@@ -366,6 +366,34 @@ describe('ActivateDevicePage', () => {
       });
     });
 
+    it('follows an https returnUri after approval and not before', async () => {
+      const user = userEvent.setup({ delay: null });
+      const assign = vi.fn();
+      const original = window.location;
+      Object.defineProperty(window, 'location', { configurable: true, value: { ...original, assign } });
+      try {
+        server.use(
+          http.get(`${API_BASE}/auth/device/activate`, () =>
+            HttpResponse.json({
+              data: {
+                ...mockDeviceInfo,
+                clientInfo: { ...mockDeviceInfo.clientInfo, returnUri: 'https://app.example.test/paired' },
+              },
+            }),
+          ),
+        );
+        render(<ActivateDevicePage />, { wrapperOptions: { route: '/activate-device?code=ABCD-1234' } });
+        await waitFor(() => expect(screen.getByRole('button', { name: /approve/i })).toBeInTheDocument());
+        expect(assign).not.toHaveBeenCalled();
+        await user.click(screen.getByRole('button', { name: /approve/i }));
+        await waitFor(() => expect(screen.getByRole('button', { name: /return to my smart tv/i })).toBeInTheDocument());
+        await user.click(screen.getByRole('button', { name: /return to my smart tv/i }));
+        expect(assign).toHaveBeenCalledWith('https://app.example.test/paired');
+      } finally {
+        Object.defineProperty(window, 'location', { configurable: true, value: original });
+      }
+    });
+
     it('should show loading state while approving', async () => {
       const user = userEvent.setup({ delay: null });
 

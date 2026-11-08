@@ -52,6 +52,7 @@ import { RequireTelemetryEnabled } from '@marinoscar/platform-web/telemetry/head
 // Pages (lazy loaded)
 import { Suspense, lazy } from 'react';
 import { LoadingSpinner } from './components/common/LoadingSpinner';
+import { ANDROID_IDENTITY } from './config/androidApp';
 
 // The identity pages are packaged (#727, PP-6.6,
 // `@marinoscar/platform-web/identity/ui`): the login page is the packaged one
@@ -278,7 +279,7 @@ function AppRoutes() {
                   this app's full-screen spinner while the session probe runs. */}
               <Route element={<RequireAuth loading={<LoadingSpinner fullScreen />} />}>
                 {/* Device activation page - without layout for full-screen experience */}
-                <Route path="/activate" element={<ActivateDevicePage />} />
+                <Route path="/activate" element={<ActivateDevicePage returnUriSchemes={[ANDROID_IDENTITY.deepLinkScheme]} />} />
 
                 {/* The providers around the signed-in shell (#868): one
                     ordered list in `platform/shellProviders.tsx`, outermost

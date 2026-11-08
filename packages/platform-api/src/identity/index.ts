@@ -10,7 +10,7 @@ export {
   IDENTITY_OPTIONS,
   resolveIdentityModuleOptions,
 } from './identity.options';
-export type { IdentityModuleOptions, ResolvedIdentityModuleOptions } from './identity.options';
+export type { IdentityModuleOptions, ResolvedDeviceFlowOptions, ResolvedIdentityModuleOptions } from './identity.options';
 export { identityConfiguration, requireJwtSecret } from './identity.configuration';
 export type { IdentityConfiguration } from './identity.configuration';
 
