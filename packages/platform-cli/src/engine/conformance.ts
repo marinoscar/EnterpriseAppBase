@@ -11,6 +11,7 @@ import { commentedAssignments } from './deploy/env-fragments.js';
 import { edgeConfigFiles } from './deploy/edge-config.js';
 import { proxyRuntimeFor, renderVhost } from './deploy/proxy.js';
 import { planDeploySteps } from './deploy/steps/plan.js';
+import { registerTuiConformance, type TuiConformanceOptions } from './tui/conformance.js';
 import {
   checkExecutorCredentialHygiene,
   type CredentialHygieneOptions,
@@ -44,6 +45,10 @@ import { defaultExecutorRegistry } from './node/executors/registry.js';
 //   - every executor the worker would run passes
 //     `checkExecutorCredentialHygiene` on a fake job holding a credential
 //     (CLAUDE.md queue rule 3: a node never persists a job-scoped credential).
+//
+// The `tui` suite (RETRO-G1.5, ./tui/conformance.ts): the app's TUI registrations are
+// well-formed and its screens render (menu tree, lazy screens, no ink at import,
+// labels, pure dashboard reducers, narrow widths, NO_COLOR, the login gate).
 //
 // The `deployRegistrations` suite (`deploy-registrations`): the app's deploy
 // extension points are consistent -- every env key's group is registered, both
@@ -150,6 +155,8 @@ export interface CliPlatformConformanceSuites {
   cli?: CliConformanceOptions | CliConformanceSkip | undefined;
   /** The `deploy-registrations` suite: the app's deploy extension points are consistent. */
   deployRegistrations?: DeployRegistrationsConformanceOptions | CliConformanceSkip | undefined;
+  /** The `tui` suite: the app's TUI registrations are well-formed and its screens render (RETRO-G1.5). */
+  tui?: TuiConformanceOptions | CliConformanceSkip | undefined;
 }
 
 /**
@@ -355,6 +362,13 @@ const BUILTIN_SUITES: ReadonlyArray<CliConformanceSuite<never>> = [
       });
     },
   } as CliConformanceSuite<DeployRegistrationsConformanceOptions>,
+  {
+    id: 'tui',
+    title: 'tui conformance',
+    description:
+      "The app's TUI menu tree is sound, its screens load lazily, render at narrow widths and without colour, the login gate holds, and dashboard reducers are pure.",
+    register: (api, options) => registerTuiConformance(api, options),
+  } as CliConformanceSuite<TuiConformanceOptions>,
 ];
 
 for (const suite of BUILTIN_SUITES) cliConformanceSuites.register(suite);

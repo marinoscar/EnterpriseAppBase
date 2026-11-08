@@ -117,7 +117,7 @@ describe('the suite registry', () => {
   afterEach(() => resetCliConformanceSuitesForTests());
 
   it('holds the built-in suites by id', () => {
-    expect(cliConformanceSuites.list().map((suite) => suite.id)).toEqual(['cli', 'deploy-registrations']);
+    expect(cliConformanceSuites.list().map((suite) => suite.id)).toEqual(['cli', 'deploy-registrations', 'tui']);
   });
 
   it('runs a suite an app registered, with its options', () => {
