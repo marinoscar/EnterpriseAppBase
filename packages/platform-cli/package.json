@@ -47,6 +47,10 @@
       "types": "./dist/tui/ui/index.d.ts",
       "default": "./dist/tui/ui/index.js"
     },
+    "./tui/testing": {
+      "types": "./dist/tui/testing/index.d.ts",
+      "default": "./dist/tui/testing/index.js"
+    },
     "./deploy": {
       "types": "./dist/deploy/index.d.ts",
       "default": "./dist/deploy/index.js"
@@ -91,9 +95,13 @@
     "ink-text-input": "^6.0.0"
   },
   "peerDependencies": {
+    "ink-testing-library": "^4.0.0",
     "react": "^19.2.8"
   },
   "peerDependenciesMeta": {
+    "ink-testing-library": {
+      "optional": true
+    },
     "react": {
       "optional": true
     }
