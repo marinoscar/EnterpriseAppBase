@@ -225,9 +225,8 @@ model Notification {
   // grows. These columns carry them:
   //
   //   data        the producer's payload; STATE and COUNTED rows always write
-  //               it (`count`, and `countAtRead` once read). NULL means a
-  //               plain `notify()` row, which is how the retention sweep tells
-  //               the two apart.
+  //               it (`count`, and `countAtRead` once read). NULL for a plain
+  //               `notify()` row.
   //   scopeId     an optional scope the row belongs to (a group, an
   //               organization, a workspace), so one user can hold one live
   //               STATE row per scope. NOT authorization: the producer decides
@@ -238,8 +237,9 @@ model Notification {
   //   updatedAt   the rolling-window anchor of a COUNTED row and the refresh
   //               time of a STATE row. Raw SQL does not run Prisma's
   //               `@updatedAt`, so every raw UPDATE sets it explicitly.
-  //   dedupKey    the fold key of a LIVE STATE or COUNTED row; see the raw-SQL
-  //               partial unique index below.
+  //   dedupKey    the fold key of a STATE or COUNTED row (NULL for a plain
+  //               `notify()` row, which is how the retention sweep tells them
+  //               apart); see the raw-SQL partial unique index below.
   data        Json?
   scopeId     String?   @map("scope_id") @db.Uuid
   dismissedAt DateTime? @map("dismissed_at") @db.Timestamptz
@@ -251,7 +251,8 @@ model Notification {
   //     UNIQUE (user_id, dedup_key) WHERE dismissed_at IS NULL AND dedup_key IS NOT NULL
   // At most one LIVE foldable row per (user, dedup key). The DATABASE decides a
   // race, not a find-then-insert. A COUNTED row whose window closed is retired
-  // by clearing its `dedup_key` (it stays in the inbox), which frees the key
+  // by rewriting its `dedup_key` to `retired:<id>` (it stays in the inbox, and
+  // still reads as a folded row to the retention sweep), which frees the key
   // for the next row. Prisma cannot express a partial unique index: never
   // replace it with `@@unique` or a `findFirst` pre-check.
 
