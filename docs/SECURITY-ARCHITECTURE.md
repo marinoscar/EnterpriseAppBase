@@ -1669,7 +1669,12 @@ policy `org_credentials_org_isolation`), and the webhooks slice's
 `WebhookEndpoint` and `WebhookDelivery` (#1046; policies
 `webhook_endpoints_org_isolation` and `webhook_deliveries_org_isolation`;
 `org_id` is nullable like `ai_usage_events`, NULL only for a system-scope
-endpoint, whose rows only the system client sees). Each carries `org_id`, has
+endpoint, whose rows only the system client sees), and the storage slice's
+`StorageMigrationRun` and `StorageMigrationItem` (#1093; policies
+`storage_migration_runs_org_isolation` and
+`storage_migration_items_org_isolation`; a run's `org_id` is NULL because a
+copy-only provider migration is deployment-wide, an item carries its object's
+`org_id` and a composite foreign key to it). Each carries `org_id`, has
 `ENABLE` and `FORCE ROW LEVEL SECURITY`, and one policy named in
 `packages/platform-db/rls-policies.json` (`RLS_POLICIES`). `AuditEvent` has a
 nullable `org_id` and no policy yet (`org-optional`). `Job` (#734) is

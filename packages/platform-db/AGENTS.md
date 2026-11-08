@@ -23,12 +23,12 @@ At most ONE open PR may carry the `pp:migration` label; a second rebases and re-
 
 - **Never edit an installed migration.** `platform.lock` stores a sha256 of every migration; `npm run db:check` fails on any byte change in either copy. Comments inside `migration.sql` count, so a comment clean-up must exclude `**/migration.sql`. Never rename an installed directory.
 - **Never hand-edit `apps/api/prisma/schema/`** (generated; CI runs `db:compose:check`).
-- **Never fix raw-SQL partial index drift with `@@unique`.** They exist only in migration SQL: `jobs_active_dedup_uniq_idx`, `database_backup_runs_active_uniq_idx`, `organizations_default_uniq_idx`, `group_invites_pending_uniq_idx`, `grants_active_user_uniq_idx`, `grants_active_group_uniq_idx`, `grants_active_ref_uniq_idx`, `android_app_releases_one_current_uniq_idx`, plus non-unique `jobs_attempts_gt1_idx`, `jobs_succeeded_duration_idx`. A new one is also listed in `raw-sql-indexes.json`; a fragment never redeclares one (`assertRawSqlIndexes`, `test/raw-sql-indexes.spec.ts`).
+- **Never fix raw-SQL partial index drift with `@@unique`.** They exist only in migration SQL: `jobs_active_dedup_uniq_idx`, `database_backup_runs_active_uniq_idx`, `organizations_default_uniq_idx`, `group_invites_pending_uniq_idx`, `grants_active_user_uniq_idx`, `grants_active_group_uniq_idx`, `grants_active_ref_uniq_idx`, `android_app_releases_one_current_uniq_idx`, `storage_migration_runs_active_uniq_idx`, plus non-unique `jobs_attempts_gt1_idx`, `jobs_succeeded_duration_idx`. A new one is also listed in `raw-sql-indexes.json`; a fragment never redeclares one (`assertRawSqlIndexes`, `test/raw-sql-indexes.spec.ts`).
 - **Never touch an org table without the bypass wrapper**: `BEGIN; SELECT set_config('app.rls_bypass','on',true); ...; COMMIT;`.
 
 ## Row-level security
 
-- `org` tables force RLS on `org_id`: `storage_objects`, `storage_object_chunks`, `ai_runs`, `ai_usage_events`, `groups`, `group_members`, `group_invites`, `grants`, `org_settings`, `org_credentials`, `webhook_endpoints`, `webhook_deliveries`. New policy: add to `rls-policies.json` (intentional drift).
+- `org` tables force RLS on `org_id`: `storage_objects`, `storage_object_chunks`, `ai_runs`, `ai_usage_events`, `groups`, `group_members`, `group_invites`, `grants`, `org_settings`, `org_credentials`, `webhook_endpoints`, `webhook_deliveries`, `storage_migration_runs`, `storage_migration_items`. New policy: add to `rls-policies.json` (intentional drift).
 - A link between two org-owned tables is a composite foreign key including `org_id`.
 - `jobs` has no RLS.
 - A back-relation onto a platform model is an `extend model` block in the app's fragment.
