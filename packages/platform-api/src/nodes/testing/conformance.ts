@@ -23,7 +23,7 @@ import { ForbiddenException, NotFoundException, type DynamicModule, type Executi
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { Reflector } from '@nestjs/core';
 
-import { discoverControllers } from '../../identity/testing/conformance';
+import { discoverAppControllers as discoverControllers } from './discover';
 import type { WorkerNode } from '../../jobs/index';
 import { conformanceSuites } from '../../testing/index';
 import type { ConformanceCase, ConformanceFinding, ConformanceReport, ConformanceSuite } from '../../testing/index';

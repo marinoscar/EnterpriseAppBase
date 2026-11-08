@@ -455,7 +455,7 @@ None.
 
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
-| API (`platform-api`) | `/nodes` | `core`, `doctor`, `otel-core`, `identity`, `settings`, `jobs` | `@nestjs/config`, `@nestjs/event-emitter`, `@nestjs/jwt`, `@nestjs/passport`, `@nestjs/schedule`, `@prisma/client-runtime-utils`, `fastify`, `passport` | [README](../packages/platform-api/src/nodes/README.md) |
+| API (`platform-api`) | `/nodes`, `/nodes/testing` | `core`, `doctor`, `otel-core`, `identity`, `settings`, `jobs` | `@nestjs/config`, `@nestjs/event-emitter`, `@nestjs/jwt`, `@nestjs/passport`, `@nestjs/schedule`, `@prisma/client-runtime-utils`, `fastify`, `passport` | [README](../packages/platform-api/src/nodes/README.md) |
 | Web (`platform-web`) | `/nodes/headless`, `/nodes/ui` | `core` | `@mui/icons-material`, `react-router-dom`, `zod` | [README](../packages/platform-web/src/nodes/README.md) |
 | Contract (`platform-contract`) | `/nodes` | none | none | [README](../packages/platform-contract/src/nodes/README.md) |
 
