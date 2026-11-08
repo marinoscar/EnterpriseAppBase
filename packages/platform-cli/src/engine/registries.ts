@@ -16,6 +16,8 @@ import { freezeProxyStreamRegistry, resetProxyStreamRegistryForTests } from './d
 import { freezeDeployStepRegistry, resetDeployStepRegistryForTests } from './deploy/steps/registry.js';
 import { resetCapabilityRegistriesForTests } from './node/capabilities.js';
 import { freezeNodeExecutorRegistry, resetNodeExecutorRegistryForTests } from './node/executors/registry.js';
+import { freezeTuiAppRegistries, resetTuiAppRegistriesForTests } from './tui/app-registry.js';
+import { resetTuiThemeForTests } from './tui/theme.js';
 import { freezeTuiSectionRegistry, resetTuiSectionRegistryForTests } from './tui/section-registry.js';
 import { freezeTuiScreenRegistry, resetTuiScreenRegistryForTests } from './tui/screen-registry.js';
 import { resetUpdateNoticeForTests } from './update-notice-options.js';
@@ -44,6 +46,7 @@ export function freezeCliRegistries(by: string): void {
   freezeDeployStepRegistry(by);
   freezeNodeExecutorRegistry(by);
   freezeTuiSectionRegistry(by);
+  freezeTuiAppRegistries(by);
   freezeProxyStreamRegistry(by);
   freezeDeployCheckRegistry(by);
   freezeEdgeConfigRegistry(by);
@@ -54,6 +57,8 @@ export function resetCliRegistriesForTests(): void {
   resetPlatformRegistrationsForTests();
   resetTuiScreenRegistryForTests();
   resetTuiSectionRegistryForTests();
+  resetTuiAppRegistriesForTests();
+  resetTuiThemeForTests();
   resetDeployStepRegistryForTests();
   resetNodeExecutorRegistryForTests();
   resetCapabilityRegistriesForTests();

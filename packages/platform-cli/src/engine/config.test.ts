@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync, statSync, chmodSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, statSync, chmodSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -15,6 +15,8 @@ import {
   describeConfig,
   maskToken,
   readConfigFile,
+  readTuiSelection,
+  saveTuiSelection,
   requireCredentials,
   resolveConfig,
   saveCredentials,
@@ -293,5 +295,43 @@ describe('completeLogin (--token path) — a failed validation does not overwrit
     const stored = readConfigFile(c);
     expect(stored?.token).toBe(goodToken);
     expect(stored?.serverUrl).toBe(goodServerUrl);
+  });
+});
+
+describe('TUI selection storage (RETRO-G1.2)', () => {
+  let home: string;
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'appctl-config-test-'));
+  });
+  afterEach(() => rmSync(home, { recursive: true, force: true }));
+
+  it('stores a key under tui.selection.<id> and keeps the credentials', () => {
+    const ctx: ConfigContext = { env: {}, home };
+    saveCredentials({ serverUrl: 'https://app.example.test', token: 'pat_secret' }, ctx);
+    saveTuiSelection('project', 'p-1', ctx);
+    expect(readTuiSelection('project', ctx)).toBe('p-1');
+    expect(readConfigFile(ctx)).toMatchObject({ token: 'pat_secret', tui: { selection: { project: 'p-1' } } });
+  });
+
+  it('clears a key, and the whole block when it was the last', () => {
+    const ctx: ConfigContext = { env: {}, home };
+    saveTuiSelection('project', 'p-1', ctx);
+    saveTuiSelection('region', 'r-1', ctx);
+    saveTuiSelection('project', undefined, ctx);
+    expect(readConfigFile(ctx)?.tui?.selection).toEqual({ region: 'r-1' });
+    saveTuiSelection('region', undefined, ctx);
+    expect(readConfigFile(ctx)?.tui).toBeUndefined();
+  });
+
+  it('reads nothing, rather than throwing, when there is no usable file', () => {
+    expect(readTuiSelection('project', { env: {}, home })).toBeUndefined();
+  });
+
+  it('drops a hand-edited selection of the wrong type', () => {
+    const ctx: ConfigContext = { env: {}, home };
+    writeConfigFile({ tui: { selection: { project: 'p-1' } } }, ctx);
+    const path = join(configDirPath(ctx), readdirSync(configDirPath(ctx))[0] as string);
+    writeFileSync(path, JSON.stringify({ tui: { selection: { project: 3, region: 'r-1' } } }));
+    expect(readConfigFile(ctx)?.tui?.selection).toEqual({ region: 'r-1' });
   });
 });

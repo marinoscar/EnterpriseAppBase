@@ -1,20 +1,54 @@
-// `@marinoscar/platform-cli/tui`: the TUI's screen and section registries (#715).
-// Importing it never loads ink: a screen is an ordinary ink component the
-// app writes (best loaded lazily with `load`), given `TuiScreenProps`.
+// `@marinoscar/platform-cli/tui`: the TUI's registries (#715) and the shared app
+// context (RETRO-G1.2). Importing it loads React (the engine slice needs it) but never ink: a screen is an ordinary
+// ink component the app writes (best loaded lazily with `load`), given
+// `TuiScreenProps`, and it reads session, navigation, selections, theme and
+// shared state from `useTuiApp()` (React only).
 export {
   BUILTIN_TUI_SCREENS,
   TUI_SECTION_SCREENS,
+  canUseRawMode,
+  defaultTuiTheme,
+  hasInteractiveStdin,
   listRegisteredTuiScreens,
   listTuiScreenSections,
+  listTuiSelections,
+  listTuiStateLoaders,
   registerTuiScreen,
   registerTuiScreenSection,
+  registerTuiSelection,
+  registerTuiStateLoader,
+  resolveInteractiveStdin,
+  resolveTuiTheme,
   sortTuiScreens,
+  textColor,
+  TuiAppProvider,
+  useOptionalTuiApp,
+  useTuiApp,
+  useTuiSelection,
+  useTuiState,
+  useTuiTheme,
 } from '../engine/index.js';
 export type {
+  InteractiveStdin,
+  TuiAppContext,
+  TuiAppProviderProps,
+  TuiNav,
+  TuiNavFrame,
+  TuiSelectionState,
+  TuiSession,
+  ResolveInteractiveStdinOptions,
+  ResolveTuiThemeInput,
+  TuiColor,
+  TuiGlyphs,
+  TuiLoaderContext,
   TuiMenuContext,
   TuiScreenOrder,
   TuiScreenProps,
   TuiScreenRegistration,
   TuiSectionProps,
   TuiSectionRegistration,
+  TuiSelectionRegistration,
+  TuiStateLoaderRegistration,
+  TuiTheme,
+  TuiThemeOverrides,
 } from '../engine/index.js';
