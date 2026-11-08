@@ -9,6 +9,7 @@
 export { SharingModule } from './sharing.module';
 export {
   SHARING_GRANT_DEFAULTS,
+  INVITE_ROLE_MERGES,
   SHARING_GROUP_DEFAULTS,
   SHARING_LINK_DEFAULTS,
   SHARING_OPTIONS,
@@ -16,6 +17,7 @@ export {
   resolveSharingModuleOptions,
 } from './sharing.options';
 export type {
+  InviteRoleMerge,
   ResolvedSharingModuleOptions,
   SharingGrantsOptions,
   SharingGroupsOptions,
@@ -132,7 +134,7 @@ export type { PrincipalWithGroups } from './principal-groups.provider';
 
 // ---- events (rung 4) ----------------------------------------------------------------
 export { SHARING_EVENTS } from './events';
-export type { GrantEventPayload, GroupEventPayload, GroupInviteEventPayload, GroupMemberEventPayload, SharingEventName } from './events';
+export type { GrantEventPayload, GroupEventPayload, GroupInviteAutoAcceptedPayload, GroupInviteEventPayload, GroupMemberEventPayload, SharingEventName } from './events';
 
 // ---- notifications --------------------------------------------------------------------
 export {
@@ -173,6 +175,8 @@ export { GroupsService } from './groups/groups.service';
 export { GroupMembershipService } from './groups/group-membership.service';
 export type { GroupAccess } from './groups/group-membership.service';
 export { GROUP_INVITES_CLOCK, GroupInvitesService, inviteStatus } from './groups/group-invites.service';
+export type { InviteClaimResult } from './groups/group-invites.service';
+export { InviteAutoAcceptListener } from './groups/invite-auto-accept.listener';
 export { SharingEffects } from './groups/sharing-effects';
 export type { CommittedChange, SharingEmittedEvent } from './groups/sharing-effects';
 export type { GrantRow, GroupRow } from './data/sharing-tx';

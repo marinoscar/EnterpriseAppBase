@@ -24,8 +24,9 @@
 // else to the address (`notifyAddress`).
 // =============================================================================
 
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import type {
+  GroupRole,
   CreateGroupInviteInput,
   GroupInviteDto,
   GroupInviteList,
@@ -41,8 +42,9 @@ import { Trace } from '../../otel-core/index';
 import { asSharingTx, type GroupInviteRow, type SharingTx } from '../data/sharing-tx';
 import { SHARING_ERROR_REASONS, conflict, inviteExpired, inviteNotFound, notAnOrgMember } from '../errors';
 import { SHARING_EVENTS } from '../events';
+import { groupRoleRank } from '../group-roles';
 import { SHARING_DATA, SHARING_TENANCY, type SharingDataPort, type SharingTenancy } from '../ports';
-import { SHARING_OPTIONS, type ResolvedSharingModuleOptions } from '../sharing.options';
+import { SHARING_OPTIONS, type InviteRoleMerge, type ResolvedSharingModuleOptions } from '../sharing.options';
 import { iso, isUniqueViolation, lockGroup, paged, requireActiveOrg, writeAudit, requireGroupRole } from './group-common';
 import { GroupMembershipService } from './group-membership.service';
 import { SharingEffects } from './sharing-effects';
@@ -105,6 +107,46 @@ export function toGroupInviteDto(row: GroupInviteRow, now: Date): GroupInviteDto
   };
 }
 
+/**
+ * What {@link GroupInvitesService.claimPendingForEmail} did.
+ *
+ * @stability experimental
+ */
+export interface InviteClaimResult {
+  /** Group ids the user newly joined. */
+  joined: string[];
+  /** Group ids where an existing membership was raised (or, under `replace`, changed) to the invite's role. */
+  upgraded: string[];
+  /**
+   * Invite ids that changed nothing: the user already held an equal or higher
+   * role (the invite is still consumed), or the claim could not be applied
+   * (the group is full, the organization is not joined yet, or a transaction
+   * failed; those invites stay pending).
+   */
+  skipped: string[];
+}
+
+/**
+ * The role a claimed invite leaves an EXISTING member with.
+ *
+ * @param mode - the `groups.inviteRoleMerge` option.
+ * @param current - the member's role now.
+ * @param invited - the invite's role.
+ * @returns the role to store (rank comes from the group role catalog).
+ *
+ * @stability experimental
+ */
+export function mergeInviteRole(mode: InviteRoleMerge, current: GroupRole, invited: GroupRole): GroupRole {
+  if (mode === 'keep') return current;
+  if (mode === 'replace') return invited;
+  return groupRoleRank(invited) > groupRoleRank(current) ? invited : current;
+}
+
+type ClaimStep =
+  | { kind: 'gone' }
+  | { kind: 'blocked' }
+  | { kind: 'claimed'; groupId: string; inviteRole: GroupRole; role: GroupRole; previousRole: GroupRole | null };
+
 /** The organizations a principal belongs to and may act in, active one first. */
 function orgsOf(principal: Principal): string[] {
   const listed = (principal.memberships ?? []).filter((m) => m.status !== 'suspended').map((m) => m.orgId);
@@ -119,6 +161,8 @@ function orgsOf(principal: Principal): string[] {
  */
 @Injectable()
 export class GroupInvitesService {
+  private readonly logger = new Logger('GroupInvitesService');
+
   constructor(
     @Inject(SHARING_DATA) private readonly data: SharingDataPort,
     @Inject(SHARING_OPTIONS) private readonly options: ResolvedSharingModuleOptions,
@@ -424,5 +468,149 @@ export class GroupInvitesService {
       await writeAudit(tx, { orgId, actorUserId: principal.userId, action: 'group:invite_declined', groupId: invite.groupId, meta: { inviteId } });
     });
     this.effects.committed({ op: 'invite_decline' });
+  }
+
+  /**
+   * Claims every open, unexpired invite addressed to `email` for `userId`, in
+   * every organization: joins the group with the invite's role, or applies
+   * `groups.inviteRoleMerge` (default upgrade-only, never a downgrade) to an
+   * existing member. This is the platform form of a sign-in invite claim; the
+   * automatic listener (`groups.autoAcceptInvitesOnSignup` / `...OnSignIn`)
+   * calls it, and an app may call it directly.
+   *
+   * Safe by construction: the user must exist, be active and have exactly this
+   * address (identity creates and signs in users only on a provider-verified
+   * address), so one user's call can never claim another's invites. The
+   * discovery is the only cross-organization read (system reason
+   * `invite-claim`); each invite is then claimed in ITS organization, in its
+   * own transaction, so a failing invite never blocks the others. In
+   * multi-organization mode the user must already be an active member of the
+   * invite's organization, else the invite stays pending. Events, cache
+   * invalidation and the counter run after each commit.
+   *
+   * @param userId - the user the invites are for.
+   * @param email - the user's address (matched case-insensitively).
+   * @param opts - `orgId` limits the claim to one organization.
+   * @returns the groups joined, the groups upgraded, and the invites that changed nothing.
+   *
+   * @example
+   * ```ts
+   * const { joined } = await invites.claimPendingForEmail(user.id, user.email);
+   * ```
+   */
+  @Trace('sharing.invites.auto_accept')
+  async claimPendingForEmail(userId: string, email: string, opts: { orgId?: string } = {}): Promise<InviteClaimResult> {
+    return this.claim(userId, email, opts);
+  }
+
+  /**
+   * Like {@link claimPendingForEmail}, with the address read from the user's
+   * own record (for a sign-in event that carries no address).
+   *
+   * @param userId - the user.
+   * @param opts - `orgId` limits the claim to one organization.
+   * @returns the same result.
+   */
+  @Trace('sharing.invites.auto_accept')
+  async claimPendingForUser(userId: string, opts: { orgId?: string } = {}): Promise<InviteClaimResult> {
+    return this.claim(userId, null, opts);
+  }
+
+  private async claim(userId: string, email: string | null, opts: { orgId?: string }): Promise<InviteClaimResult> {
+    const result: InviteClaimResult = { joined: [], upgraded: [], skipped: [] };
+    const now = this.now();
+    const invites = await this.data.runAsSystem('invite-claim', async (raw) => {
+      const tx = asSharingTx(raw);
+      const user = await tx.user.findFirst({ where: { id: userId }, select: { id: true, email: true, isActive: true } });
+      if (!user || !user.isActive) return [];
+      const address = user.email.toLowerCase();
+      if (email !== null && email.trim().toLowerCase() !== address) return [];
+      return tx.groupInvite.findMany<Pick<GroupInviteRow, 'id' | 'orgId'>>({
+        where: {
+          email: address,
+          ...OPEN,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+          ...(opts.orgId ? { orgId: opts.orgId } : {}),
+        },
+        select: { id: true, orgId: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: 200,
+      });
+    });
+
+    for (const { id: inviteId, orgId } of invites) {
+      try {
+        const step = await this.claimOne(userId, orgId, inviteId, now);
+        if (step.kind === 'gone') continue;
+        if (step.kind === 'blocked') {
+          result.skipped.push(inviteId);
+          continue;
+        }
+        const outcome = step.previousRole === null ? 'joined' : step.role !== step.previousRole ? 'upgraded' : 'unchanged';
+        if (outcome === 'joined') result.joined.push(step.groupId);
+        else if (outcome === 'upgraded') result.upgraded.push(step.groupId);
+        else result.skipped.push(inviteId);
+
+        const base = { orgId, groupId: step.groupId, actorUserId: userId };
+        this.effects.committed({
+          op: 'invite_auto_accept',
+          invalidate: [userId],
+          events: [
+            { name: SHARING_EVENTS.INVITE_ACCEPTED, payload: { ...base, inviteId, role: step.inviteRole } },
+            ...(outcome === 'joined'
+              ? [{ name: SHARING_EVENTS.MEMBER_ADDED, payload: { ...base, userId, role: step.role, previousRole: null } }]
+              : outcome === 'upgraded'
+                ? [{ name: SHARING_EVENTS.MEMBER_ROLE_CHANGED, payload: { ...base, userId, role: step.role, previousRole: step.previousRole } }]
+                : []),
+            {
+              name: SHARING_EVENTS.INVITE_AUTO_ACCEPTED,
+              payload: { ...base, inviteId, role: step.inviteRole, userId, outcome, previousRole: step.previousRole, memberRole: step.role },
+            },
+          ],
+        });
+      } catch (error) {
+        // One bad invite never blocks the others or the sign-in. Ids only.
+        result.skipped.push(inviteId);
+        this.logger.warn(`Invite ${inviteId} could not be auto-accepted: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return result;
+  }
+
+  /** One invite, in its own organization and transaction. */
+  private async claimOne(userId: string, orgId: string, inviteId: string, now: Date): Promise<ClaimStep> {
+    const open = { id: inviteId, orgId, ...OPEN, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] };
+    return this.data.runInOrg({ orgId, userId }, async (raw): Promise<ClaimStep> => {
+      const tx = asSharingTx(raw);
+      const first = await tx.groupInvite.findFirst({ where: open });
+      if (!first) return { kind: 'gone' };
+      await lockGroup(tx, first.groupId);
+      // Re-check under the lock: a concurrent revoke, accept or claim loses.
+      const invite = await tx.groupInvite.findFirst({ where: open });
+      if (!invite) return { kind: 'gone' };
+      if ((this.tenancy?.mode() ?? 'single') === 'multi') {
+        const member = await tx.membership.findFirst({ where: { orgId, userId, status: 'active' }, select: { userId: true } });
+        if (!member) return { kind: 'blocked' };
+      }
+      const groupId = invite.groupId;
+      const existing = await tx.groupMember.findUnique({ where: { groupId_userId: { groupId, userId } } });
+      let role: GroupRole;
+      if (!existing) {
+        if ((await tx.groupMember.count({ where: { groupId } })) >= this.options.groups.maxMembersPerGroup) return { kind: 'blocked' };
+        role = (await tx.groupMember.create({ data: { groupId, orgId, userId, role: invite.role, addedById: invite.invitedById } })).role;
+      } else {
+        role = mergeInviteRole(this.options.groups.inviteRoleMerge, existing.role, invite.role);
+        if (role !== existing.role) await tx.groupMember.update({ where: { groupId_userId: { groupId, userId } }, data: { role } });
+      }
+      await tx.groupInvite.update({ where: { id: inviteId }, data: { acceptedAt: now, acceptedById: userId } });
+      await writeAudit(tx, {
+        orgId,
+        actorUserId: userId,
+        action: 'group:invite_auto_accepted',
+        groupId,
+        meta: { inviteId, role, previousRole: existing?.role ?? null, alreadyMember: existing !== null },
+      });
+      return { kind: 'claimed', groupId, inviteRole: invite.role, role, previousRole: existing?.role ?? null };
+    });
   }
 }

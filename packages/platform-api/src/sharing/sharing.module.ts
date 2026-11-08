@@ -7,6 +7,7 @@ import { createGrantsController } from './grants/grants.controller';
 import { GrantsService } from './grants/grants.service';
 import { createGroupInvitesController } from './groups/group-invites.controller';
 import { GroupInvitesService } from './groups/group-invites.service';
+import { InviteAutoAcceptListener } from './groups/invite-auto-accept.listener';
 import { GroupMembershipService } from './groups/group-membership.service';
 import { createGroupsController } from './groups/groups.controller';
 import { GroupsService } from './groups/groups.service';
@@ -110,6 +111,8 @@ export class SharingModule {
         GroupMembershipService,
         GroupsService,
         GroupInvitesService,
+        // Only when an auto-accept option is on: the listener needs @nestjs/event-emitter's wiring.
+        ...(resolved.groups.autoAcceptInvitesOnSignup || resolved.groups.autoAcceptInvitesOnSignIn ? [InviteAutoAcceptListener] : []),
         GroupMembershipPurge,
         GroupsOrphanedDoctorCheck,
         AccessPolicy,

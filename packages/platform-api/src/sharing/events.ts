@@ -36,6 +36,13 @@ export const SHARING_EVENTS: {
   readonly INVITE_CREATED: 'sharing.group.invite_created';
   /** An invite was accepted (a `MEMBER_ADDED` follows). */
   readonly INVITE_ACCEPTED: 'sharing.group.invite_accepted';
+  /**
+   * An invite was claimed automatically at sign-up or sign-in
+   * (`groups.autoAcceptInvitesOnSignup` / `autoAcceptInvitesOnSignIn`). Emitted
+   * once per claimed invite, after `INVITE_ACCEPTED` and the member event of the
+   * same claim; the app sends its own confirmation from it.
+   */
+  readonly INVITE_AUTO_ACCEPTED: 'sharing.group.invite_auto_accepted';
   /** A record was shared: a new grant (#729). */
   readonly GRANT_CREATED: 'sharing.grant.created';
   /** A grant's role or expiry changed, or a re-grant replaced its role (#729). */
@@ -50,6 +57,7 @@ export const SHARING_EVENTS: {
   MEMBER_ROLE_CHANGED: 'sharing.group.member_role_changed',
   INVITE_CREATED: 'sharing.group.invite_created',
   INVITE_ACCEPTED: 'sharing.group.invite_accepted',
+  INVITE_AUTO_ACCEPTED: 'sharing.group.invite_auto_accepted',
   GRANT_CREATED: 'sharing.grant.created',
   GRANT_UPDATED: 'sharing.grant.updated',
   GRANT_REVOKED: 'sharing.grant.revoked',
@@ -101,6 +109,23 @@ export interface GroupInviteEventPayload extends GroupEventPayload {
   readonly inviteId: string;
   /** The role it grants. */
   readonly role: GroupRole;
+}
+
+/**
+ * The payload of `sharing.group.invite_auto_accepted`: ids and roles only.
+ * `actorUserId` is the invitee, who is also `userId`.
+ *
+ * @stability experimental
+ */
+export interface GroupInviteAutoAcceptedPayload extends GroupInviteEventPayload {
+  /** The user who joined or was upgraded. */
+  readonly userId: string;
+  /** What the claim did: added the user, raised their role, or left it as it was. */
+  readonly outcome: 'joined' | 'upgraded' | 'unchanged';
+  /** The role the user held before the claim (`null` when newly added). */
+  readonly previousRole: GroupRole | null;
+  /** The role the user holds now. */
+  readonly memberRole: GroupRole;
 }
 
 /**

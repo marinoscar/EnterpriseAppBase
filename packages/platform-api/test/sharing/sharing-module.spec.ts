@@ -25,7 +25,7 @@ describe('resolveSharingModuleOptions', () => {
   it('merges over the defaults and freezes', () => {
     const resolved = resolveSharingModuleOptions({ host: testHost, groups: { maxMembersPerGroup: 5, inviteTtlDays: null } });
     expect(resolved.groups).toEqual({ ...SHARING_GROUP_DEFAULTS, maxMembersPerGroup: 5, inviteTtlDays: null });
-    expect(SHARING_GROUP_DEFAULTS).toEqual({ maxGroupsPerCreator: 100, maxMembersPerGroup: 1000, inviteTtlDays: 14, autoAcceptInvitesOnSignup: false, membershipCacheTtlSeconds: 30 });
+    expect(SHARING_GROUP_DEFAULTS).toEqual({ maxGroupsPerCreator: 100, maxMembersPerGroup: 1000, inviteTtlDays: 14, autoAcceptInvitesOnSignup: false, autoAcceptInvitesOnSignIn: false, inviteRoleMerge: 'upgrade-only', membershipCacheTtlSeconds: 30 });
     expect(Object.isFrozen(resolved)).toBe(true);
   });
 
@@ -37,11 +37,17 @@ describe('resolveSharingModuleOptions', () => {
     expect(resolveSharingModuleOptions({ host: testHost, groups: { membershipCacheTtlSeconds: 0 } }).groups.membershipCacheTtlSeconds).toBe(0);
   });
 
-  it('warns that autoAcceptInvitesOnSignup has no effect yet (no user-created event)', () => {
+  it('accepts the auto-accept options without a warning and validates them', () => {
     const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
-    resolveSharingModuleOptions({ host: testHost, groups: { autoAcceptInvitesOnSignup: true } });
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no effect'));
+    const resolved = resolveSharingModuleOptions({
+      host: testHost,
+      groups: { autoAcceptInvitesOnSignup: true, autoAcceptInvitesOnSignIn: true, inviteRoleMerge: 'keep' },
+    });
+    expect(resolved.groups).toMatchObject({ autoAcceptInvitesOnSignup: true, autoAcceptInvitesOnSignIn: true, inviteRoleMerge: 'keep' });
+    expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
+    expect(() => resolveSharingModuleOptions({ host: testHost, groups: { autoAcceptInvitesOnSignIn: 'yes' as never } })).toThrow(/autoAcceptInvitesOnSignIn/);
+    expect(() => resolveSharingModuleOptions({ host: testHost, groups: { inviteRoleMerge: 'max' as never } })).toThrow(/inviteRoleMerge/);
   });
 
   it('reads request.principal by default', () => {
