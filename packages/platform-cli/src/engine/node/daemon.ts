@@ -4,6 +4,7 @@ import { createServer, connect, type Server, type Socket } from 'node:net';
 import type { NodeEngine } from './node-engine.js';
 import type { NodeEngineEvent } from './node-events.js';
 import type { LogRecord, NodeLogger } from './logger.js';
+import { listDaemonChannels, watchDaemonChannels, type DaemonChannel } from './daemon-channels.js';
 import {
   MAX_CLIENT_BACKLOG_BYTES,
   MAX_IPC_CONCURRENCY,
@@ -129,6 +130,48 @@ export async function startDaemonHost(
     send(socket, { type: 'snapshot', snapshot: engine.getSnapshot() });
     const tail = options.logTail?.();
     if (tail !== undefined && tail.length > 0) send(socket, { type: 'log-tail', lines: tail });
+
+    // Channels an app published (`registerDaemonChannel`): snapshot, then tail,
+    // each tagged with the channel id. The node's own frames above carry none.
+    for (const channel of listDaemonChannels()) sendChannelBacklog(socket, channel);
+  });
+
+  /** A channel's connect-time frames. A throwing snapshot costs that channel, never the client. */
+  function sendChannelBacklog(socket: Socket, channel: DaemonChannel): void {
+    try {
+      send(socket, { type: 'snapshot', snapshot: channel.snapshot(), channel: channel.id });
+      const lines = channel.logTail?.();
+      if (lines !== undefined && lines.length > 0) send(socket, { type: 'log-tail', lines, channel: channel.id });
+    } catch (error) {
+      logger.warn('a daemon channel could not produce its snapshot', {
+        channel: channel.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  // Forward each channel's events to every attached client, for channels
+  // registered before AND after the host started.
+  const channelDetachers = new Map<string, () => void>();
+  function attachChannel(channel: DaemonChannel): void {
+    if (channelDetachers.has(channel.id)) return;
+    const eventName = channel.eventName ?? 'event';
+    const listener = (event: unknown): void => {
+      for (const socket of [...clients]) send(socket, { type: 'event', event, channel: channel.id });
+    };
+    channel.events.on(eventName, listener);
+    channelDetachers.set(channel.id, () => channel.events.off(eventName, listener));
+  }
+  for (const channel of listDaemonChannels()) attachChannel(channel);
+  const unwatchChannels = watchDaemonChannels((change) => {
+    if (change.kind === 'added') {
+      attachChannel(change.channel);
+      // Clients already attached learn of the new channel from its snapshot.
+      for (const socket of [...clients]) sendChannelBacklog(socket, change.channel);
+    } else {
+      channelDetachers.get(change.channel.id)?.();
+      channelDetachers.delete(change.channel.id);
+    }
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -240,6 +283,9 @@ export async function startDaemonHost(
     async close() {
       if (closed) return;
       closed = true;
+      unwatchChannels();
+      for (const detach of channelDetachers.values()) detach();
+      channelDetachers.clear();
       for (const socket of [...clients]) socket.destroy();
       clients.clear();
       await new Promise<void>((resolve) => server.close(() => resolve()));

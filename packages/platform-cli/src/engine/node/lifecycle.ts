@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { cliName } from '../identity.js';
 import { PreconditionError } from '../errors.js';
 import { connectToDaemon, DaemonNotRunningError } from './daemon.js';
-import type { DaemonMessage } from './ipc-protocol.js';
+import { isNodeSnapshotMessage, type DaemonMessage } from './ipc-protocol.js';
 import type { NodeSnapshot } from './node-events.js';
 import { isProcessAlive, readPidfile } from './pidfile.js';
 
@@ -213,7 +213,7 @@ export async function readLiveStatus(options: {
         socketPath: options.socketPath,
         timeoutMs,
         onMessage: (message: DaemonMessage) => {
-          if (message.type === 'snapshot' && !settled) {
+          if (isNodeSnapshotMessage(message) && !settled) {
             settled = true;
             clearTimeout(timer);
             resolve(message.snapshot);

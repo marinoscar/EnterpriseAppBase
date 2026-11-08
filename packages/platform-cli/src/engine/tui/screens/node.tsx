@@ -1,7 +1,7 @@
 import { Box, Text, useInput } from 'ink';
 import SelectInput from 'ink-select-input';
 import Spinner from 'ink-spinner';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { cliName } from '../../identity.js';
 import { formatError } from '../../errors.js';
@@ -12,12 +12,17 @@ import { formatLogRecord } from '../../node/logger.js';
 import { HttpNodeApi } from '../../node/node-api.js';
 import { resolveNodeConfig, type ResolvedNodeConfig } from '../../node/node-config.js';
 import {
-  NodeDashboardSource,
   describeEvent,
   elapsedMs,
   formatDuration,
+  nodeDashboardReducer,
   type DashboardState,
+  type NodeDashboardData,
 } from '../../node/node-dashboard-source.js';
+import type { NodeEngineEvent } from '../../node/node-events.js';
+import { embeddedNodeFeed, isDaemonListening } from '../dashboard/node-embedded.js';
+import { DashboardSource, daemonAttachFeed, selectDashboardFeed, type DashboardConnection } from '../dashboard/source.js';
+import { useDashboard } from '../dashboard/use-dashboard.js';
 import { nodeLogPath, nodePidPath, nodeSocketPath, nodeStateDir } from '../../node/paths.js';
 import { ErrorNotice, Field, Frame } from '../layout.js';
 import { useTuiTheme } from '../context.js';
@@ -52,7 +57,7 @@ import { EventLog, MeterLegend, SegmentMeter, type TuiLogEvent, type TuiMeterSeg
 // liability; `set-concurrency` and `stop` stay one-line commands.
 //
 // -----------------------------------------------------------------------------
-// WITH NO DAEMON RUNNING, IT SPAWNS A DETACHED ONE AND ATTACHES
+// WITH NO DAEMON RUNNING, IT SPAWNS A DETACHED ONE AND ATTACHES (`s`)
 // -----------------------------------------------------------------------------
 //
 // Rather than running the engine inside this process. That is deliberate: an
@@ -61,6 +66,15 @@ import { EventLog, MeterLegend, SegmentMeter, type TuiLogEvent, type TuiMeterSeg
 // silently run at the low default limit — the least suitable configuration for
 // exactly the long jobs a node exists to take. The detached daemon gets the
 // tuning; the TUI gets a stream.
+//
+// AN EMBEDDED MODE EXISTS, BEHIND AN EXPLICIT KEY (`e`, RETRO-G1.3)
+// -----------------------------------------------------------------------------
+//
+// For a quick look, a laptop or a demo, `e` starts the engine in this process
+// (`embeddedNodeFeed`, which goes through `startNode` — the screen never
+// constructs an engine itself) and renders it through the same reducer. The
+// screen says, before the key is pressed and again while it runs, what that
+// costs: the default heap, and a memory valve that closes the whole TUI.
 // =============================================================================
 
 export interface NodeScreenProps {
@@ -81,9 +95,8 @@ export function NodeScreen({ onDone }: NodeScreenProps): ReactNode {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [notice, setNotice] = useState<string | undefined>(undefined);
-  const [dashboard, setDashboard] = useState<DashboardState | undefined>(undefined);
+  const [source, setSource] = useState<NodeDashboardSourceType | undefined>(undefined);
   const [doctorReport, setDoctorReport] = useState<DoctorReport | undefined>(undefined);
-  const sourceRef = useRef<NodeDashboardSource | undefined>(undefined);
 
   const config = useMemo<ResolvedNodeConfig | undefined>(() => {
     try {
@@ -104,27 +117,29 @@ export function NodeScreen({ onDone }: NodeScreenProps): ReactNode {
       return;
     }
     setAction(undefined);
+    setSource(undefined);
     setError(undefined);
     setNotice(undefined);
   });
 
-  // Detach on unmount. Without this the source's reconnect timer would outlive
-  // the screen and keep the ink process alive, which looks exactly like a hang.
-  useEffect(() => {
-    return () => {
-      sourceRef.current?.stop();
-      sourceRef.current = undefined;
-    };
+  // Detaching is `useDashboard`'s job: leaving the dashboard unmounts its
+  // view, whose effect cleanup stops the source. Without that the source's
+  // reconnect timer would outlive the screen and keep the ink process alive,
+  // which looks exactly like a hang.
+  const startDashboard = useCallback(() => {
+    setSource(new DashboardSource(nodeDashboardReducer, daemonAttachFeed<NodeEngineEvent>({ socketPath: nodeSocketPath() })));
   }, []);
 
-  const startDashboard = useCallback(() => {
+  // `e`: run the worker in this process. If a daemon appeared in the meantime,
+  // attach to it instead — never a second worker on the same state directory.
+  const startEmbedded = useCallback(async () => {
     const socketPath = nodeSocketPath();
-    const source = new NodeDashboardSource({
+    const feed = await selectDashboardFeed<NodeEngineEvent>({
       socketPath,
-      onChange: (state) => setDashboard(state),
+      isDaemonRunning: () => isDaemonListening(socketPath),
+      embedded: () => embeddedNodeFeed(),
     });
-    sourceRef.current = source;
-    void source.start();
+    setSource(new DashboardSource(nodeDashboardReducer, feed));
   }, []);
 
   const run = useCallback(
@@ -225,7 +240,7 @@ export function NodeScreen({ onDone }: NodeScreenProps): ReactNode {
   // Dashboard
   // ---------------------------------------------------------------------------
   if (action === 'dashboard') {
-    return <DashboardView state={dashboard} onSpawn={startDashboard} />;
+    return <DashboardView source={source} onEmbedded={() => void startEmbedded()} />;
   }
 
   // ---------------------------------------------------------------------------
@@ -267,14 +282,17 @@ export function NodeScreen({ onDone }: NodeScreenProps): ReactNode {
 // The dashboard view
 // -----------------------------------------------------------------------------
 
+type NodeDashboardSourceType = DashboardSource<NodeDashboardData, NodeEngineEvent>;
+
 function DashboardView({
-  state,
-  onSpawn,
+  source,
+  onEmbedded,
 }: {
-  state: DashboardState | undefined;
-  onSpawn: () => void;
+  source: NodeDashboardSourceType | undefined;
+  onEmbedded: () => void;
 }): ReactNode {
   const theme = useTuiTheme();
+  const state = useDashboard(source) as (NodeDashboardData & DashboardConnection) | undefined;
   const [spawning, setSpawning] = useState(false);
   const [spawnError, setSpawnError] = useState<string | undefined>(undefined);
   // A ticking clock so elapsed times advance between events, which on a worker
@@ -286,18 +304,26 @@ function DashboardView({
     return () => clearInterval(timer);
   }, []);
 
+  const waiting = state === undefined || (!state.connected && !state.everConnected);
+
   useInput((input) => {
-    if (input !== 's' || spawning) return;
-    setSpawning(true);
-    try {
-      // The DETACHED, memory-tuned daemon — never the engine in this process.
-      // See the file header for why.
-      spawnDetachedDaemon({ logPath: nodeLogPath(), args: ['node', 'start'] });
-      onSpawn();
-    } catch (error) {
-      setSpawnError(formatError(error));
-    } finally {
-      setSpawning(false);
+    // Only while no worker has been found: once attached (or embedded) these
+    // keys would start a second worker beside the first.
+    if (!waiting || spawning) return;
+    if (input === 's') {
+      setSpawning(true);
+      try {
+        // The DETACHED, memory-tuned daemon — never the engine in this
+        // process. The source keeps looking for the socket and attaches when
+        // it appears.
+        spawnDetachedDaemon({ logPath: nodeLogPath(), args: ['node', 'start'] });
+      } catch (error) {
+        setSpawnError(formatError(error));
+      } finally {
+        setSpawning(false);
+      }
+    } else if (input === 'e') {
+      onEmbedded();
     }
   });
 
@@ -306,15 +332,20 @@ function DashboardView({
   const lines = useMemo(() => (state?.events ?? []).map(describeEvent), [state?.events]);
   const recent = useMemo(() => recentJobs(state?.events ?? []), [state?.events]);
 
-  if (state === undefined || (!state.connected && !state.everConnected)) {
+  if (state === undefined || waiting) {
     return (
-      <Frame title="Worker node — dashboard" hints={['s start a worker', 'esc back']}>
+      <Frame title="Worker node — dashboard" hints={['s start a worker', 'e run in this terminal', 'esc back']}>
         <Box flexDirection="column" gap={1}>
           <Text>
             <Spinner type="dots" /> {state?.error ?? 'Looking for a running worker…'}
           </Text>
           <Text dimColor>
             Press <Text bold>s</Text> to start one in the background and attach to it.
+          </Text>
+          <Text dimColor>
+            Or press <Text bold>e</Text> to run it inside this terminal. It keeps the default memory limit (this
+            process cannot restart itself with a bigger one), and if the memory safety valve fires it closes this
+            screen with it.
           </Text>
           {spawnError !== undefined ? <ErrorNotice message={spawnError} /> : null}
         </Box>
@@ -323,14 +354,21 @@ function DashboardView({
   }
 
   return (
-    <Frame title="Worker node — dashboard" hints={['↑↓ scroll', 'esc detach']}>
+    <Frame title="Worker node — dashboard" hints={['↑↓ scroll', state.mode === 'embedded' ? 'esc stop and leave' : 'esc detach']}>
       <Box flexDirection="column" gap={1}>
         <Box gap={2}>
           <Text {...textColor(state.connected ? theme.success : theme.warning)}>
-            {state.connected ? '● attached' : '○ reconnecting'}
+            {state.connected ? (state.mode === 'embedded' ? '● running here' : '● attached') : '○ reconnecting'}
           </Text>
           <Text dimColor>{snapshot?.nodeId ?? '(unknown node)'}</Text>
         </Box>
+
+        {state.mode === 'embedded' ? (
+          <Text {...textColor(theme.warning)}>
+            Running in this terminal at the default memory limit; leaving this screen stops the worker. Use{' '}
+            {cliName()} node start for sustained work.
+          </Text>
+        ) : null}
 
         {snapshot !== undefined ? (
           <Box flexDirection="column">

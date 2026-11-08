@@ -114,7 +114,7 @@ describe('createCli', () => {
   it('puts every addition where the story says it appears', () => {
     const cli = createCli({ ...BASE, extraCommands: [hello], tuiScreens: [SCREEN], deploySteps: [STEP], nodeExecutors: [EXECUTOR] });
     expect(cli.program.commands.at(-1)?.name()).toBe('hello');
-    expect(allTuiScreens().map((screen) => screen.route)).toEqual(['login', 'invoke', 'status', 'node', 'deploy', 'logout', 'about']);
+    expect(allTuiScreens().map((screen) => screen.route)).toEqual(['login', 'invoke', 'status', 'jobs', 'node', 'deploy', 'logout', 'about']);
     const install = planDeploySteps('install').map((step) => step.id);
     expect(install.slice(install.indexOf('verify'), install.indexOf('verify') + 2)).toEqual(['verify', 'announce']);
     expect(defaultExecutorRegistry().types()).toEqual(['app.echo', 'db.backup.run', 'example.checksum']);

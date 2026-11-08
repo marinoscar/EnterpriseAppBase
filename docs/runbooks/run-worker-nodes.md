@@ -357,6 +357,17 @@ job types, totals, heartbeat age, active jobs and the event stream),
 `doctor`, the log, `register` and `enroll`. With no worker running, press `s`
 to start a detached one and attach.
 
+Press `e` instead to run the worker **inside the terminal** (embedded mode).
+Use it for a quick look, a laptop or a demo, not for sustained work: an
+interactive process cannot restart itself with a bigger heap, so it keeps
+Node's default limit, and the memory valve (section 7), which exits the
+process after a clean drain and relies on a supervisor to restart it, closes
+the whole screen with it. Leaving the screen stops the worker (without
+deregistering it). The embedded worker still hosts the daemon socket, so
+another terminal can attach to it while the screen is open. The **Jobs queue**
+screen is separate: it polls the server for the queue's counts and estimates
+and needs the `jobs:read` permission; without it the screen says so.
+
 ### 8.1 What lands in the logs
 
 JSONL under `<state dir>/logs/node.log`, one rollover generation at 5 MiB,

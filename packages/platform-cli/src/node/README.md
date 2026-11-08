@@ -50,10 +50,15 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `registerNodeExecutor` | registry | `registerNodeExecutor(executor: JobExecutor): void` | Let worker nodes run an app's node-eligible job type | experimental | [example](../../../../apps/cli/src/examples/echo.executor.ts) |
 | `registerJobRequirement` | registry | `registerJobRequirement(type: string, requirement: { required: string[]; degradable?: string[] }): void` | Declare what a type needs from the machine (`binaryCapability('ffmpeg')`): the startup self-test refuses to claim the type without a required capability and `node doctor` reports it. Every `binary:` key is also registered as a probed binary | experimental | [example](../../../../apps/cli/src/examples/transcode.executor.ts) |
 | `registerProbedBinary` | registry | `registerProbedBinary(name: string, options?: { versionArgs?: string[] }): void` | Add an executable to what the capability probe looks for; with `versionArgs` (`['-version']`) the probe also captures its version banner, shown by `node doctor` and the fleet page | experimental | [example](../../../../apps/cli/src/examples/transcode.executor.ts) |
+| `registerDaemonChannel` | registry | `registerDaemonChannel(channel: { id: string; snapshot(): unknown; events: DaemonChannelEmitter; eventName?: string; logTail?(): LogRecord[] }): () => void` | Publish a second engine hosted in the same process on the worker daemon's socket, so a TUI dashboard attaches to it with `daemonAttachFeed({ channel })` | experimental | [example](../../../../apps/cli/src/examples/queue.dashboard.ts) |
 
 ## Data
 
 None. An executor reports its result to the server, which persists it (`persistNodeResult`).
+
+### Daemon channels
+
+The daemon socket carries the worker engine's snapshot, log tail and events as NDJSON. `registerDaemonChannel({ id, snapshot, events, eventName?, logTail? })` adds a second engine to it: every client that connects gets the channel's snapshot (and log tail), then each event the channel's emitter fires. Frames of a registered channel carry `channel: '<id>'`; the worker's own frames carry no `channel` field, and an absent field means `node`. That keeps an old daemon and a new TUI, and a new daemon and an old TUI, working with the worker's own dashboard. A TUI built before channels does not know to ignore another channel's frames, so upgrade the CLI everywhere a channel is registered. `registerDaemonChannel` returns the function that unregisters it; it may be called before or after the daemon starts. The id is lowercase `[a-z][a-z0-9-]{0,31}` and not `node`. Attaching stays read-only: a TUI reads a channel with `daemonAttachFeed({ socketPath, channel })` and sends nothing. See [Dashboards](../tui/README.md#dashboards).
 
 ## Permissions and settings
 
