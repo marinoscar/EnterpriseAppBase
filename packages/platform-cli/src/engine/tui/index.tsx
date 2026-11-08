@@ -2,6 +2,8 @@ import { render } from 'ink';
 
 import { EXIT, exitCodeFor, formatError } from '../errors.js';
 import { App } from './app.js';
+import { cliName } from '../identity.js';
+import { resolveInteractiveStdin } from './raw-mode.js';
 import { installTerminalRestore, restoreTerminal } from './terminal.js';
 
 // =============================================================================
@@ -23,6 +25,8 @@ import { installTerminalRestore, restoreTerminal } from './terminal.js';
 export interface StartTuiOptions {
   stdout?: NodeJS.WriteStream | undefined;
   stdin?: NodeJS.ReadStream | undefined;
+  /** Opens the controlling terminal when stdin cannot take raw mode (a test seam; defaults to `/dev/tty`). */
+  openTerminal?: (() => NodeJS.ReadStream | undefined) | undefined;
 }
 
 /**
@@ -42,7 +46,24 @@ export interface StartTuiOptions {
  */
 export async function startTui(options?: StartTuiOptions): Promise<number> {
   const stdout = options?.stdout ?? process.stdout;
-  const stdin = options?.stdin ?? process.stdin;
+
+  // A stdin ink can put in raw mode: the given one, else the controlling
+  // terminal. `setRawMode` throws EIO on serial, hypervisor and LXC consoles
+  // and when fd 0 is redirected; ink would surface that from `render` as a
+  // stack trace. With no usable terminal at all, say so and exit through the
+  // same path the TTY gate uses (usage error), never a throw.
+  const interactive = resolveInteractiveStdin({
+    stdin: options?.stdin ?? process.stdin,
+    ...(options?.openTerminal === undefined ? {} : { openTerminal: options.openTerminal }),
+  });
+  if (interactive === null) {
+    process.stderr.write(
+      `This terminal cannot run the interactive interface (raw keyboard input is unavailable). ` +
+        `Connect with a pseudo-terminal (ssh -t), or run \`${cliName()} --help\` to see the commands.\n`,
+    );
+    return EXIT.USAGE;
+  }
+  const stdin = interactive.stream;
 
   // Installed BEFORE the first frame, removed in the `finally`. Between those
   // two points the process may die in ways ink cannot see — a SIGTERM from
@@ -88,6 +109,8 @@ export async function startTui(options?: StartTuiOptions): Promise<number> {
     // the rest of the process's life.
     restoreTerminal({ stdout, stdin });
     uninstallRestore();
+    // Destroys the controlling-terminal stream when this function opened one.
+    interactive.release();
   }
 }
 

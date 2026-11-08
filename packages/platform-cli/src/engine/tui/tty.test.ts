@@ -334,3 +334,27 @@ describe('evaluateTuiGate — defaults to the real process when no context is gi
     expect(() => evaluateTuiGate({})).not.toThrow();
   });
 });
+
+describe('evaluateTuiGate — redirected stdin with a controlling terminal (RETRO-G1.2)', () => {
+  it('engages when stdin is redirected but /dev/tty can take keystrokes', () => {
+    const decision = evaluateTuiGate(interactiveCtx({ stdin: {}, controllingTerminal: () => true }));
+    expect(decision).toEqual({ engage: true });
+  });
+
+  it('still refuses with stdin-not-a-tty when there is no controlling terminal either', () => {
+    const decision = evaluateTuiGate(interactiveCtx({ stdin: {}, controllingTerminal: () => false }));
+    expect(decision.engage).toBe(false);
+    if (!decision.engage) expect(decision.refusal).toBe('stdin-not-a-tty');
+  });
+
+  it('does not probe the real machine when a test supplies its own stdin', () => {
+    const decision = evaluateTuiGate(interactiveCtx({ stdin: { isTTY: undefined } }));
+    expect(decision.engage).toBe(false);
+  });
+
+  it('leaves the stdout and TERM checks ahead of the fallback', () => {
+    const decision = evaluateTuiGate(interactiveCtx({ stdin: {}, stdout: {}, controllingTerminal: () => true }));
+    expect(decision.engage).toBe(false);
+    if (!decision.engage) expect(decision.refusal).toBe('stdout-not-a-tty');
+  });
+});
