@@ -79,6 +79,7 @@ services:
       APPCTL_MEMORY_WATCHDOG: ${APPCTL_MEMORY_WATCHDOG:-}
       APPCTL_MEMORY_THRESHOLD: ${APPCTL_MEMORY_THRESHOLD:-}
       APPCTL_HEAP_SNAPSHOTS: ${APPCTL_HEAP_SNAPSHOTS:-}
+      APPCTL_NATIVE_THREADS: ${APPCTL_NATIVE_THREADS:-}
 
     volumes:
       # State survives a restart, so a replica re-attaches to its node row
