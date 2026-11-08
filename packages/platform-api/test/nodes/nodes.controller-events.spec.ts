@@ -19,8 +19,11 @@ function controller() {
     register: jest.fn(),
   };
   const events = { list: jest.fn().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20, totalPages: 1 }) };
-  const c = new NodesController(nodes as any, {} as any, {} as any, {} as any, events as any);
-  return { c, nodes, events };
+  const delivery = {
+    deliveryState: jest.fn().mockResolvedValue({ enabled: false, epoch: 1, ttlMinutes: 60, purposes: [], versions: {} }),
+  };
+  const c = new NodesController(nodes as any, {} as any, {} as any, {} as any, events as any, delivery as any);
+  return { c, nodes, events, delivery };
 }
 
 describe('NodesController.listEvents', () => {
@@ -50,7 +53,7 @@ describe('NodesController.listEvents', () => {
 describe('NodesAdminController.listEvents', () => {
   it('reads any node (the admin scope is the deployment); a missing node is the service\'s 404', async () => {
     const events = { list: jest.fn().mockResolvedValue({ items: [] }) };
-    const admin = new NodesAdminController({} as any, events as any);
+    const admin = new NodesAdminController({} as any, events as any, {} as any);
 
     await admin.listEvents(NODE_ID, QUERY);
     expect(events.list).toHaveBeenCalledWith(NODE_ID, QUERY);
@@ -61,7 +64,7 @@ describe('NodesAdminController.listEvents', () => {
 });
 
 describe('serverFeatures', () => {
-  it('advertises node_host_vitals on register and beside the node fields on heartbeat', async () => {
+  it('advertises node_host_vitals and node_credential_delivery on register and beside the node fields on heartbeat', async () => {
     const { c, nodes } = controller();
     const row = {
       id: NODE_ID, name: 'n', hostname: 'h', platform: 'p', cliVersion: '1', eligibleTypes: [], concurrency: 1,
@@ -73,9 +76,11 @@ describe('serverFeatures', () => {
     const registered = await c.register({} as any, 'user-1');
     const beat = await c.heartbeat(NODE_ID, {} as any, 'user-1');
 
-    expect(NODE_SERVER_FEATURES).toEqual(['node_host_vitals']);
-    expect(registered.serverFeatures).toEqual(['node_host_vitals']);
-    expect(beat.serverFeatures).toEqual(['node_host_vitals']);
+    expect(NODE_SERVER_FEATURES).toEqual(['node_host_vitals', 'node_credential_delivery']);
+    expect(registered.serverFeatures).toEqual(['node_host_vitals', 'node_credential_delivery']);
+    expect(beat.serverFeatures).toEqual(['node_host_vitals', 'node_credential_delivery']);
+    // #1083: the heartbeat carries the delivery state, OFF by default.
+    expect(beat.credentialDelivery).toEqual({ enabled: false, epoch: 1, ttlMinutes: 60, purposes: [], versions: {} });
     expect(beat.id).toBe(NODE_ID);
     expect(beat.name).toBe('n');
   });

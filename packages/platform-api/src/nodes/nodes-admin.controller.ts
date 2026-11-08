@@ -62,10 +62,13 @@
 // rule 3).
 // =============================================================================
 
-import { Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Query } from '@nestjs/common';
+import { Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
-import { Auth } from '../identity/index';
+import { Auth, CurrentUser } from '../identity/index';
+import { SETTINGS_PERMISSIONS } from '../settings/index';
+import { NodeCredentialRevokeAllResponseDto } from './dto/node-credential-delivery.dto';
+import { NodeCredentialDeliveryService } from './node-credential-delivery.service';
 import { PERMISSIONS, ROLES } from './nodes.constants';
 import { AdminNodeCredentialDto, AdminNodeDto } from './dto/node-admin.dto';
 import { AdminNodeEventListDto, NodeEventListQueryDto } from './dto/node-event.dto';
@@ -77,13 +80,30 @@ import { NodesAdminService } from './nodes-admin.service';
 export class NodesAdminController {
   constructor(
     private readonly nodes: NodesAdminService,
-    private readonly events: NodeEventsService
+    private readonly events: NodeEventsService,
+    private readonly delivery: NodeCredentialDeliveryService
   ) {}
 
   // ---------------------------------------------------------------------------
   // Literal routes. Nothing parameterised may be declared above this block —
   // see the file header.
   // ---------------------------------------------------------------------------
+
+  @Post('credential-delivery/revoke-all')
+  @Auth({ roles: [ROLES.ADMIN], permissions: [SETTINGS_PERMISSIONS.SYSTEM_SETTINGS_WRITE.id] })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Revoke every provider credential cached on worker nodes',
+    description:
+      'Advances `nodes.credentialDelivery.epoch` (#1083); every node wipes its credential cache on its next ' +
+      'heartbeat. A credential already pinned in a running job stays in that process until the job ends: true ' +
+      'revocation is rotating the key at the provider. Audited as `node_credential:revoke_all`. Works whether or ' +
+      'not delivery is enabled.',
+  })
+  @ApiResponse({ status: 200, description: 'The epoch now in force', type: NodeCredentialRevokeAllResponseDto })
+  async revokeAllCredentials(@CurrentUser('id') userId: string): Promise<NodeCredentialRevokeAllResponseDto> {
+    return this.delivery.revokeAll(userId);
+  }
 
   @Get('credentials')
   @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.NODES_READ] })

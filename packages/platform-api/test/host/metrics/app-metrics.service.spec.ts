@@ -569,6 +569,8 @@ describe('AppMetricsService baseline (#680)', () => {
       eventBusReconnects: 'app.event_bus.reconnects',
       // Added after the baseline (node host and power telemetry, #1045).
       nodesEvents: 'app.nodes.events',
+      // Added after the baseline (node credential delivery, #1083).
+      nodesCredentialsIssued: 'app.nodes.credentials.issued',
       nodesHostCpuUtilization: 'app.nodes.host.cpu.utilization',
       nodesHostMemoryUsed: 'app.nodes.host.memory.used',
       nodesHostMemoryTotal: 'app.nodes.host.memory.total',
@@ -639,6 +641,8 @@ describe('AppMetricsService baseline (#680)', () => {
       { kind: 'counter', name: 'app.notifications.deliveries', options: { description: 'Notification delivery attempts, by channel, event and outcome.', unit: '{delivery}' } },
       // Added after the baseline (node host and power telemetry, #1045).
       { kind: 'counter', name: 'app.nodes.events', options: { description: 'Node-reported events accepted at heartbeat ingestion, by event type (unknown types fold into other) and severity.', unit: '{event}' } },
+      // Added after the baseline (node credential delivery, #1083).
+      { kind: 'counter', name: 'app.nodes.credentials.issued', options: { description: 'Provider credentials delivered to worker nodes (#1083), by registered purpose. Never labelled by organization.', unit: '{credential}' } },
       // Added after the baseline (the event bus, PP-1.11 follow-up).
       { kind: 'counter', name: 'app.event_bus.published', options: { description: 'Messages published on the event bus, by adapter, channel and outcome.', unit: '{message}' } },
       {

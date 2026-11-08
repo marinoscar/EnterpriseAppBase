@@ -26,12 +26,20 @@ export interface NodesModuleOptions {
     secretSweep: boolean;
     /** The node-event purge (queues `nodes.node_events_purge` daily). */
     nodeEventsPurge: boolean;
+    /** The credential-delivery audit purge (queues `nodes.credential_issuances_purge` daily, #1083). */
+    credentialIssuancesPurge: boolean;
   }>;
   /**
    * How many days node events (`worker_node_events`) are kept; default
    * {@link DEFAULT_NODE_EVENTS_RETENTION_DAYS}. Whole days, 1 to 3650.
    */
   nodeEventsRetentionDays?: number;
+  /**
+   * How many days the credential-delivery audit (`node_credential_issuances`,
+   * #1083) is kept; default {@link DEFAULT_CREDENTIAL_ISSUANCES_RETENTION_DAYS}.
+   * Whole days, 1 to 3650.
+   */
+  credentialIssuancesRetentionDays?: number;
   /**
    * The modules that bind the slice's host ports (`NODE_OBJECT_STORE`,
    * `NODE_JOB_INPUTS`). Each must be `@Global()` or export the tokens.
@@ -64,10 +72,14 @@ export interface ResolvedNodesModuleOptions {
       secretSweep: boolean;
       /** The node-event purge cron (no environment variable; on unless set to `false`). */
       nodeEventsPurge: boolean;
+      /** The credential-delivery audit purge cron (on unless set to `false`). */
+      credentialIssuancesPurge: boolean;
     }>
   >;
   /** Days node events are kept. */
   readonly nodeEventsRetentionDays: number;
+  /** Days the credential-delivery audit is kept. */
+  readonly credentialIssuancesRetentionDays: number;
   /** The host-port modules. */
   readonly imports: ReadonlyArray<Type<unknown> | DynamicModule | Promise<DynamicModule> | ForwardReference>;
 }
@@ -78,6 +90,14 @@ export interface ResolvedNodesModuleOptions {
  * @stability experimental
  */
 export const DEFAULT_NODE_EVENTS_RETENTION_DAYS = 30;
+
+/**
+ * How long the credential-delivery audit (`node_credential_issuances`) is kept
+ * when the app does not say: 30 days (#1083).
+ *
+ * @stability experimental
+ */
+export const DEFAULT_CREDENTIAL_ISSUANCES_RETENTION_DAYS = 30;
 
 /**
  * Validates the options.
@@ -91,7 +111,7 @@ export const DEFAULT_NODE_EVENTS_RETENTION_DAYS = 30;
 export function resolveNodesModuleOptions(options: NodesModuleOptions = {}): ResolvedNodesModuleOptions {
   const tasks = options.tasks ?? {};
   for (const [key, value] of Object.entries(tasks)) {
-    if (!['staleOffline', 'offlinePrune', 'secretSweep', 'nodeEventsPurge'].includes(key)) {
+    if (!['staleOffline', 'offlinePrune', 'secretSweep', 'nodeEventsPurge', 'credentialIssuancesPurge'].includes(key)) {
       throw new Error(`NodesModule.forRoot: tasks.${key} is not a node task.`);
     }
     if (value !== undefined && typeof value !== 'boolean') {
@@ -102,9 +122,16 @@ export function resolveNodesModuleOptions(options: NodesModuleOptions = {}): Res
   if (!Number.isInteger(retention) || retention < 1 || retention > 3650) {
     throw new Error(`NodesModule.forRoot: nodeEventsRetentionDays must be a whole number from 1 to 3650, got ${JSON.stringify(retention)}.`);
   }
+  const issuanceRetention = options.credentialIssuancesRetentionDays ?? DEFAULT_CREDENTIAL_ISSUANCES_RETENTION_DAYS;
+  if (!Number.isInteger(issuanceRetention) || issuanceRetention < 1 || issuanceRetention > 3650) {
+    throw new Error(
+      `NodesModule.forRoot: credentialIssuancesRetentionDays must be a whole number from 1 to 3650, got ${JSON.stringify(issuanceRetention)}.`,
+    );
+  }
   return Object.freeze({
     tasks: Object.freeze({ ...tasks }),
     nodeEventsRetentionDays: retention,
+    credentialIssuancesRetentionDays: issuanceRetention,
     imports: Object.freeze([...(options.imports ?? [])]),
   });
 }

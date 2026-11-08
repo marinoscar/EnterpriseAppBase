@@ -36,6 +36,7 @@ export const RESERVED_NODE_SUBPATHS: readonly string[] = Object.freeze([
   ':id/heartbeat',
   ':id/claim',
   ':id/telemetry',
+  ':id/credentials/*',
   ':id/jobs/*',
   'models/*',
 ]);
