@@ -173,7 +173,7 @@ describe('nested sections', () => {
 describe('the login gate', () => {
   it('shows the shared notice for a requiresLogin entry opened while logged out, and Esc goes back', async () => {
     registerTuiScreen({ route: 'secret', label: 'Secret', order: 100, component: Marker });
-    registerTuiMenuNode({ kind: 'section', id: 'vault', label: 'Vault', order: 35, loggedOut: true });
+    registerTuiMenuNode({ kind: 'section', id: 'vault', label: 'Vault', order: 34, loggedOut: true });
     registerTuiMenuNode({ kind: 'entry', id: 'vault-secret', parent: 'vault', route: 'secret', label: 'Secret', order: 1, requiresLogin: true });
     const app = await mount(false);
     await app.press('4');
@@ -187,7 +187,7 @@ describe('the login gate', () => {
 
   it('opens the screen when logged in', async () => {
     registerTuiScreen({ route: 'secret', label: 'Secret', order: 100, component: Marker });
-    registerTuiMenuNode({ kind: 'entry', id: 'vault-secret', route: 'secret', label: 'Secret', order: 35 });
+    registerTuiMenuNode({ kind: 'entry', id: 'vault-secret', route: 'secret', label: 'Secret', order: 34 });
     const app = await mount(true);
     await app.press('4');
     expect(app.frame()).toContain('MARKER');
