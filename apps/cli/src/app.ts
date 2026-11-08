@@ -26,6 +26,10 @@ import { CLI_VERSION } from './package-info.js';
 //                     job.app.* span and an app vital     examples/transcode.executor.ts
 //                     one that reads its input by URL,
 //                     with no download (input: 'url')     examples/probe.executor.ts
+//                     one that needs a module and a
+//                     sidecar service (not binaries)      examples/ocr.requirements.ts
+//                     one that needs a model file         examples/model.artifact.ts
+//   (install-deps)    a step for `node install-deps`      examples/ocr.install-step.ts
 //   envSpecFragments  metadata for app.env.example keys
 //   envGroups         an opt-in group of env keys          examples/coach.env-group.ts
 //   envGenerators     a kind of generated env value        examples/coach.env-generator.ts
