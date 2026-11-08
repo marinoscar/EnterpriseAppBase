@@ -110,7 +110,8 @@ describe('StorageConfigPage — save request wire contract', () => {
     mockPut(captured);
 
     const user = await renderLoaded();
-    await user.type(screen.getByLabelText(/secret access key/i), 'rotated-secret-value');
+    // The main form's field comes first; the other configured providers' credentials (#1124) follow.
+    await user.type(screen.getAllByLabelText(/secret access key/i)[0], 'rotated-secret-value');
     await user.click(screen.getByRole('button', { name: /save changes/i }));
 
     await waitFor(() => expect(captured).toHaveLength(1));

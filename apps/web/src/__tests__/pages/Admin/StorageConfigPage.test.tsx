@@ -629,4 +629,26 @@ describe('StorageConfigPage', () => {
       expect(screen.getByText('Internal server error')).toBeInTheDocument();
     });
   });
+
+  describe('the other configured providers\' credentials (#1124)', () => {
+    it('saves a non-active provider\'s key to that provider without switching the active one', async () => {
+      const user = userEvent.setup();
+      const { save } = setHook({
+        config: storageConfigFixture({
+          drivers: builtinDrivers({
+            r2: { bucket: 'new-objects', accountId: 'acct-a', region: '', endpoint: '', accessKeyId: 'AKIAR2', forcePathStyle: null },
+          }),
+        }),
+      });
+      renderAsAdmin();
+
+      const section = screen.getByTestId('storage-driver-credentials-r2');
+      await user.type(within(section).getByLabelText(/secret access key/i), FORBIDDEN_SECRET_MATERIAL);
+      await user.click(within(section).getByRole('button', { name: /save cloudflare r2 credentials/i }));
+
+      await waitFor(() => expect(save).toHaveBeenCalled());
+      expect(save.mock.calls[0][0]).toEqual({ provider: 's3', secrets: { r2: { secretAccessKey: FORBIDDEN_SECRET_MATERIAL } } });
+    });
+  });
 });
+
