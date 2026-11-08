@@ -97,6 +97,9 @@ export {
   storageDriverKind,
   storageLocationOf,
   storageSecretAddress,
+  storageSecretReadAddresses,
+  readStorageDriverSecret,
+  describeStorageDriverSecret,
 } from './drivers/storage-driver';
 export type {
   StorageDriver,
@@ -111,6 +114,7 @@ export type {
   StorageDriverSettings,
   StorageDriverTestResult,
   StorageSecretAddress,
+  StorageSecretLocation,
 } from './drivers/storage-driver';
 export { BUILTIN_STORAGE_DRIVERS } from './drivers/builtin-storage-drivers';
 export { r2StorageDriver, s3CompatibleStorageDriver, s3StorageDriver } from './drivers/s3/s3-family';

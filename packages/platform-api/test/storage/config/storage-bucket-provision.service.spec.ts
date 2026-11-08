@@ -440,7 +440,8 @@ describe('StorageBucketProvisionService', () => {
     it('uses the stored secret when the body leaves it blank', async () => {
       await service.provision(input({ secretAccessKey: '' }), 'admin-1');
 
-      expect(credentials.getSecret).toHaveBeenCalledWith('storage', 'default');
+      // Its own address first (#1124); `storage/default` is only the read fallback.
+      expect(credentials.getSecret).toHaveBeenCalledWith('storage', 's3');
     });
 
     it('redacts the secret out of a provider error before it is returned', async () => {

@@ -11,8 +11,9 @@
 // `drivers/s3/` and nothing else in the slice names the AWS SDK.
 //
 // SETTINGS are each flavour's own `z.object` (R2 has an `accountId` the other
-// two do not); the SECRET is `secretAccessKey`, stored at `(purpose 'storage',
-// name 'default')` as it has been since #373, so no stored credential moves.
+// two do not); the SECRET is `secretAccessKey`, stored per flavour at
+// `(purpose 'storage', name '<driverId>')` (#1124) and read with a fallback to
+// the shared `(storage, default)` slot of #373, so no stored credential moves.
 // =============================================================================
 
 import { ListObjectsV2Command, S3Client, type ListObjectsV2CommandOutput } from '@aws-sdk/client-s3';
@@ -151,9 +152,18 @@ function defineS3FamilyDriver(
         help: 'Write-only: saved encrypted, never shown again. Leave blank to keep the stored one.',
       },
     ],
-    // The secret access key has lived at `(storage, default)` since #373; the
-    // purpose is registered by the storage slice's own credential manifest.
-    credentialAddress: () => ({ purpose: STORAGE_CREDENTIAL_PURPOSE, name: STORAGE_CREDENTIAL_NAME, label: STORAGE_CREDENTIAL_LABEL }),
+    // PER DRIVER (#1124): each flavour keeps its own secret access key at
+    // `(storage, <driverId>)`, so two S3-family drivers with different key
+    // pairs coexist and each serves its own rows. The shared `(storage,
+    // default)` slot every deployment used since #373 stays the READ fallback:
+    // nothing has to move, and the first save of a flavour's key writes its
+    // own address. The purpose is registered by the slice's credential manifest.
+    credentialAddress: () => ({
+      purpose: STORAGE_CREDENTIAL_PURPOSE,
+      name: flavour.id,
+      label: `${STORAGE_CREDENTIAL_LABEL} (${flavour.id})`,
+      fallbacks: [{ purpose: STORAGE_CREDENTIAL_PURPOSE, name: STORAGE_CREDENTIAL_NAME }],
+    }),
     defaultRegion: flavour.fallbackRegion || undefined,
     async build(ctx) {
       const settings = s3SettingsOf(ctx.settings);

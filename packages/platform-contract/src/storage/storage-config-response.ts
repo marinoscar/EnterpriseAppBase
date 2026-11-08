@@ -158,6 +158,15 @@ export const storageConfigResponseSchema = z.object({
    */
   secretStatus: storageSecretStatusSchema,
 
+  /**
+   * The masked status of EVERY registered driver's declared secrets, by driver
+   * id and secret name (#1124): each driver keeps its own credential address,
+   * so the admin page shows each driver's stored key, not the active one's.
+   * Optional: an older API omits it (the page then falls back to
+   * `secretStatus` and the descriptors' `hasValue`).
+   */
+  secretStatuses: z.record(storageDriverIdSchema, z.record(z.string(), storageSecretStatusSchema)).optional(),
+
   // ---------------------------------------------------------------------------
   // Provenance of the settings row
   // ---------------------------------------------------------------------------

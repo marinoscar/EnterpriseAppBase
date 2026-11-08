@@ -10,6 +10,7 @@ import {
   storageDriverIds,
   storageLocationOf,
   storageSecretAddress,
+  describeStorageDriverSecret,
   type StorageDriverDefinition,
 } from '../drivers/storage-driver';
 import { StorageConfigService } from './storage-config.service';
@@ -230,18 +231,33 @@ export class StorageConfigAdminService {
 
     await this.assertSwitchAcknowledged(current, next, input.confirmation);
 
-    // Blank preserves: only a typed, non-empty secret is written.
-    const typed = submittedSecretValues(driver.id, input as unknown as Record<string, unknown>);
-    const rotated = Object.keys(typed);
+    // Blank preserves: only a typed, non-empty secret is written. EVERY
+    // driver's secrets in the body are written (#1124), not only the active
+    // one's: an administrator stores the key of a driver that still holds rows
+    // (or one about to be migrated to) without switching to it. Each goes to
+    // that driver's OWN address; a fallback address is never written.
+    const body = input as unknown as Record<string, unknown>;
+    const secretDrivers = [
+      driver,
+      ...Object.keys(input.secrets ?? {})
+        .filter((id) => id !== driver.id)
+        .map((id) => this.requireDriver(id)),
+    ];
+    const rotated: string[] = [];
 
-    for (const name of rotated) {
-      const address = storageSecretAddress(driver, name);
-      const spec = (driver.secrets ?? []).find((candidate) => candidate.name === name);
+    for (const target of secretDrivers) {
+      const typed = submittedSecretValues(target.id, target.id === driver.id ? body : { secrets: input.secrets });
 
-      await this.credentials.setSecret(address.purpose, address.name, typed[name], {
-        label: address.label ?? spec?.label ?? `${driver.label} ${name}`,
-        updatedByUserId: userId,
-      });
+      for (const name of Object.keys(typed)) {
+        const address = storageSecretAddress(target, name);
+        const spec = (target.secrets ?? []).find((candidate) => candidate.name === name);
+
+        await this.credentials.setSecret(address.purpose, address.name, typed[name], {
+          label: address.label ?? spec?.label ?? `${target.label} ${name}`,
+          updatedByUserId: userId,
+        });
+        rotated.push(target.id === driver.id ? name : `${target.id}.${name}`);
+      }
     }
 
     await this.systemSettings.patchSettings(
@@ -397,8 +413,8 @@ export class StorageConfigAdminService {
         const byName = new Map<string, { hint: string | null; updatedAt: Date; updatedByUserId: string | null }>();
 
         for (const spec of driver?.secrets ?? []) {
-          const address = storageSecretAddress(driver as StorageDriverDefinition<any>, spec.name);
-          const info = await this.credentials.describe(address.purpose, address.name);
+          // The first address holding one: the driver's own, then its read fallbacks (#1124).
+          const info = await describeStorageDriverSecret(this.credentials, driver as StorageDriverDefinition<any>, spec.name);
           if (info) byName.set(spec.name, info);
         }
 
@@ -474,6 +490,25 @@ export class StorageConfigAdminService {
         updatedAt: primary?.updatedAt.toISOString() ?? null,
         updatedByUserId: primary?.updatedByUserId ?? null,
       },
+      secretStatuses: Object.fromEntries(
+        [...infos.entries()].map(([id, byName]) => [
+          id,
+          Object.fromEntries(
+            (getStorageDriver(id)?.secrets ?? []).map((secret) => {
+              const info = byName.get(secret.name);
+              return [
+                secret.name,
+                {
+                  configured: info !== undefined,
+                  hint: info?.hint ?? null,
+                  updatedAt: info?.updatedAt.toISOString() ?? null,
+                  updatedByUserId: info?.updatedByUserId ?? null,
+                },
+              ];
+            }),
+          ),
+        ]),
+      ),
       version: row?.version ?? 0,
       updatedAt: row?.updatedAt.toISOString() ?? null,
       updatedBy: row?.updatedByUser ?? null,

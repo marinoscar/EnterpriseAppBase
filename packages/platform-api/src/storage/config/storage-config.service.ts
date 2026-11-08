@@ -7,7 +7,7 @@ import {
   getStorageDriver,
   missingStorageFields,
   storageLocationOf,
-  storageSecretAddress,
+  readStorageDriverSecret,
   type StorageDriverDefinition,
 } from '../drivers/storage-driver';
 import type { ResolvedStorageConfig, StorageConfigResolution } from './storage-config';
@@ -309,11 +309,12 @@ export class StorageConfigService implements OnModuleInit {
    * configuration in force". Same completeness rules and same secret handling as
    * {@link resolve}: the secrets are read now and never cached.
    *
-   * ⚠ DRIVERS THAT SHARE A CREDENTIAL ADDRESS SHARE ITS SECRET. The three
-   * built-in S3 flavours keep their secret access key at `(storage, default)`
-   * (one slot), so for them a non-active flavour is resolved with whichever key
-   * is stored there. A driver an app registers without `credentialAddress` keeps
-   * its secrets at `storage_<id>`, fully isolated per driver.
+   * EACH DRIVER READS ITS OWN SECRET (#1124). The three built-in S3 flavours
+   * keep their secret access key at `(storage, <driverId>)`, falling back to the
+   * shared `(storage, default)` slot only while their own is empty; a driver an
+   * app registers without `credentialAddress` keeps its secrets at
+   * `storage_<id>`. Two S3-family drivers with different key pairs therefore
+   * each serve their own rows.
    *
    * @param providerId - a registered driver id.
    * @param options - `fresh: true` bypasses the settings cache.
@@ -374,8 +375,8 @@ export class StorageConfigService implements OnModuleInit {
     const secrets: Record<string, string> = {};
 
     for (const spec of driver.secrets ?? []) {
-      const address = storageSecretAddress(driver, spec.name);
-      const value = await this.credentials.getSecret(address.purpose, address.name);
+      // Primary address, then the driver's read fallbacks (#1124).
+      const value = await readStorageDriverSecret(this.credentials, driver, spec.name);
       if (value) secrets[spec.name] = value;
     }
 
