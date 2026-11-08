@@ -38,6 +38,9 @@ import { defineRegistry, type Registry } from '../registry/registry';
  * - `link-resolution`: resolving a link-share token: ONE row of `grants`, by
  *   its unique token hash, before any organization is known.
  * - `export`: the data-export sources and the export file lookups.
+ * - `invite-claim`: finding the open group invites addressed to ONE user's own
+ *   verified e-mail address across organizations, before any organization is
+ *   known (each claim then runs in its invite's organization).
  *
  * @stability experimental
  */
@@ -51,6 +54,7 @@ export const BUILTIN_SYSTEM_ACCESS_REASONS = Object.freeze([
   'migration-tooling',
   'link-resolution',
   'export',
+  'invite-claim',
 ] as const);
 
 /**
@@ -157,6 +161,7 @@ const BUILTIN_DESCRIPTIONS: Readonly<Record<BuiltinSystemAccessReason, string>> 
   'migration-tooling': 'Seeds and migration helpers.',
   'link-resolution': 'Resolving a link-share token: one grants row, by its unique token hash, before any organization is known.',
   export: 'The data-export sources and the export file lookups.',
+  'invite-claim': 'Finding the open group invites addressed to one user\'s own verified e-mail address across organizations; each claim then runs in its invite\'s organization.',
 };
 
 for (const id of BUILTIN_SYSTEM_ACCESS_REASONS) {
