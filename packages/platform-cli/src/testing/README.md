@@ -92,7 +92,7 @@ The `cli` suite, one case each:
 - `env fragment <name> declares no commented KEY=value line`: `parseEnvExample` reads such a line as a declared variable, and the deploy wizard would ask for it.
 - `executor <type> never persists or logs a job-scoped credential`: CLAUDE.md queue rule 3, through `checkExecutorCredentialHygiene` on a fake job holding a credential.
 
-The `tui` suite (RETRO-G1.5) checks the app's TUI registrations and screens: menu tree, lazy screens, no ink at import, labels, pure dashboard reducers, narrow widths, `NO_COLOR` and the login gate; see [the TUI README](../tui/README.md#conformance-suite). Its checks are exported (`checkTuiMenu`, `checkTuiLazy`, `checkTuiLabels`, `checkTuiNoInkImport`, `checkDashboardReducer`) and each takes `skip: { '<check>': 'reason' }`.
+The `tui` suite (RETRO-G1.5) checks the app's TUI registrations and screens: menu tree, lazy screens, no ink at import, labels, pure dashboard reducers, narrow widths, `NO_COLOR` and the login gate; see [the TUI README](../tui/README.md#conformance-suite). Its checks are exported (`checkTuiMenu`, `checkTuiLazy`, `checkTuiLabels`, `checkTuiNoInkImport`, `checkDashboardReducer`) and each takes `skip: { '<check>': 'reason' }`. Through `runPlatformConformance` that map is passed as `tui: { skip: { '<check>': 'reason' } }` and skips only the named checks; `tui: { skip: 'reason' }` skips the whole suite. A `skip` that is an object is never read as a whole-suite opt-out, for any suite.
 
 An unknown suite key throws, so a typo cannot disable a check; `cli: false` opts out visibly.
 
