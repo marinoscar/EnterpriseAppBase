@@ -110,6 +110,8 @@ export class ObjectProcessingService {
     );
 
     const allMetadata: Record<string, unknown> = {};
+    // Only a REQUIRED processor's failure fails the object; an optional one's
+    // is recorded and the object can still be ready (#1124).
     let hasError = false;
 
     for (const processor of applicableProcessors) {
@@ -129,7 +131,7 @@ export class ObjectProcessingService {
             `Processor ${processor.name} failed: ${result.error}`,
           );
           allMetadata[`${processor.name}_error`] = result.error;
-          hasError = true;
+          if (processor.optional !== true) hasError = true;
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -137,7 +139,7 @@ export class ObjectProcessingService {
           `Processor ${processor.name} threw exception: ${errorMessage}`,
         );
         allMetadata[`${processor.name}_error`] = errorMessage;
-        hasError = true;
+        if (processor.optional !== true) hasError = true;
       }
     }
 

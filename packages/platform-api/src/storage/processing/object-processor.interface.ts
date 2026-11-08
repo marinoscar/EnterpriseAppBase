@@ -3,8 +3,9 @@ import type { StorageObject } from '../data/storage-db';
 
 /**
  * What one processor run reports. A failure is recorded on the object's row
- * (`<name>_error` in its metadata) and marks the object `failed`; it never
- * stops the other processors.
+ * (`<name>_error` in its metadata) and marks the object `failed` unless the
+ * processor is {@link ObjectProcessor.optional}; it never stops the other
+ * processors.
  *
  * @stability experimental
  */
@@ -35,6 +36,16 @@ export interface ObjectProcessor {
    * Priority order (lower = earlier). Default: 100
    */
   readonly priority: number;
+
+  /**
+   * Whether the object may still be `ready` when this processor fails (#1124).
+   * Default `false`: a failure marks the object `failed`. An optional
+   * processor's failure is still recorded on the row (`<name>_error` under
+   * `_processing`) and logged, but the object is `ready` as long as every
+   * REQUIRED processor succeeded. Example: a video probe that cannot read the
+   * container, next to a thumbnail that rendered.
+   */
+  readonly optional?: boolean;
 
   /**
    * Check if this processor can handle the given object
