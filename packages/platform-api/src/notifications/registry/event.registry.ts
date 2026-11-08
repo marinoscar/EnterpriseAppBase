@@ -144,6 +144,22 @@ export interface NotificationEventDef {
    * asserts the user cannot turn off something that is off.
    */
   mandatory?: boolean;
+
+  /**
+   * How the event's in-app inbox row is written (issue #1077).
+   *
+   * - `event` (default): `notify()` appends one row per call.
+   * - `state`: `notifyState()` keeps ONE live row per user and scope, refreshed
+   *   in place and dismissed when its count drains to zero ("N items await review").
+   * - `counted`: `notifyCounted()` folds repeated occurrences into one row whose
+   *   `data.count` grows ("N uploads finished").
+   *
+   * Declared so the entry point asserts it: `notifyState` on an `event` or
+   * `counted` event (or the reverse) is refused with a warning and writes
+   * nothing, and `notify()` refuses a `state` or `counted` event, since an
+   * append would defeat the volume guard the kind exists for.
+   */
+  kind?: 'event' | 'state' | 'counted';
 }
 
 /**
@@ -181,6 +197,9 @@ export function assertValidNotificationEvent(event: NotificationEventDef): void 
   }
   if (typeof event.defaultEnabled !== 'boolean') {
     throw new Error('defaultEnabled must be a boolean');
+  }
+  if (event.kind !== undefined && event.kind !== 'event' && event.kind !== 'state' && event.kind !== 'counted') {
+    throw new Error(`kind must be 'event', 'state' or 'counted' (got ${JSON.stringify(event.kind)})`);
   }
   if (event.mandatory === true && event.defaultEnabled !== true) {
     throw new Error('a mandatory event must also be defaultEnabled: true');

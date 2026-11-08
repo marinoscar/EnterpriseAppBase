@@ -4,6 +4,7 @@ import { trace } from '@opentelemetry/api';
 
 import { PLATFORM_PRISMA } from '../core/index';
 import type { NotificationsPrisma } from './data/notifications-db';
+import { NotificationInboxWriter, countedDedupKey, stateDedupKey } from './notification-inbox-writer';
 import {
   NOOP_NOTIFICATIONS_METRICS,
   NOTIFICATIONS_METRICS,
@@ -36,6 +37,9 @@ import {
   type NotifyNowResult,
   type NotifyOptions,
   type NotifyPermissionHoldersOptions,
+  InboxWrite,
+  NotifyCountedOptions,
+  NotifyStateOptions,
 } from './notification.types';
 
 /** The longest `display` stored in a delivery row's `recipient`. */
@@ -186,6 +190,9 @@ function mergeThrottle(
   return { rateLimited: true, retryAfterMs };
 }
 
+/** `NotifyOptions` plus the inbox write mode `notifyState` / `notifyCounted` set. */
+type DispatchOptions = NotifyOptions & { readonly inbox?: InboxWrite };
+
 /**
  * The dispatcher: raise a registered event to a user, an address or the
  * holders of a permission. Every entry point converges on one dispatch that
@@ -326,11 +333,147 @@ export class NotificationsService implements OnModuleDestroy {
       return;
     }
 
+    if (event.kind === 'state' || event.kind === 'counted') {
+      this.logger.warn(
+        `'${eventKey}' is a ${event.kind} event: raise it with ${event.kind === 'state' ? 'notifyState' : 'notifyCounted'}, not notify (an append would defeat its volume guard).`,
+      );
+      return;
+    }
+
     // The dispatch's throttle summary is dropped on this path on purpose:
     // nobody is awaiting a detached send, so there is no caller who could
     // back off. `notify()` behaves exactly as it did before #456.
     this.schedule(async () => {
       await this.dispatchToUser(event, userId, data, options);
+    });
+  }
+
+  /**
+   * Raise a STATE notification: ONE live inbox row per user, event and scope,
+   * refreshed in place (issue #1077).
+   *
+   * Use it for "N things await you" where the number changes and the user must
+   * not receive a row per change: a review queue with 929 pending items is one
+   * row. Call it from the reconcile or the write that changed the count, AFTER
+   * that write commits (the same notify-after-commit rule as {@link notify}).
+   *
+   * - `data.count` is required. `count` 0 (or less) DISMISSES the live row
+   *   (dismissal implies read) and sends nothing; it works even when the user
+   *   has muted the event, because draining must never leave a stale row.
+   * - A positive count creates the row, or refreshes the live one: title, body,
+   *   link and `data` are replaced, `data.countAtRead` is carried forward.
+   * - A READ row becomes unread again only when `count` exceeds the count the
+   *   user saw when they read it (see {@link NotifyStateOptions.reunreadWhen}).
+   * - A muted event, a disabled channel or the admin policy suppress the write
+   *   exactly as for `notify`.
+   *
+   * Detached and never rejects, like `notify`. The event must be declared
+   * `kind: 'state'`; any other kind (or an unknown key) is a logged no-op.
+   *
+   * @param eventKey - a registered event with `kind: 'state'`.
+   * @param userId - the recipient.
+   * @param data - the payload for the template; `count` is a non-negative integer.
+   */
+  async notifyState(
+    eventKey: string,
+    userId: string,
+    data: { count: number } & Record<string, unknown>,
+    options?: NotifyStateOptions,
+  ): Promise<void> {
+    const event = findEvent(eventKey);
+    if (!event) {
+      this.logger.debug(`Ignoring notification for unknown event '${eventKey}'.`);
+      return;
+    }
+    if (event.kind !== 'state') {
+      this.logger.warn(`'${eventKey}' is not declared kind: 'state'; notifyState ignored it.`);
+      return;
+    }
+    const count = data?.count;
+    if (typeof count !== 'number' || !Number.isInteger(count)) {
+      this.logger.warn(`notifyState('${eventKey}') needs an integer data.count; ignored.`);
+      return;
+    }
+
+    const scopeId = options?.scopeId ?? null;
+    const dedupKey = stateDedupKey(eventKey, scopeId);
+
+    if (count <= 0) {
+      this.schedule(async () => {
+        await new NotificationInboxWriter(this.prisma).dismissLive(userId, dedupKey);
+      });
+      return;
+    }
+
+    const { reunreadWhen, scopeId: _scope, ...narrowing } = options ?? {};
+    this.schedule(async () => {
+      await this.dispatchToUser(event, userId, data, {
+        ...narrowing,
+        inbox: { kind: 'state', dedupKey, scopeId, count, reunreadWhen: reunreadWhen ?? 'count-increased' },
+      });
+    });
+  }
+
+  /**
+   * Raise a COUNTED notification: repeated occurrences fold into ONE inbox row
+   * whose `data.count` grows (issue #1077).
+   *
+   * Use it for "N uploads finished" where each occurrence is real but a row
+   * each would drown the inbox: a 4 000-file import is one row with
+   * `count: 4000`. Call it AFTER the write that caused the occurrence commits.
+   *
+   * - The occurrence folds into the live row of the same user, event, scope and
+   *   `match` when it is inside `windowMs` of that row's last update (or when no
+   *   window is set); otherwise a new row starts and the old one stays in the
+   *   inbox as the record of its batch.
+   * - Folding adds `increment` (default 1) to `data.count`, re-renders the text
+   *   with the new total, and clears `readAt`, so continued activity re-badges
+   *   the bell.
+   * - Concurrent calls for one key serialize on an advisory lock: 100 at once
+   *   leave one row with `count: 100`.
+   *
+   * Detached and never rejects, like `notify`. The event must be declared
+   * `kind: 'counted'`; any other kind (or an unknown key) is a logged no-op.
+   *
+   * @param eventKey - a registered event with `kind: 'counted'`.
+   * @param userId - the recipient.
+   * @param data - the payload for the template. The latest occurrence's fields win.
+   */
+  async notifyCounted(
+    eventKey: string,
+    userId: string,
+    data: Record<string, unknown>,
+    options?: NotifyCountedOptions,
+  ): Promise<void> {
+    const event = findEvent(eventKey);
+    if (!event) {
+      this.logger.debug(`Ignoring notification for unknown event '${eventKey}'.`);
+      return;
+    }
+    if (event.kind !== 'counted') {
+      this.logger.warn(`'${eventKey}' is not declared kind: 'counted'; notifyCounted ignored it.`);
+      return;
+    }
+    const increment = options?.increment ?? 1;
+    if (!Number.isInteger(increment) || increment < 1) {
+      this.logger.warn(`notifyCounted('${eventKey}') needs a positive integer increment; ignored.`);
+      return;
+    }
+    const windowMs = options?.windowMs ?? null;
+    if (windowMs !== null && !(windowMs > 0)) {
+      this.logger.warn(`notifyCounted('${eventKey}') needs a positive windowMs; ignored.`);
+      return;
+    }
+
+    const scopeId = options?.scopeId ?? null;
+    const dedupKey = countedDedupKey(eventKey, scopeId, options?.match);
+    const { windowMs: _w, match: _m, increment: _i, scopeId: _s, ...narrowing } = options ?? {};
+
+    this.schedule(async () => {
+      await this.dispatchToUser(event, userId, data, {
+        ...narrowing,
+        inbox: { kind: 'counted', dedupKey, scopeId, windowMs, increment },
+      });
     });
   }
 
@@ -436,6 +579,11 @@ export class NotificationsService implements OnModuleDestroy {
       this.logger.debug(
         `Ignoring notification for unknown event '${eventKey}'.`,
       );
+      return NOT_THROTTLED;
+    }
+
+    if (event.kind === 'state' || event.kind === 'counted') {
+      this.logger.warn(`'${eventKey}' is a ${event.kind} event: raise it with ${event.kind === 'state' ? 'notifyState' : 'notifyCounted'}, not notifyNow.`);
       return NOT_THROTTLED;
     }
 
@@ -846,7 +994,7 @@ export class NotificationsService implements OnModuleDestroy {
     event: NotificationEventDef,
     userId: string,
     data: unknown,
-    options?: NotifyOptions,
+    options?: DispatchOptions,
   ): Promise<NotifyNowResult> {
     const user = await this.loadRecipient(userId);
 
@@ -1112,7 +1260,7 @@ export class NotificationsService implements OnModuleDestroy {
     event: NotificationEventDef,
     recipient: NotificationRecipient,
     data: unknown,
-    options?: NotifyOptions,
+    options?: DispatchOptions,
   ): Promise<NotifyNowResult> {
     // RENDER ZONE: the recipient's own profile zone, else the caller's hint
     // (an address with no account, or an account on "Automatic"), else UTC.
@@ -1214,6 +1362,7 @@ export class NotificationsService implements OnModuleDestroy {
       // Channels only READ it (the browser frame's `pushed`); no channel's
       // result is threaded into another's.
       channels,
+      ...(options?.inbox ? { inbox: options.inbox } : {}),
     };
 
     // SEQUENTIAL, not `Promise.all`. Two channels at most today, so there is

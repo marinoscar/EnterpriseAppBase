@@ -138,6 +138,19 @@ export interface NotificationRow {
   readAt: Date | null;
   /** Creation time. */
   createdAt: Date;
+  /**
+   * The payload of a STATE or COUNTED row (`count`, `countAtRead`, and what the
+   * producer passed); null for a plain `notify()` row.
+   */
+  data: NotificationsJsonValue | null;
+  /** The scope (a group, an organization) a STATE or COUNTED row belongs to, or null. */
+  scopeId: string | null;
+  /** When the user dismissed it, or null. A dismissed row is not listed. */
+  dismissedAt: Date | null;
+  /** Last refresh: the rolling-window anchor of a COUNTED row. */
+  updatedAt: Date;
+  /** The fold key of a live STATE or COUNTED row; null for a plain row or a retired COUNTED row. */
+  dedupKey: string | null;
 }
 
 /**
@@ -322,6 +335,12 @@ export interface NotificationsTx {
   job: NotificationsForeignDelegate;
   /** `organizations` (identity fragment): a broadcast's target must exist. */
   organization: NotificationsForeignDelegate;
+  /**
+   * Prisma's tagged-template `$executeRaw`: the inbox's advisory lock
+   * (`pg_advisory_xact_lock`) and its read/dismiss updates, which must not run
+   * Prisma's `@updatedAt`. Resolves the number of rows touched.
+   */
+  $executeRaw(query: TemplateStringsArray, ...values: unknown[]): Promise<number>;
 }
 
 /**

@@ -191,6 +191,15 @@ export interface NotificationStreamEvent {
    * change what `toast` means.
    */
   pushed: boolean;
+
+  /** The occurrence count of a STATE or COUNTED row (issue #1077); absent for a plain row. */
+  count?: number | null;
+  /** The scope of a STATE or COUNTED row, or null. */
+  scopeId?: string | null;
+  /** Last refresh (ISO 8601). */
+  updatedAt?: string;
+  /** Why the frame was sent; absent means `created`. */
+  reason?: 'created' | 'incremented' | 'reunread';
 }
 
 /**

@@ -4,6 +4,15 @@ import { NOTIFICATION_INBOX_PURGE_TYPE, NotificationInboxPurgeHandler } from './
 const DAY_MS = 24 * 60 * 60 * 1000;
 const JOB = { id: 'job-1', type: NOTIFICATION_INBOX_PURGE_TYPE } as Job;
 
+/** A plain row ages out by creation; a STATE or COUNTED row (it has a dedup key) only once read or dismissed. */
+const expectedWhere = (cutoff: Date) => ({
+  OR: [
+    { dedupKey: null, createdAt: { lt: cutoff } },
+    { readAt: { lt: cutoff } },
+    { dismissedAt: { lt: cutoff } },
+  ],
+});
+
 describe('NotificationInboxPurgeHandler', () => {
   let findMany: jest.Mock;
   let deleteMany: jest.Mock;
@@ -50,7 +59,7 @@ describe('NotificationInboxPurgeHandler', () => {
     expect('persistNodeResult' in handler).toBe(false);
   });
 
-  it('reads ids older than now - days, read or unread, oldest first, and deletes exactly those', async () => {
+  it('reads ids past now - days (plain rows by age; STATE and COUNTED rows only once read or dismissed), oldest first, and deletes exactly those', async () => {
     findMany
       .mockResolvedValueOnce(rows(RETENTION_PURGE_BATCH_SIZE, 'a'))
       .mockResolvedValueOnce(rows(2, 'b'));
@@ -60,7 +69,7 @@ describe('NotificationInboxPurgeHandler', () => {
     const cutoff = new Date(Date.now() - 180 * DAY_MS);
     expect(findMany).toHaveBeenCalledTimes(2);
     expect(findMany).toHaveBeenCalledWith({
-      where: { createdAt: { lt: cutoff } },
+      where: expectedWhere(cutoff),
       select: { id: true },
       orderBy: { createdAt: 'asc' },
       take: RETENTION_PURGE_BATCH_SIZE,
@@ -74,7 +83,7 @@ describe('NotificationInboxPurgeHandler', () => {
 
     await handler.process(JOB);
 
-    expect(findMany.mock.calls[0][0].where.createdAt.lt).toEqual(new Date(Date.now() - 7 * DAY_MS));
+    expect(findMany.mock.calls[0][0].where.OR[0].createdAt.lt).toEqual(new Date(Date.now() - 7 * DAY_MS));
     expect(deleteMany).not.toHaveBeenCalled();
   });
 
@@ -98,7 +107,7 @@ describe('NotificationInboxPurgeHandler', () => {
 
     await handler.process(JOB);
 
-    expect(findMany.mock.calls[0][0].where.createdAt.lt).toEqual(new Date(Date.now() - 30 * DAY_MS));
+    expect(findMany.mock.calls[0][0].where.OR[0].createdAt.lt).toEqual(new Date(Date.now() - 30 * DAY_MS));
   });
 
   it('lets a database error escape so the queue retries', async () => {

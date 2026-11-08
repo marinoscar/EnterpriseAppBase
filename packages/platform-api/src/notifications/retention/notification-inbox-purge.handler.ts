@@ -2,9 +2,10 @@
 // `notifications.inbox.purge` job handler (#681, platform-packages PP-1.10; notifications slice since #898)
 // =============================================================================
 //
-// Deletes `notifications` rows (the in-app inbox) created before
-// `retention.notifications.days` ago (default 180), read or unread, in bounded
-// batches. Enqueued once a day by `RetentionPurgeTask` (the jobs slice), which only enqueues
+// Deletes `notifications` rows (the in-app inbox) in bounded batches: a plain
+// row created before `retention.notifications.days` ago (default 180), read or
+// unread; a STATE or COUNTED row (issue #1077) only once it was read or
+// dismissed that long ago, never while unread. Enqueued once a day by `RetentionPurgeTask` (the jobs slice), which only enqueues
 // (CLAUDE.md, "Every Long-Running Activity Is a Queue Job").
 //
 // A logged no-op while `retention.notifications.enabled` is false — checked
@@ -76,8 +77,19 @@ export class NotificationInboxPurgeHandler implements JobHandler, OnModuleInit {
       what: 'notification inbox purge',
       rows: 'notification(s)',
       selectIds: async (cutoff, take) => {
+        // What ages out (issue #1077): a plain `notify()` row by creation (read
+        // or not, as before); a STATE or COUNTED row (it carries a `dedup_key`) only
+        // once the user has acted on it, read or dismissed longer ago than the
+        // cutoff. An unread STATE or COUNTED row is never purged by age: the
+        // producers cannot fan it out, so it cannot grow without bound.
         const rows = await this.prisma.notification.findMany({
-          where: { createdAt: { lt: cutoff } },
+          where: {
+            OR: [
+              { dedupKey: null, createdAt: { lt: cutoff } },
+              { readAt: { lt: cutoff } },
+              { dismissedAt: { lt: cutoff } },
+            ],
+          },
           select: { id: true },
           orderBy: { createdAt: 'asc' },
           take,

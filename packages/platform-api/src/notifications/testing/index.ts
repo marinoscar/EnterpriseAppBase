@@ -27,6 +27,8 @@ export type {
 export { NOTIFICATION_CHANNEL_SENDERS } from '../notification.types';
 export { NotificationDeliveryService } from '../notification-delivery.service';
 export type { QueuedDeliveryInput } from '../notification-delivery.service';
+export { NotificationInboxWriter, countedDedupKey, stateDedupKey } from '../notification-inbox-writer';
+export type { InboxContent, InboxRender, InboxWriteReason, InboxWriteResult } from '../notification-inbox-writer';
 export { NotificationPolicyService } from '../notification-policy.service';
 export { NotificationStoreService } from '../notification-store.service';
 export { NotificationStreamService } from '../notification-stream.service';
