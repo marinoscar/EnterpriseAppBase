@@ -61,6 +61,11 @@ export { AiConfigAdminService } from './config/ai-config-admin.service';
 
 // ---- keys ---------------------------------------------------------------------------------------
 export { AiKeyResolver } from './keys/ai-key-resolver.service';
+export {
+  aiNodeCredentialPurposeId,
+  registerAiNodeCredentialPurposes,
+  resolveAiNodeCredential,
+} from './keys/ai-node-credential-purposes';
 export type { AiKeyScope, AiKeySource, AiKeyTier, ResolvedAiKey } from './keys/ai-key-resolver.service';
 export { UsableModelsService } from './keys/usable-models.service';
 export { UserAiKeysService } from './keys/user-ai-keys.service';

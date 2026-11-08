@@ -11,6 +11,7 @@ import { AiCoreModule } from './core/ai-core.module';
 import { AiFeaturesModule } from './features/ai-features.module';
 import { AiHttpModule } from './http/ai-http.module';
 import { AiKeysModule } from './keys/ai-keys.module';
+import { registerAiNodeCredentialPurposes } from './keys/ai-node-credential-purposes';
 import { aiProviderKind, requireAiProviderDefinition } from './providers/ai-provider-definition';
 // Registers the five built-in providers (side effect) before the registry is read.
 import './providers/builtin-ai-providers';
@@ -143,6 +144,9 @@ export class AiModule {
     // The slice's own object-key prefix (`ai-outputs/`), with the storage
     // slice's registry; a no-op when the app's manifest registered it already.
     registerAiStorageKeyPrefixes();
+    // #1083: `ai:<providerId>` node credential purposes. Registering delivers
+    // nothing: node credential delivery is OFF by default.
+    registerAiNodeCredentialPurposes([...new Set(wanted)]);
     if (options.pricing) assertPortBinding('pricing', options.pricing);
     const resolved: AiResolvedOptions = Object.freeze({
       perUserDefaultModel: options.perUserDefaultModel ?? DEFAULT_AI_OPTIONS.perUserDefaultModel,
