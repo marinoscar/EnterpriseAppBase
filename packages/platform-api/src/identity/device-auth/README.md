@@ -123,6 +123,18 @@ value is rejected with a `400` by the validation pipe rather than falling back
 — a device that asked for something the server does not understand is not
 handed a credential of the server's choosing.
 
+`deviceName` (also accepted under the deprecated alias `name`, used when
+`deviceName` is absent) is at most 100 characters and `userAgent` at most 1024;
+longer values are a `400`. `hostname` (255) and `platform` (50) are
+informational. `returnUri` (at most 512 characters) names where the activation
+page sends the user after a **successful** approval, to return them to a native
+app. Its scheme must be `https:` or one of
+`IdentityModule.forRoot({ deviceFlow: { returnUriSchemes } })`; anything else
+(`http:`, `javascript:`, `data:`, an unlisted scheme) is a `400` with
+`code: 'INVALID_RETURN_URI'`. `GET /api/auth/device/activate?code=` echoes it
+(re-checked against the current allowlist) and the activation page follows it
+only after Approve, never on deny, and never appends the user code or a token.
+
 **Response:**
 ```json
 {
