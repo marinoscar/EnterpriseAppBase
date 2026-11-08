@@ -63,6 +63,11 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `nodeSpanAttributeRegistry` | registry | `Registry<NodeSpanAttributeDefinition>` | Read the registered attributes (`list()`, `get(key)`); `resolveRelayedAttribute(key, value)` is the pure decision the relay makes | experimental | [example](../../../../apps/api/test/examples/nodes/executor-telemetry.example.spec.ts) |
 | `NodeOfflineEvent` | event | `@OnEvent(NODE_OFFLINE_EVENT) (event: NodeOfflineEvent)` | React to a node the fleet sweep marked offline (emitted after the write committed) | stable | [example](../../../../apps/api/test/nodes/node-offline-event.integration.spec.ts) |
 | `NodeEventReportedEvent` | event | `@OnEvent(NODE_EVENT_REPORTED) (event: NodeEventReportedEvent)` | React to an event a node reported about itself (power source change, low battery, wake from sleep), emitted per accepted row after the write committed; no I/O in the body | experimental | [example](../../../../apps/api/test/nodes/node-event-reported.integration.spec.ts) |
+| `NodeRoute` | composition | `@NodeRoute({ credentials?: ('nod'\|'pat'\|'jwt')[]; nodeParam?: string \| false; permissions?: string[] })` (class or method decorator) | Mount an app route under `/api/nodes/:id/...`: applies `@Auth` (default `nodes:write`), narrows the credential kinds and proves node ownership before the handler runs | experimental | [example](../../../../apps/api/test/examples/nodes/node-route.example.spec.ts) |
+| `CurrentNode` | composition | `@CurrentNode() node: WorkerNode` | Take the node `@NodeRoute()` verified (404 missing, 403 not yours) | experimental | [example](../../../../apps/api/test/examples/nodes/node-route.example.spec.ts) |
+| `NodeRouteModule` | composition | `imports: [NodeRouteModule]` | Import where a `@NodeRoute()` controller is declared: provides `NodeRouteGuard` and `NodeOwnershipService`, and fails bootstrap on a misplaced node route | experimental | [example](../../../../apps/api/test/examples/nodes/node-route.example.spec.ts) |
+| `RESERVED_NODE_SUBPATHS` | constant | `readonly string[]` (relative to `/api/nodes`, `:param`, trailing `/*`) | Read the sub-paths the platform owns, so an app feature avoids them; `reservedNodeSubpathOverlap(segments)` is the check | stable | [example](../../../../apps/api/test/examples/nodes/node-route.example.spec.ts) |
+| `NodeOwnershipService.assertOwnership` | service | `assertOwnership(userId: string, nodeId: string): Promise<WorkerNode>` | Prove a caller owns a node from app code that is not a route (404 missing, 403 not yours); the same rule as `NodesService.assertOwnership`, extracted as `assertNodeOwnedBy` | stable | [example](../../../../apps/api/test/examples/nodes/node-route.example.spec.ts) |
 
 Supporting exports (experimental unless noted): `NodeCredentialModule`, the services (`NodesService`, `NodeCredentialService`, `NodeLifecycleService`, `NodeDataPlaneService`, `NodeSecretBrokerService`, `NodesAdminService`), the two fleet handlers and their type strings, `NODE_OFFLINE_EVENT` (stable), `NODE_TOKEN_PREFIX`, `NODE_OUTPUT_KEY_PREFIX`, `SECRET_CLOCK_SKEW_ALLOWANCE_MS`, `NodeJobInputError`, the port option types (`SignedUrlOptions`, `SignedPutUrlOptions`, structurally the storage slice's), the request DTO classes and the response DTO types, `NODES_APP_METRICS` and the label lists (stable), `NODES_PERMISSIONS` (stable), `OWNER_SELECT` and `CREDENTIAL_OWNER_SELECT`, and the `nodes` settings namespace `NODES_SYSTEM_SETTINGS` with its merge `mergeNodesSettings`.
 
@@ -91,6 +96,30 @@ Nodes run the `@marinoscar/platform-cli` node runner, typically as `infra/compos
 - **Metrics**: the fleet gauges (`NODES_APP_METRICS`: `app.nodes.count`, the vitals gauges, `app.nodes.types.no_eligible_node`), declared here and registered by the app.
 - **Doctor**: `nodes.fleet`.
 
+## App routes on the node plane
+
+`JwtAuthGuard` admits a `nod_` credential on `/api/nodes` and anything under it, by raw URL, and nowhere else. That outer fence is unchanged and stays authoritative; an app controller mounted there narrows it with `@NodeRoute()`:
+
+```ts
+@Controller('nodes/:id/reports')
+@NodeRoute({ credentials: ['nod'] })
+export class ReportsController {
+  @Get('latest')
+  latest(@CurrentNode() node: WorkerNode) {
+    return this.reports.latestFor(node);
+  }
+}
+
+@Module({ imports: [NodeRouteModule], controllers: [ReportsController] })
+export class ReportsModule {}
+```
+
+- **Before the handler runs**, `NodeRouteGuard` refuses a credential kind the route did not list (403), then loads the node named by `nodeParam` (default `id`) and answers 404 for a missing node and 403 for another user's node, the packaged control plane's own semantics (`assertNodeOwnedBy`). A node id that is not a uuid is a 400. `@CurrentNode()` is that row.
+- **Defaults** are the platform node plane's: `nod`, `pat` and `jwt` admitted, permission `nodes:write`. `credentials: ['nod']` makes a route node-only, so a human's PAT or session is refused; `nodeParam: false` is for a route that names no node.
+- **Reserved sub-paths.** The platform owns `register`, `job-types`, `:id`, `:id/events`, `:id/deregister`, `:id/heartbeat`, `:id/claim`, `:id/telemetry`, everything under `:id/jobs/` and `models/` (`RESERVED_NODE_SUBPATHS`). The method is ignored, so `GET` and `POST` on a reserved path are both refused. `NodeRouteModule` fails application bootstrap when a `@NodeRoute()` route overlaps one or is not under `/api/nodes`. Mount app features under `nodes/:id/<feature>/...`.
+- **Conformance.** The `nodes` suite (`@marinoscar/platform-api/nodes/testing`, `runPlatformConformance({ suites: { nodes: { rootModule } } })`) fails an app route under `/api/nodes` that lacks `@NodeRoute()`, one on a reserved path, one whose guard is missing, and, per route, a guard that admits an unlisted credential kind, another user's node or a missing node.
+- `NodesService` stays unexported from `NodesModule` (it claims and settles jobs); `NodeOwnershipService` (exported by `NodeRouteModule`) is the read-only ownership check for app code that is not a route.
+
 ## Security notes
 
 - A node authenticates with its `nod_` credential (hashed at rest, shown once); every control-plane call is gated by node ownership and, per job, by `assertJobHeldByNode` (the held claim and its token).
@@ -99,7 +128,7 @@ Nodes run the `@marinoscar/platform-cli` node runner, typically as `infra/compos
 
 ## Conformance suite
 
-Run in the reference app: `cron-enqueue-only` (the secret sweep, `packages/platform-api/src/nodes/tasks/node-secret-sweep.task.ts`, is one of exactly three exemptions), `on-event-no-io` (the revoker and the app's offline notifier are scanned), the node invariants under `apps/api/test/nodes/` (the lease boundary, the claim contention, the data plane, the job secret), and `apps/api/test/nodes/node-offline-event.integration.spec.ts` (an offline node still notifies, after the write).
+The `nodes` suite (`@marinoscar/platform-api/nodes/testing`; see [App routes on the node plane](#app-routes-on-the-node-plane)) runs in the reference app with `{ rootModule: AppModule }`; the app mounts no node route of its own, so it proves the walk sees the packaged routes and the example spec proves a route. Also run in the reference app: `cron-enqueue-only` (the secret sweep, `packages/platform-api/src/nodes/tasks/node-secret-sweep.task.ts`, is one of exactly three exemptions), `on-event-no-io` (the revoker and the app's offline notifier are scanned), the node invariants under `apps/api/test/nodes/` (the lease boundary, the claim contention, the data plane, the job secret), and `apps/api/test/nodes/node-offline-event.integration.spec.ts` (an offline node still notifies, after the write).
 
 ## Upgrade notes
 
