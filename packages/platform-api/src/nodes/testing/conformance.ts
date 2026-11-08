@@ -74,6 +74,18 @@ export interface NodeAppRoute {
 }
 
 /**
+ * What {@link discoverNodeAppRoutes} found.
+ *
+ * @stability experimental
+ */
+export interface NodeAppRouteDiscovery {
+  /** The app's routes under `/api/nodes`. */
+  routes: NodeAppRoute[];
+  /** How many packaged control-plane routes the walk saw (a vacuity guard). */
+  platformRoutes: number;
+}
+
+/**
  * Every route the app mounts under `/api/nodes` outside the packaged control plane.
  *
  * @param controllers - from `discoverControllers`.
@@ -81,7 +93,7 @@ export interface NodeAppRoute {
  *
  * @stability experimental
  */
-export function discoverNodeAppRoutes(controllers: ReadonlyArray<Type<unknown>>): { routes: NodeAppRoute[]; platformRoutes: number } {
+export function discoverNodeAppRoutes(controllers: ReadonlyArray<Type<unknown>>): NodeAppRouteDiscovery {
   const routes: NodeAppRoute[] = [];
   let platformRoutes = 0;
   for (const controller of controllers) {

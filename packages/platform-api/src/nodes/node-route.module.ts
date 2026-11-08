@@ -70,7 +70,7 @@ class NodeRoutePlacementCheck implements OnApplicationBootstrap {
  * placement check at bootstrap. Import it where a `@NodeRoute()` controller is
  * declared.
  *
- * @extensionPoint composition
+ * @extensionPoint component
  * @stability experimental
  */
 @Module({

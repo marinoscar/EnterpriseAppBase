@@ -9,4 +9,4 @@ export {
   discoverNodeAppRoutes,
   nodesConformanceSuite,
 } from './conformance';
-export type { NodeAppRoute, NodesConformanceOptions } from './conformance';
+export type { NodeAppRoute, NodeAppRouteDiscovery, NodesConformanceOptions } from './conformance';

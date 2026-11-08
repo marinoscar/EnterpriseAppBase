@@ -30,14 +30,25 @@ export interface NodeRouteOptions {
   permissions?: string[];
 }
 
-/** The defaults, resolved. */
+/**
+ * The options of a node route with the defaults applied.
+ *
+ * @stability experimental
+ */
 export interface ResolvedNodeRouteOptions {
+  /** The admitted credential kinds. */
   readonly credentials: ReadonlyArray<NodeRouteCredential>;
+  /** The route parameter holding the node id, or `false`. */
   readonly nodeParam: string | false;
+  /** The permissions required. */
   readonly permissions: readonly string[];
 }
 
-/** Metadata key under which {@link NodeRoute} records its resolved options. */
+/**
+ * Metadata key under which {@link NodeRoute} records its resolved options.
+ *
+ * @stability experimental
+ */
 export const NODE_ROUTE_METADATA = 'platform:node-route';
 
 /** The default admitted credential kinds. */

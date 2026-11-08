@@ -44,7 +44,7 @@ import { NodeRouteGuard } from './node-route.guard';
  * }
  * ```
  *
- * @extensionPoint composition
+ * @extensionPoint hook
  * @stability experimental
  */
 export function NodeRoute(options: NodeRouteOptions = {}): ClassDecorator & MethodDecorator {
