@@ -8,6 +8,8 @@ export {
   checkOrgScopedKeys,
   checkStorageKeyPrefixes,
   checkStorageRouting,
+  checkStorageDriverCredentials,
+  checkStorageProviderExtensions,
   checkStorageSettingsSchemas,
   storageConformanceSuite,
 } from './conformance';

@@ -61,7 +61,7 @@ import { runInNewContext } from 'node:vm';
 import { setFlagsFromString } from 'node:v8';
 import { STORAGE_DRIVER_ID_PATTERN } from '@marinoscar/platform-contract/storage';
 
-import type { StorageProvider } from '../providers/storage-provider.interface';
+import { deleteStorageKeys, storageObjectSize, type StorageProvider } from '../providers/storage-provider.interface';
 import {
   getStorageDriver,
   type StorageDriverContext,
@@ -92,6 +92,7 @@ export type StorageDriverConformanceScenario =
   | 'provider'
   | 'roundTrip'
   | 'streamedUpload'
+  | 'bulkDelete'
   | 'signedUrl'
   | 'listKeys'
   | 'testConnection'
@@ -364,6 +365,37 @@ export function describeStorageDriverConformance(
           expect(stored.sha256).toBe(source.sha256());
         } finally {
           await provider.delete(key);
+        }
+      });
+    });
+
+    scenario('bulkDelete', 'accepts cacheControl, probes sizes and bulk-deletes keys (an absent key included) (#1124)', async () => {
+      await withProvider(async (provider) => {
+        const keys = [0, 1, 2].map((index) => `${keyPrefix()}bulk-${index}.txt`);
+        const absent = `${keyPrefix()}bulk-absent.txt`;
+        const body = Buffer.from('bulk delete');
+
+        try {
+          for (const key of keys) {
+            await provider.upload(key, Readable.from([body]), {
+              mimeType: 'text/plain',
+              cacheControl: 'public, max-age=31536000, immutable',
+            });
+          }
+
+          // A driver with a size probe must report the stored byte length, and null for an absent key.
+          const size = await storageObjectSize(provider, keys[0]);
+          if (size !== undefined) {
+            expect(size).toBe(body.length);
+            expect(await storageObjectSize(provider, absent)).toBeNull();
+          }
+
+          const result = await deleteStorageKeys(provider, [...keys, absent]);
+          expect(result.failed).toEqual([]);
+          expect([...result.deleted].sort()).toEqual([...keys, absent].sort());
+          for (const key of keys) expect(await provider.exists(key)).toBe(false);
+        } finally {
+          for (const key of keys) await provider.delete(key);
         }
       });
     });

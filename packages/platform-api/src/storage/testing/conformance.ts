@@ -38,10 +38,17 @@ import {
 } from '../storage-key-prefix.registry';
 import { STORAGE_SLICE_KEY_PREFIXES } from '../storage-key-prefixes';
 import { StorageProviderRouter } from '../providers/storage-provider-router';
-import type { StorageProvider } from '../providers/storage-provider.interface';
-import type { StorageConfigService } from '../config/storage-config.service';
+import { deleteStorageKeys, type StorageProvider } from '../providers/storage-provider.interface';
+import { StorageConfigService } from '../config/storage-config.service';
 import type { StorageConfigResolution } from '../config/storage-config';
-import { requireStorageDriver } from '../drivers/storage-driver';
+import { STORAGE_SYSTEM_SETTINGS } from '../config/storage.system-settings';
+import { requireStorageDriver, storageDriverDefinitions, storageSecretAddress } from '../drivers/storage-driver';
+import { ObjectProcessingService } from '../processing/object-processing.service';
+import type { ObjectProcessor } from '../processing/object-processor.interface';
+import type { ObjectProcessorRegistry } from '../processing/object-processor.registry';
+import { registerStoragePartBodyParser } from '../objects/part-body-parser';
+import type { CredentialsService } from '../../credentials/index';
+import type { SystemSettingsService } from '../../settings/index';
 import '../drivers/builtin-storage-drivers';
 
 declare module '../../testing/index' {
@@ -65,6 +72,8 @@ const FILE_PREFIXES = 'storage-key-prefixes';
 const FILE_KEYS = 'storage-object-keys';
 const FILE_SCHEMAS = 'storage-schemas';
 const FILE_ROUTING = 'storage-routing';
+const FILE_CREDENTIALS = 'storage-driver-credentials';
+const FILE_EXTENSIONS = 'storage-provider-extensions';
 
 /** A fixed UUID for the key checks; never a real organization. */
 const PROBE_ORG = '00000000-0000-4000-8000-000000000001';
@@ -249,6 +258,137 @@ export async function checkStorageRouting(): Promise<ConformanceFinding[]> {
 }
 
 /**
+ * Check 5 (#1124): every driver writes its secrets to an address no other
+ * driver writes to, and two S3-family drivers holding different keys each
+ * resolve their OWN key (the shared `storage/default` slot only as a read
+ * fallback while a driver's own address is empty). Offline: an in-memory
+ * credential store, no request is made.
+ *
+ * @returns one finding per violated rule.
+ *
+ * @stability experimental
+ */
+export async function checkStorageDriverCredentials(): Promise<ConformanceFinding[]> {
+  const findings: ConformanceFinding[] = [];
+  const fail = (message: string) => findings.push({ file: FILE_CREDENTIALS, message });
+
+  const writers = new Map<string, string>();
+  for (const driver of storageDriverDefinitions()) {
+    for (const secret of driver.secrets ?? []) {
+      const address = storageSecretAddress(driver, secret.name);
+      const key = `${address.purpose}/${address.name}`;
+      const owner = writers.get(key);
+      if (owner !== undefined && owner !== driver.id) {
+        fail(`drivers "${owner}" and "${driver.id}" both write a secret to ${key}: rows on the one that is not active would be read with the other's key`);
+      }
+      writers.set(key, driver.id);
+    }
+  }
+
+  const policy = STORAGE_SYSTEM_SETTINGS.read(
+    {
+      provider: 's3',
+      drivers: {
+        s3: { bucket: 'cred-s3', region: 'us-east-1', endpoint: '', accessKeyId: 'AKIACREDS3', forcePathStyle: null },
+        r2: { bucket: 'cred-r2', accountId: 'credacct', region: '', endpoint: '', accessKeyId: 'AKIACREDR2', forcePathStyle: null },
+      },
+    },
+    {
+      asPlainObject: (value: unknown) =>
+        typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined,
+    } as never,
+  );
+  const resolveWith = async (rows: Record<string, string>) => {
+    const service = new StorageConfigService(
+      { getStoragePolicy: async () => policy } as unknown as SystemSettingsService,
+      { getSecret: async (purpose: string, name: string) => rows[`${purpose}/${name}`] ?? null } as unknown as CredentialsService,
+    );
+    const secretOf = async (id: string) => {
+      const resolution = await service.resolveDriver(id);
+      return resolution.configured ? resolution.config.secrets.secretAccessKey : undefined;
+    };
+    return { s3: await secretOf('s3'), r2: await secretOf('r2') };
+  };
+
+  const s3 = storageSecretAddress(requireStorageDriver('s3'), 'secretAccessKey');
+  const r2 = storageSecretAddress(requireStorageDriver('r2'), 'secretAccessKey');
+  const own = await resolveWith({ [`${s3.purpose}/${s3.name}`]: 'own-s3-key', [`${r2.purpose}/${r2.name}`]: 'own-r2-key', 'storage/default': 'shared-key' });
+  if (own.s3 !== 'own-s3-key' || own.r2 !== 'own-r2-key') {
+    fail(`two S3-family drivers with their own keys resolved ${JSON.stringify(own)} instead of each its own`);
+  }
+  const legacy = await resolveWith({ 'storage/default': 'shared-key' });
+  if (legacy.s3 !== 'shared-key' || legacy.r2 !== 'shared-key') {
+    fail('a deployment holding only the shared storage/default key no longer resolves it');
+  }
+
+  return findings;
+}
+
+/**
+ * Check 6 (#1124): the provider extensions. `deleteStorageKeys` falls back to
+ * one `delete` per key on a provider without `deleteMany`; an OPTIONAL
+ * processor's failure is recorded on the row and leaves the object `ready`
+ * while a required one's fails it; the part body parser answers an unknown
+ * content type with an `HttpException` of status 415 (never a plain error a
+ * filter turns into a 500).
+ *
+ * @returns one finding per violated rule.
+ *
+ * @stability experimental
+ */
+export async function checkStorageProviderExtensions(): Promise<ConformanceFinding[]> {
+  const findings: ConformanceFinding[] = [];
+  const fail = (message: string) => findings.push({ file: FILE_EXTENSIONS, message });
+
+  const deleted: string[] = [];
+  const plain = { kind: 'plain', delete: async (key: string) => void deleted.push(key) } as unknown as StorageProvider;
+  const bulk = await deleteStorageKeys(plain, ['a', 'b', 'a']);
+  if (JSON.stringify(deleted) !== JSON.stringify(['a', 'b']) || bulk.deleted.length !== 2 || bulk.failed.length !== 0) {
+    fail(`deleteStorageKeys did not fall back to one delete per distinct key (deleted ${JSON.stringify(deleted)})`);
+  }
+
+  const outcomeWith = async (optionalFails: boolean, requiredFails: boolean) => {
+    const updates: Array<{ status: string; metadata: Record<string, unknown> }> = [];
+    const db = {
+      storageObject: {
+        findUnique: async () => ({ metadata: {} }),
+        update: async ({ data }: { data: { status: string; metadata: Record<string, unknown> } }) => void updates.push(data),
+      },
+    };
+    const processors: ObjectProcessor[] = [
+      { name: 'required', priority: 10, canProcess: () => true, process: async () => (requiredFails ? { success: false, error: 'required failed' } : { success: true, metadata: {} }) },
+      { name: 'probe', priority: 20, optional: true, canProcess: () => true, process: async () => {
+        if (optionalFails) throw new Error('optional failed');
+        return { success: true, metadata: {} };
+      } },
+    ];
+    const service = new ObjectProcessingService(
+      { forOrg: () => db } as never,
+      { download: async () => undefined } as unknown as StorageProvider,
+      { list: () => processors } as unknown as ObjectProcessorRegistry,
+    );
+    const outcome = await service.run({ id: 'probe-object', orgId: PROBE_ORG, name: 'probe', storageKey: 'k' } as never);
+    return { outcome, update: updates[0] };
+  };
+  const optional = await outcomeWith(true, false);
+  if (optional.outcome !== 'ready' || (optional.update?.metadata?._processing as Record<string, unknown>)?.probe_error !== 'optional failed') {
+    fail(`an optional processor's failure ${optional.outcome === 'ready' ? 'was not recorded on the row' : 'failed the object'}`);
+  }
+  if ((await outcomeWith(true, true)).outcome !== 'failed') fail("a required processor's failure did not fail the object");
+
+  let parser: ((request: unknown, payload: unknown, done: (error: unknown, body: unknown) => void) => void) | undefined;
+  registerStoragePartBodyParser({ addContentTypeParser: (_type: string, fn: typeof parser) => void (parser = fn) } as never);
+  let rejected: unknown;
+  parser?.({ routeOptions: { url: '/api/other' }, headers: { 'content-type': 'application/x-unknown' } }, undefined, (error) => {
+    rejected = error;
+  });
+  const status = (rejected as { getStatus?: () => number } | undefined)?.getStatus?.();
+  if (status !== 415) fail(`the part body parser answered an unknown content type with ${status === undefined ? 'a plain error (a 500 behind the exception filter)' : status}, not an HttpException of 415`);
+
+  return findings;
+}
+
+/**
  * The `storage` conformance suite. Registered when
  * `@marinoscar/platform-api/storage/testing` is imported.
  *
@@ -306,6 +446,18 @@ export const storageConformanceSuite: ConformanceSuite<StorageConformanceOptions
         name: 'storage-routing: an object stays on the provider and bucket it was written to after the active driver changes',
         run: async (_report, expect) => {
           expect(await checkStorageRouting()).toEqual([]);
+        },
+      },
+      {
+        name: 'storage-driver-credentials: each driver keeps its own secret address, and two S3-family drivers with different keys each use their own',
+        run: async (_report, expect) => {
+          expect(await checkStorageDriverCredentials()).toEqual([]);
+        },
+      },
+      {
+        name: 'storage-provider-extensions: bulk delete falls back per key, an optional processor never fails an object, and the part parser answers 415',
+        run: async (_report, expect) => {
+          expect(await checkStorageProviderExtensions()).toEqual([]);
         },
       },
     ];
