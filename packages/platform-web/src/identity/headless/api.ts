@@ -213,6 +213,15 @@ export interface DeviceActivationInfo {
      * union: older rows have none, and the column is not re-validated on read.
      */
     tokenType?: string;
+    /** Informational: the requesting machine's host name. */
+    hostname?: string;
+    /** Informational: the requesting machine's platform. */
+    platform?: string;
+    /**
+     * Where to send the user after a successful approval. Validated by the API
+     * at issuance, and checked again by the page before it navigates.
+     */
+    returnUri?: string;
   };
   /** ISO 8601 expiry of the code. */
   expiresAt: string;

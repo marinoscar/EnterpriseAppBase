@@ -22,7 +22,7 @@ import type { DeviceActivationInfo } from '../headless/index.js';
 type PageState =
   | { step: 'input' }
   | { step: 'review'; deviceInfo: DeviceActivationInfo }
-  | { step: 'complete'; success: boolean; message: string };
+  | { step: 'complete'; success: boolean; message: string; returnUri?: string; deviceName?: string };
 
 /**
  * The slots of {@link ActivateDevicePage}: the packaged-page slot contract.
@@ -44,6 +44,12 @@ export type ActivateDevicePageSlots = PageSlotsBase;
 export interface ActivateDevicePageProps {
   /** Add to the page without a fork. */
   slots?: ActivateDevicePageSlots;
+  /**
+   * Custom URI schemes the page may follow after an approval, besides `https:`
+   * (the deployment's `IdentityModule.forRoot({ deviceFlow: { returnUriSchemes } })`).
+   * Default none: only `https:` return URIs are followed.
+   */
+  returnUriSchemes?: readonly string[];
 }
 
 /**
@@ -56,7 +62,7 @@ export interface ActivateDevicePageProps {
  * @extensionPoint component
  * @stability stable
  */
-export function ActivateDevicePage({ slots }: ActivateDevicePageProps = {}): ReactElement {
+export function ActivateDevicePage({ slots, returnUriSchemes }: ActivateDevicePageProps = {}): ReactElement {
   const Header = slots?.Header;
   const BeforeContent = slots?.BeforeContent;
   const Sections = slots?.Sections;
@@ -107,6 +113,12 @@ export function ActivateDevicePage({ slots }: ActivateDevicePageProps = {}): Rea
         step: 'complete',
         success: response.success,
         message: response.message || 'Device authorized successfully!',
+        ...(response.success && typeof state.deviceInfo.clientInfo?.returnUri === 'string'
+          ? { returnUri: state.deviceInfo.clientInfo.returnUri }
+          : {}),
+        ...(typeof state.deviceInfo.clientInfo?.deviceName === 'string'
+          ? { deviceName: state.deviceInfo.clientInfo.deviceName }
+          : {}),
       });
     } catch (err) {
       if (isPlatformApiError(err)) {
@@ -200,6 +212,9 @@ export function ActivateDevicePage({ slots }: ActivateDevicePageProps = {}): Rea
             <ActivationSuccess
               success={state.success}
               message={state.message}
+              {...(state.returnUri ? { returnUri: state.returnUri } : {})}
+              {...(returnUriSchemes ? { returnUriSchemes } : {})}
+              {...(state.deviceName ? { deviceName: state.deviceName } : {})}
             />
           )}
 
