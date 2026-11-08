@@ -393,10 +393,13 @@ Consumers that read by row go through it: the objects API (download URL, delete,
 and every call of an in-flight multipart upload, so a switch mid-upload cannot
 misroute the parts), the post-upload processing read, the avatar download and
 delete, and the stale-upload sweep's abort. New writes (`upload/init`, the
-simple upload) go to the active driver and record its `kind` and bucket. The
-three built-in S3 flavours share one secret slot (`storage/default`), so a
-non-active built-in resolves with whatever key is stored there; a driver an app
-registers keeps its secrets at `storage_<id>`, isolated.
+simple upload) go to the active driver and record its `kind` and bucket. Each
+driver resolves its OWN secret (#1124): the three built-in S3 flavours keep
+their secret access key at `storage/<driverId>`, falling back to the shared
+`storage/default` slot of earlier versions only while their own is empty, so
+two S3-family drivers with different key pairs each serve their own rows; a
+driver an app registers keeps its secrets at `storage_<id>`. The admin page
+saves a non-active driver's key without switching to it.
 
 **Optional multipart extensions** on `StorageProvider` (all absent on a plain
 presigned driver; nothing changes for it):
