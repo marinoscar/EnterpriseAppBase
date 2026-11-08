@@ -113,7 +113,7 @@ None.
 |---|---|---|---|---|
 | API (`platform-api`) | `/testing` | `core` | none | [README](../packages/platform-api/src/testing/README.md) |
 | Web (`platform-web`) | `/testing` | `core` | none | [README](../packages/platform-web/src/testing/README.md) |
-| CLI (`platform-cli`) | `/testing` | `engine` | `react` | [README](../packages/platform-cli/src/testing/README.md) |
+| CLI (`platform-cli`) | `/testing` | `engine` | `ink-testing-library`, `react` | [README](../packages/platform-cli/src/testing/README.md) |
 
 **Admin and settings cards.**
 
@@ -855,7 +855,7 @@ None.
 
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
-| CLI (`platform-cli`) | no subpath export | `core`, `telemetry` | `react` | none |
+| CLI (`platform-cli`) | no subpath export | `core`, `telemetry` | `ink-testing-library`, `react` | none |
 
 **Admin and settings cards.**
 
@@ -873,7 +873,7 @@ None.
 
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
-| CLI (`platform-cli`) | `/commands` | `engine` | `react` | [README](../packages/platform-cli/src/commands/README.md) |
+| CLI (`platform-cli`) | `/commands` | `engine` | `ink-testing-library`, `react` | [README](../packages/platform-cli/src/commands/README.md) |
 
 **Admin and settings cards.**
 
@@ -891,7 +891,7 @@ None.
 
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
-| CLI (`platform-cli`) | `/tui`, `/tui/ui` | `engine` | `react` | [README](../packages/platform-cli/src/tui/README.md) |
+| CLI (`platform-cli`) | `/tui`, `/tui/testing`, `/tui/ui` | `engine` | `ink-testing-library`, `react` | [README](../packages/platform-cli/src/tui/README.md) |
 
 **Admin and settings cards.**
 
@@ -909,7 +909,7 @@ None.
 
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
-| CLI (`platform-cli`) | `/deploy` | `engine` | `react` | [README](../packages/platform-cli/src/deploy/README.md) |
+| CLI (`platform-cli`) | `/deploy` | `engine` | `ink-testing-library`, `react` | [README](../packages/platform-cli/src/deploy/README.md) |
 
 **Admin and settings cards.**
 
@@ -927,7 +927,7 @@ None.
 
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
-| CLI (`platform-cli`) | `/node` | `engine` | `react` | [README](../packages/platform-cli/src/node/README.md) |
+| CLI (`platform-cli`) | `/node` | `engine` | `ink-testing-library`, `react` | [README](../packages/platform-cli/src/node/README.md) |
 
 **Admin and settings cards.**
 
@@ -945,7 +945,7 @@ None.
 
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
-| CLI (`platform-cli`) | `/api-client` | `engine` | `react` | [README](../packages/platform-cli/src/api-client/README.md) |
+| CLI (`platform-cli`) | `/api-client` | `engine` | `ink-testing-library`, `react` | [README](../packages/platform-cli/src/api-client/README.md) |
 
 **Admin and settings cards.**
 
@@ -963,7 +963,7 @@ None.
 
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
-| CLI (`platform-cli`) | `/android` | `core`, `engine` | `react` | [README](../packages/platform-cli/src/android/README.md) |
+| CLI (`platform-cli`) | `/android` | `core`, `engine` | `ink-testing-library`, `react` | [README](../packages/platform-cli/src/android/README.md) |
 
 **Admin and settings cards.**
 

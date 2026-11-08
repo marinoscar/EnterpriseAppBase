@@ -17,11 +17,12 @@ Subpath exports, each with its own README:
 | `@marinoscar/platform-cli` | `createCli`, `run`, the identity accessors, `EXIT` and `formatError` | this file |
 | `/core` | `registerCliCommand`, `registerEnvSpecFragment`, `registerEnvGroup`, `registerEnvGenerator`, `annotateEnvKey` and the env-key metadata helpers | [core](src/core/README.md) |
 | `/commands` | The six built-in command registrars and the error model | [commands](src/commands/README.md) |
-| `/tui` | `registerTuiScreen`, `registerTuiScreenSection`, the shared app context (`useTuiApp`, `registerTuiSelection`, `registerTuiStateLoader`, the theme) and the built-in screen order | [tui](src/tui/README.md) |
+| `/tui` | `registerTuiScreen`, `registerTuiScreenSection`, `registerTuiMenuNode`, the shared app context (`useTuiApp`, `registerTuiSelection`, `registerTuiStateLoader`, the theme), dashboards (`DashboardSource`) and the built-in screen order; `/tui/ui` the component kit; `/tui/testing` the screen-test harness | [tui](src/tui/README.md) |
 | `/deploy` | `registerDeployStep`, `registerDeployCheck`, `registerProxyStreamPath`, `registerEdgeConfigFile`, `detectComposeProject`, `isPathUnder`, the built-in step ids, `planDeploySteps`, `DeployHooks`, the env template helpers | [deploy](src/deploy/README.md) |
 | `/node` | `JobExecutor`, `ExecutorRegistry`, `registerNodeExecutor` | [node](src/node/README.md) |
 | `/api-client` | `ApiClient`, `resolveApiBaseUrl` and the API errors | [api-client](src/api-client/README.md) |
 | `/telemetry` | The worker's span relay and the telemetry env-spec fragment | [telemetry](src/telemetry/README.md) |
+| `/tui/testing` | `renderTuiScreen`, `renderTuiRoute`, `renderTuiMenu`, `fakeDaemonFeed`, `fakeEmitterFeed` (for tests only; needs the optional peer `ink-testing-library`) | [tui](src/tui/README.md#testing) |
 | `/testing` | Identity and registry reset, `testDeployStepContext`, the credential-hygiene check, `runPlatformConformance`, `registerCliConformanceSuite` | [testing](src/testing/README.md) |
 
 The implementation lives in one internal slice (`src/engine/`), which is not a subpath export: the entry points above re-export the parts they publish, and nothing may import a file inside it.
@@ -38,7 +39,7 @@ npm install @marinoscar/platform-cli react
 |---|---|
 | `react` | `^19.2.8` (optional peer in the manifest, needed by the `engine` slice and so by every entry that renders or runs it; `ink` brings it in anyway) |
 
-An app that writes its own TUI screen also depends on `ink` (`^7.1.1`), at the same version the package resolves.
+An app that writes its own TUI screen also depends on `ink` (`^7.1.1`), at the same version the package resolves. Testing screens with `@marinoscar/platform-cli/tui/testing` also needs `ink-testing-library` (`^4.0.0`), an optional peer.
 
 ## Quick start
 
@@ -181,7 +182,7 @@ A worker relays each job's phase spans to the API through the [telemetry](src/te
 
 ## Conformance suite
 
-`runPlatformConformance({ suites: { cli, deployRegistrations } })` from [`/testing`](src/testing/README.md#conformance-suite). A suite is run with its options or skipped with `{ skip: 'reason' }`; `false` or an empty reason throws. `deployRegistrations` checks that every env key names a registered group and generator, both deploy plans resolve, no edge-config file is listed twice and the vhost renders with the app's stream paths. `cli`: every env template fragment declares no commented `# KEY=value` line (beyond `PLATFORM_DOCUMENTED_OPTIONAL_KEYS` in the platform base), and every executor the worker would run passes the credential-hygiene check on a fake job holding a credential. The reference app runs it in [`apps/cli/src/conformance.test.ts`](../../apps/cli/src/conformance.test.ts).
+`runPlatformConformance({ suites: { cli, deployRegistrations, tui } })` from [`/testing`](src/testing/README.md#conformance-suite). A suite is run with its options or skipped with `{ skip: 'reason' }`; `false` or an empty reason throws. `tui` (RETRO-G1.5): the menu tree is sound (entries open registered screens, sections reachable, no cycles, depth at most 4), app screens and sections load lazily, importing `/tui` loads no `ink`, labels are non-empty logged in and out, dashboard reducers are pure, screens render at narrow widths and without colour, and the login gate holds ([checks](src/tui/README.md#conformance-suite)). `deployRegistrations` checks that every env key names a registered group and generator, both deploy plans resolve, no edge-config file is listed twice and the vhost renders with the app's stream paths. `cli`: every env template fragment declares no commented `# KEY=value` line (beyond `PLATFORM_DOCUMENTED_OPTIONAL_KEYS` in the platform base), and every executor the worker would run passes the credential-hygiene check on a fake job holding a credential. The reference app runs it in [`apps/cli/src/conformance.test.ts`](../../apps/cli/src/conformance.test.ts).
 
 ## Upgrade notes
 

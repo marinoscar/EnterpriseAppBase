@@ -92,9 +92,13 @@ The `cli` suite, one case each:
 - `env fragment <name> declares no commented KEY=value line`: `parseEnvExample` reads such a line as a declared variable, and the deploy wizard would ask for it.
 - `executor <type> never persists or logs a job-scoped credential`: CLAUDE.md queue rule 3, through `checkExecutorCredentialHygiene` on a fake job holding a credential.
 
+The `tui` suite (RETRO-G1.5) checks the app's TUI registrations and screens: menu tree, lazy screens, no ink at import, labels, pure dashboard reducers, narrow widths, `NO_COLOR` and the login gate; see [the TUI README](../tui/README.md#conformance-suite). Its checks are exported (`checkTuiMenu`, `checkTuiLazy`, `checkTuiLabels`, `checkTuiNoInkImport`, `checkDashboardReducer`) and each takes `skip: { '<check>': 'reason' }`.
+
 An unknown suite key throws, so a typo cannot disable a check; `cli: false` opts out visibly.
 
 ## Upgrade notes
+
+0.x (RETRO-G1.5): additive: the `tui` suite and its pure checks. A suite left out of `suites` still does not run, so an existing app opts in with `tui: {}`.
 
 0.x: first release (#715).
 

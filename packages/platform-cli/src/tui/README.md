@@ -8,7 +8,7 @@ The TUI's screen registry: the menu lists the platform's screens and every scree
 
 Since RETRO-G1.2 (#1066) every screen also reads one shared app context: `useTuiApp()` returns the `session` (logged in, server URL, identity; never the token), `nav` (a push/pop stack), `selection` (an app-defined chip such as an active project), `theme` (colour tokens and glyphs, colourless under `NO_COLOR` / `--no-color`) and `appState` (data an app loads once). The TUI also starts on consoles where `process.stdin` cannot enter raw mode, by reading the controlling terminal (`/dev/tty`).
 
-The ink building blocks and a small component kit ship on the second subpath, `@marinoscar/platform-cli/tui/ui` (see [Component kit](#component-kit-tuiui)). Not in scope: the platform screens' own components (internal): a screen is an ordinary ink component the app writes.
+The ink building blocks and a small component kit ship on the second subpath, `@marinoscar/platform-cli/tui/ui` (see [Component kit](#component-kit-tuiui)), and the testing kit on the third, `@marinoscar/platform-cli/tui/testing` (see [Testing](#testing)). Not in scope: the platform screens' own components (internal): a screen is an ordinary ink component the app writes.
 
 ## Install and peer dependencies
 
@@ -18,7 +18,7 @@ Ships inside `@marinoscar/platform-cli`:
 import { registerTuiScreen, type TuiScreenProps } from '@marinoscar/platform-cli/tui';
 ```
 
-A screen component imports `ink` (`^7.1.1`) and `react` (the package's peer). Read the context with `useTuiApp()` (React only, no ink):
+A screen component imports `ink` (`^7.1.1`) and `react` (the package's peer). Testing screens with `@marinoscar/platform-cli/tui/testing` also needs `ink-testing-library` (`^4.0.0`), an optional peer: add it as a dev dependency of the app that tests screens. Read the context with `useTuiApp()` (React only, no ink):
 
 ```tsx
 import { useTuiApp, type TuiScreenProps } from '@marinoscar/platform-cli/tui';
@@ -45,6 +45,21 @@ export const aboutScreen: TuiScreenRegistration = {
   load: async () => (await import('./about.screen.js')).AboutScreen,
 };
 createCli({ ...APP_CLI_OPTIONS, tuiScreens: [aboutScreen] });
+```
+
+The whole framework in one composition (each piece is optional, and each has its own example under `apps/cli/src/examples/`):
+
+```ts
+createCli({
+  ...APP_CLI_OPTIONS,
+  tuiScreens: [aboutScreen, dashboardScreen],          // screens, loaded lazily
+  tuiMenu: nestedMenuNodes,                            // sections and entries that place them (G1.1)
+  tuiSelections: [workspaceSelection],                 // the header chip, useTuiSelection('workspace') (G1.2)
+  tuiStateLoaders: [buildInfoLoader],                  // shared data, useTuiState('build-info') (G1.2)
+});
+// A dashboard screen: new DashboardSource(reducer, daemonAttachFeed({ socketPath })) + useDashboard(source) (G1.3),
+// drawn with EventLog, SegmentMeter, StatusLine ... from '@marinoscar/platform-cli/tui/ui' (G1.4),
+// tested with renderTuiScreen from '@marinoscar/platform-cli/tui/testing' and the `tui` conformance suite (G1.5).
 ```
 
 ## Configuration
@@ -129,6 +144,37 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `RunSummary` | component | `RunSummary({ title, stats, durationMs, failures?, footer? })` | The end-of-run panel with a failures list | experimental |
 | `Frame`, `KeyHints`, `Field`, `ErrorNotice`, `ScrollBox`, `useTerminalSize`, `formatDuration` | building blocks | see `ui/README.md` | The platform screens' own chrome, for app screens that should match | experimental |
 
+### Testing
+
+`@marinoscar/platform-cli/tui/testing` is one harness for screen tests, on `ink-testing-library` (an optional peer; install it as a dev dependency). It never reads a real CLI config or token: the provider gets an in-memory session, no identity request, and empty selection and state-loader lists unless the test supplies values.
+
+```tsx
+import { renderTuiScreen, stripAnsi } from '@marinoscar/platform-cli/tui/testing';
+
+const screen = await renderTuiScreen(ProjectScreen, {
+  session: { loggedIn: true },
+  appState: { 'build-info': { version: '1.0.0' } },
+  selection: { workspace: [{ id: 'w1', name: 'Workspace Alpha' }] },
+  theme: 'mono', // as under NO_COLOR
+  columns: 40,
+});
+await screen.press('down');
+await screen.waitForFrame((frame) => frame.includes('Second project'));
+await screen.press('esc');
+expect(screen.nav.stack.map((frame) => frame.kind)).toEqual(['menu']); // popped back to the menu
+screen.unmount();
+```
+
+| Helper | Purpose |
+|---|---|
+| `renderTuiScreen(Screen, { session?, selection?, appState?, theme?, columns?, params?, screens?, useRegistered?, settleMs? })` | Mounts the component in a `TuiAppProvider` in test mode with `onDone` wired to `nav.pop()`; returns `{ lastFrame, frames, stdin, press, type, waitForFrame, nav: { stack }, app, crashed, resize, unmount }`. `press` takes `'esc'`, `'enter'`, `'up'`, `'down'`, `'left'`, `'right'`, `'tab'`, `'space'`, `'backspace'`, `'ctrl-c'`, a digit or any character; `type` sends text. `waitForFrame(predicate, timeoutMs = 2000)` resolves with the ANSI-stripped frame or rejects with the last frame. `screens` supplies components for routes the screen pushes. A screen that throws while rendering shows `[screen crashed: ...]` and `crashed()` returns the message |
+| `renderTuiRoute(route, options)` | Mounts the real router at a registered route: the lazy `load`, the registries and the login gate (`session: { loggedIn: false }` shows the shared notice) |
+| `renderTuiMenu({ nodes?, screens, loggedIn, section? })` | Renders the menu tree; adds `labels()` (the visible lines with their `▸` and `…`) and `breadcrumb()`. Opening an entry shows `[opened <route>]` |
+| `fakeDaemonFeed<E>()`, `fakeEmitterFeed<E>()` | A `DashboardFeed` a test drives by hand (`connect`, `snapshot`, `frame`, `event`, `logs`, `disconnect`, `error`, `attempt`) into a `DashboardSource`; the first is mode `attached` (raw frames go through `parseEvent`), the second `embedded` (typed events) |
+| `stripAnsi`, `hasAnsi`, `frameLines`, `renderAt(element, columns, { noColor? })`, `cleanup` | Frame helpers, a bare-element render at a width for kit components, and ink-testing-library's cleanup |
+
+The fake terminal is 100 columns wide unless `columns` says otherwise. Plain `<Text>` is not re-wrapped at the new width in a test; a screen built on `Frame` and `useTerminalSize()` degrades as it does in a terminal. Test a dashboard reducer without ink at all: call `reduce`, or drive a `DashboardSource` with a fake feed.
+
 ## Data
 
 None, beyond one optional key. A selection registered with `persist: 'config'` stores the chosen item's key under `tui.selection.<id>` in the CLI config file (`~/.<cli>/config.json`, mode 0600), never on the server. `login` replaces the file, so a login clears it and the first item is chosen again.
@@ -185,9 +231,26 @@ A screen must not print a token or a credential into a frame; the platform scree
 
 ## Conformance suite
 
-None. `menu.registry.test.tsx` in the package pins the built-in order and the refusals; `menu-registry.test.ts`, `menu-tree.test.ts` and `menu.render.test.tsx` pin the menu tree (validation, the logged-out cascade, labels, breadcrumbs, the login gate, Esc and accelerators, and the unchanged flat menu); `context.test.tsx` pins the stack (push, pop, top frame only, cleanup), selections, state loaders and the theme; `raw-mode.test.ts` the terminal fallback.
+The `tui` suite (RETRO-G1.5, #1069) is registered with `registerCliConformanceSuite` and run by `runPlatformConformance({ suites: { tui: {} } })` after `createCli` (a suite left out does not run). Each check is one or more cases; the pure checks are exported from `@marinoscar/platform-cli/testing` (`checkTuiMenu`, `checkTuiLazy`, `checkTuiLabels`, `checkTuiNoInkImport`, `checkDashboardReducer`) so a test can prove each fails on a broken fixture.
+
+| Check | Invariant |
+|---|---|
+| `menu-references` | Every menu entry opens a registered screen, every section is reachable by a logged-in or a logged-out user, no cycles, nesting within 4 (the message names the node) |
+| `lazy-screens` | Every app screen and every `node`/`deploy` section uses `load`, so `--help` and `api` never load ink; `allowEager` lists the deliberate exceptions (a screen route, or `node:<id>` for a section) |
+| `no-ink-import` | Importing `@marinoscar/platform-cli/tui` (default) and each entry of `importEntries` loads no `ink`, proven in a fresh Node process with a resolve hook. An app's module must be compiled JavaScript (`dist/app.js`) to be listed |
+| `labels` | Every section, entry and screen label is non-empty when logged in and when logged out (a throwing label function fails) |
+| `reducer-purity` | Each dashboard in `dashboards` (`{ id, reducer, events?, snapshot? }`) folds its events into a deeply frozen `initial()` without throwing or changing it, and `initial()` returns a fresh object each call |
+| `screens-render` | Every app screen renders a non-empty frame without throwing at each width of `columns` (default 80, 40, 24); `screenParams` supplies `params` by route |
+| `no-color` | Every app screen emits no colour escape under the monochrome theme |
+| `login-gate` | Every login-gated entry shows the "not logged in" notice when logged out |
+
+Options (all optional): `allowEager`, `importEntries`, `dashboards`, `screenParams`, `columns`, and `skip: { '<check>': 'reason' }`. A skip needs a written reason and registers a passing `<check>: skipped by the app (<reason>)` case; an unknown check name throws. The render checks need `ink-testing-library`; without it they fail with the install command (or skip them with a reason). The reference app runs the suite in [`conformance.test.ts`](../../../../apps/cli/src/conformance.test.ts), the starter in `starter/apps/cli/src/cli.test.ts`.
+
+The package's own tests pin the rest: `menu.registry.test.tsx` the built-in order and the refusals; `menu-registry.test.ts`, `menu-tree.test.ts` and `menu.render.test.tsx` the menu tree (validation, the logged-out cascade, labels, breadcrumbs, the login gate, Esc and accelerators, the unchanged flat menu); `context.test.tsx` the stack, selections, state loaders and the theme; `raw-mode.test.ts` the terminal fallback; `testing/harness.test.tsx` and `conformance.test.tsx` the kit and the suite.
 
 ## Upgrade notes
+
+0.x (RETRO-G1.5): additive: the `@marinoscar/platform-cli/tui/testing` subpath, the `tui` conformance suite and `ink-testing-library` as an optional peer (`^4.0.0`). Nothing changes at runtime. kvox and EvoPath need no change; they opt in with `tui: {}` when they want the checks. An app with a forked TUI maps it onto the framework in this order: its menu tree to `registerTuiMenuNode` (sections and entries over `registerTuiScreen` screens), its app state to `registerTuiStateLoader`, its active selection (project, workspace) to `registerTuiSelection`, its dashboards to a `DashboardReducer` plus a `DashboardSource` with `daemonAttachFeed`, `inProcessFeed` or `pollFeed`, and its widgets to the kit in `tui/ui`; then replace its hand-written Ink harness with `renderTuiScreen` and run the `tui` suite.
 
 0.x (RETRO-G1.1): additive: `registerTuiMenuNode`, `createCli({ tuiMenu })` and the menu-tree helpers. With no menu nodes the root menu is the same list; Esc on the root menu no longer quits (use `q` or the Quit line).
 
@@ -205,6 +268,9 @@ None. `menu.registry.test.tsx` in the package pins the built-in order and the re
 - `useTuiApp() was called outside a TuiAppProvider`: the TUI app root mounts the provider; in a test, wrap the screen in `TuiAppProvider`.
 - `This terminal cannot run the interactive interface`: neither stdin nor `/dev/tty` can enter raw mode (serial, hypervisor or LXC consoles); connect with `ssh -t` or use the subcommands.
 - The header chip never shows: no selection is registered, or its `load` returned nothing; a failed load is on `useTuiSelection(id).error`.
+- `The tui render checks need ink-testing-library`: install it as a dev dependency of the app, or skip the render checks with a reason.
+- `waitForFrame: no frame matched`: the message prints the last frame; a key that does nothing is usually an Esc sent before ink finished reading the previous input, so raise `settleMs`.
+- `no-ink-import` names `ink`: a registration module imports a screen at the top level; register it with `load` and keep ink inside the screen's own module.
 - The screen never appears: the TUI only opens for a bare invocation in a real terminal; `--help` and scripts never see it.
 
 ## Links
