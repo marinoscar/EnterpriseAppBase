@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { configDirName, configFileName } from '../identity.js';
 import type { HeartbeatRequest, NodeApi } from './node-api.js';
 import { EXIT_MISSING_CAPABILITY, startNode } from './start.js';
+import { registerWorkerRuntimeHook, resetRuntimeTuningForTests, WorkerRuntimeHookError } from './runtime-tuning.js';
 import { workerEnv } from './worker-env.js';
 
 // =============================================================================
@@ -88,8 +89,65 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  resetRuntimeTuningForTests();
   for (const handle of started) await handle.stop();
   rmSync(home, { recursive: true, force: true });
+});
+
+describe('startNode runtime hooks (issue #1072)', () => {
+  const stderr = { write: () => true };
+
+  it('runs each hook exactly once, before the first claim, with the resolved concurrency and thread cap', async () => {
+    writeConfig({ serverUrl: 'https://app.example.com', token: 'nod_x' });
+    const record = { deregisters: 0, claims: 0 };
+    const seen: Array<{ concurrency: number; nativeThreads: number; claimsAtRun: number }> = [];
+    registerWorkerRuntimeHook({
+      id: 'probe',
+      beforeFirstJob: (ctx) => {
+        seen.push({ concurrency: ctx.concurrency, nativeThreads: ctx.nativeThreads, claimsAtRun: record.claims });
+      },
+    });
+
+    const node = await startNode({
+      home,
+      env: {
+        [workerEnv().stateDir]: join(home, 'state'),
+        [workerEnv().pollMs]: '250',
+        [workerEnv().concurrency]: '3',
+        [workerEnv().nativeThreads]: '2',
+      },
+      stderr,
+      createApi: () => api(record),
+      installSignalHandlers: () => {},
+    });
+    started.push({ stop: async () => { await node.engine.stop({ deregister: false }); await node.finished; } });
+
+    expect(seen).toEqual([{ concurrency: 3, nativeThreads: 2, claimsAtRun: 0 }]);
+  });
+
+  it('aborts the start with a named error when a hook throws, before registering', async () => {
+    writeConfig({ serverUrl: 'https://app.example.com', token: 'nod_x' });
+    const record = { deregisters: 0, claims: 0 };
+    const register = vi.fn();
+    registerWorkerRuntimeHook({
+      id: 'bad',
+      beforeFirstJob: () => {
+        throw new Error('cannot tune');
+      },
+    });
+
+    await expect(
+      startNode({
+        home,
+        env: { [workerEnv().stateDir]: join(home, 'state') },
+        stderr,
+        createApi: () => ({ ...api(record), register }) as NodeApi,
+        installSignalHandlers: () => {},
+      }),
+    ).rejects.toBeInstanceOf(WorkerRuntimeHookError);
+    expect(register).not.toHaveBeenCalled();
+    expect(record.claims).toBe(0);
+  });
 });
 
 describe('startNode', () => {

@@ -28,6 +28,7 @@ import { formatInstallReport, runInstallDeps } from '../node/install-deps.js';
 import { installService, serviceStatus, uninstallService } from '../node/service.js';
 import { nodeStateDir } from '../node/paths.js';
 import { maybeReexecWithHeapLimit } from '../node/runtime-tuning.js';
+import { applyWorkerEnvAliases } from '../node/worker-env-aliases.js';
 
 // =============================================================================
 // `appctl node` — the worker-node command group  (issue #272, epic #254)
@@ -64,6 +65,14 @@ export function registerNodeCommand(program: Command, ctx?: NodeCommandContext):
   const node = program
     .command('node')
     .description('Run this machine as a worker node for the application’s job queue');
+
+  // Legacy variable names an app registered (#1072) are folded into the
+  // canonical ones before any subcommand reads the environment, with one
+  // deprecation line per alias in use.
+  node.hook('preAction', () => {
+    const stderr = ctx?.stderr ?? process.stderr;
+    applyWorkerEnvAliases(ctx?.env ?? process.env, (message) => stderr.write(`warning: ${message}\n`));
+  });
 
   node
     .command('config')

@@ -4,6 +4,7 @@ import { getHeapStatistics } from 'node:v8';
 
 import { envFlagOn } from './env-flags.js';
 import { MAX_NODE_CONCURRENCY, MIN_NODE_CONCURRENCY } from './node-config.js';
+import { DEFAULT_VALVE_EXIT_CODE, resetRuntimeStateForTests, runtimeState } from './runtime-state.js';
 import { workerEnv } from './worker-env.js';
 
 // =============================================================================
@@ -48,14 +49,62 @@ import { workerEnv } from './worker-env.js';
 /** Floor for the tuned heap. Below this, re-tuning is not worth a re-exec. */
 export const MIN_HEAP_LIMIT_MB = 512;
 
-/** Ceiling. Beyond this V8's own GC pauses become the problem. */
+/**
+ * Ceiling for the RAM-DERIVED default. An explicit setting is not clamped to
+ * it: an operator who asks for 12000 gets 12000 (floor only).
+ */
 export const MAX_HEAP_LIMIT_MB = 8_192;
 
 /** Fraction of total RAM to hand to the old space by default. */
 export const HEAP_FRACTION_OF_RAM = 0.5;
 
-/** The exit code a supervisor sees when the pre-OOM valve fires. */
-export const EXIT_MEMORY_VALVE = 71;
+/** The DEFAULT exit code a supervisor sees when the pre-OOM valve fires. */
+export const EXIT_MEMORY_VALVE = DEFAULT_VALVE_EXIT_CODE;
+
+/**
+ * Chooses the exit code of the memory valve, for fleets whose supervisors or
+ * alerting key on a specific number (for example 75, `EX_TEMPFAIL`). Used by
+ * the valve and by the generated systemd unit.
+ *
+ * @param code - A whole number from 64 to 113.
+ * @throws RangeError when it is outside that range (0, 1 and 2 would be
+ *   indistinguishable from success, a crash and a usage error).
+ * @stability experimental
+ * @extensionPoint option
+ */
+export function setMemoryValveExitCode(code: number): void {
+  if (!Number.isInteger(code) || code < 64 || code > 113) {
+    throw new RangeError(`The memory valve exit code must be a whole number from 64 to 113 (got ${String(code)}).`);
+  }
+  runtimeState.valveExitCode = code;
+}
+
+/**
+ * The exit code the memory valve uses: 71 unless an app chose another.
+ *
+ * @stability experimental
+ */
+export function memoryValveExitCode(): number {
+  return runtimeState.valveExitCode;
+}
+
+/**
+ * Turns the valve off while the watchdog keeps sampling (vitals and the trend
+ * continue). Set when a legacy fraction variable is `0`.
+ */
+export function disableMemoryValve(): void {
+  runtimeState.valveDisabled = true;
+}
+
+/** True when the valve was turned off by `disableMemoryValve`. */
+export function memoryValveDisabled(): boolean {
+  return runtimeState.valveDisabled;
+}
+
+/** Restores the valve defaults and drops hooks and aliases. Tests only. */
+export function resetRuntimeTuningForTests(): void {
+  resetRuntimeStateForTests();
+}
 
 export interface HeapLimitOptions {
   env?: NodeJS.ProcessEnv | undefined;
@@ -79,7 +128,8 @@ export function resolveHeapLimitMb(options?: HeapLimitOptions): number {
       throw new RangeError(`${workerEnv().heapLimitMb} must be a whole number of megabytes, or 0 to disable.`);
     }
     if (value === 0) return 0;
-    return clamp(value, MIN_HEAP_LIMIT_MB, MAX_HEAP_LIMIT_MB);
+    // Floor only: an explicit value above the default ceiling is honoured.
+    return Math.max(value, MIN_HEAP_LIMIT_MB);
   }
 
   const total = options?.totalMemoryBytes ?? safeTotalMem();
@@ -114,6 +164,130 @@ export function resolveDefaultConcurrency(options?: { cpuCount?: number | undefi
   const byMemory = Math.max(1, Math.floor(totalMb / 1024));
 
   return clamp(Math.min(byCores, byMemory), MIN_NODE_CONCURRENCY, MAX_NODE_CONCURRENCY);
+}
+
+// -----------------------------------------------------------------------------
+// Runtime hooks and the native-thread cap  (issue #1072)
+// -----------------------------------------------------------------------------
+//
+// Native libraries (libvips behind `sharp`, ONNX runtimes) size their own
+// thread pools from the core count, so every concurrent job grows RSS where
+// the heap watchdog cannot see it. The platform does not depend on any of
+// them; an app registers a hook that configures the one it uses, and the
+// platform runs it once, after the heap re-exec and before the first claim.
+// -----------------------------------------------------------------------------
+
+/**
+ * What a runtime hook is told about the worker it is tuning.
+ *
+ * @stability experimental
+ */
+export interface WorkerRuntimeContext {
+  /** Jobs this process runs at once. */
+  concurrency: number;
+  /** Logical cores. */
+  cores: number;
+  /** The native-thread cap to apply (`resolveNativeThreads`). */
+  nativeThreads: number;
+  /** The environment the worker started with. */
+  env: NodeJS.ProcessEnv;
+}
+
+/**
+ * A tuning step an app runs before the worker claims its first job.
+ *
+ * @stability experimental
+ */
+export interface WorkerRuntimeHook {
+  /** Unique id, named in the error when the hook throws. */
+  id: string;
+  /** Runs once, awaited, before the worker can claim a job. */
+  beforeFirstJob(context: WorkerRuntimeContext): void | Promise<void>;
+}
+
+/**
+ * A hook failed, so the worker did not start (never half-tuned).
+ *
+ * @stability experimental
+ */
+export class WorkerRuntimeHookError extends Error {
+  constructor(
+    /** The id of the hook that failed. */
+    readonly hookId: string,
+    cause: unknown,
+  ) {
+    super(`Worker runtime hook "${hookId}" failed: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+    this.name = 'WorkerRuntimeHookError';
+  }
+}
+
+const hooks = runtimeState.hooks as unknown as WorkerRuntimeHook[];
+
+/**
+ * Registers a step to run once per worker start, after the heap re-exec and
+ * before the claim loop, in daemon and foreground mode alike. A hook that
+ * throws aborts startup with a `WorkerRuntimeHookError`.
+ *
+ * @param hook - The hook; its `id` must be unique.
+ * @throws Error when `id` is empty or already registered.
+ * @stability experimental
+ * @extensionPoint registry
+ * @example
+ * ```ts
+ * registerWorkerRuntimeHook({
+ *   id: 'sharp',
+ *   beforeFirstJob: async ({ nativeThreads }) => {
+ *     const sharp = (await import('sharp')).default;
+ *     sharp.cache(false);
+ *     sharp.concurrency(nativeThreads);
+ *   },
+ * });
+ * ```
+ */
+export function registerWorkerRuntimeHook(hook: WorkerRuntimeHook): void {
+  if (typeof hook?.id !== 'string' || hook.id.trim() === '') throw new Error('A worker runtime hook needs a non-empty id.');
+  if (typeof hook.beforeFirstJob !== 'function') throw new Error(`Worker runtime hook "${hook.id}" needs beforeFirstJob().`);
+  if (hooks.some((existing) => existing.id === hook.id)) throw new Error(`Worker runtime hook "${hook.id}" is already registered.`);
+  hooks.push(hook);
+}
+
+/**
+ * The registered hooks, in registration order.
+ *
+ * @stability experimental
+ */
+export function listWorkerRuntimeHooks(): readonly WorkerRuntimeHook[] {
+  return Object.freeze([...hooks]);
+}
+
+/**
+ * The native-thread cap: `<PREFIX>NATIVE_THREADS` when it is a positive whole
+ * number, else half the cores between 1 and 4.
+ *
+ * @stability experimental
+ */
+export function resolveNativeThreads(cores: number = safeCpuCount(), env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env[workerEnv().nativeThreads]?.trim();
+  if (raw !== undefined && raw.length > 0) {
+    const value = Number(raw);
+    if (Number.isInteger(value) && value >= 1) return value;
+  }
+  return Math.min(Math.max(Math.floor(cores / 2), 1), 4);
+}
+
+/**
+ * Runs every registered hook, in order, awaiting each.
+ *
+ * @throws WorkerRuntimeHookError on the first hook that throws or rejects.
+ */
+export async function runWorkerRuntimeHooks(context: WorkerRuntimeContext): Promise<void> {
+  for (const hook of hooks) {
+    try {
+      await hook.beforeFirstJob(context);
+    } catch (error) {
+      throw new WorkerRuntimeHookError(hook.id, error);
+    }
+  }
 }
 
 export interface ReexecOptions {

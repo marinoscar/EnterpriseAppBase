@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { workerEnv, type WorkerEnvKey } from './worker-env.js';
+import { listWorkerEnvAliases } from './worker-env-aliases.js';
 
 // =============================================================================
 // The "Worker environment variables" table, generated from WORKER_ENV
@@ -100,7 +101,9 @@ export function buildWorkerEnvTable(): string {
 
   const rows = (Object.keys(workerEnv()) as WorkerEnvKey[]).map((key) => {
     const name = workerEnv()[key];
-    const description = descriptions[key] ?? '';
+    const legacy = listWorkerEnvAliases()[key] ?? [];
+    const suffix = legacy.length > 0 ? ` Legacy names still read: ${legacy.map((alias) => `\`${alias}\``).join(', ')}.` : '';
+    const description = `${descriptions[key] ?? ''}${suffix}`.trim();
     return `| \`${name}\` | ${description} |`;
   });
 

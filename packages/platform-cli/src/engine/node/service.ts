@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { cliIdentity, cliName } from '../identity.js';
+import { memoryValveExitCode } from './runtime-tuning.js';
 
 // =============================================================================
 // `node service` — a systemd USER unit  (issue #276, epic #254)
@@ -84,6 +85,9 @@ export function renderUnit(ctx?: ServiceContext): string {
     `ExecStart=${node} ${script} node start --headless`,
     // Required by #277's memory valve, which exits on purpose. See the header.
     'Restart=on-failure',
+    // The valve's exit code, restarted explicitly so a supervisor policy that
+    // narrows `Restart=` can never read the deliberate exit as a crash.
+    `RestartForceExitStatus=${memoryValveExitCode()}`,
     'RestartSec=10',
     // Long enough for a drain; systemd SIGKILLs after this.
     'TimeoutStopSec=300',

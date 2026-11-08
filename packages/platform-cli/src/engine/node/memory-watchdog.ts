@@ -2,7 +2,7 @@ import { getHeapStatistics } from 'node:v8';
 
 import { envFlagOff } from './env-flags.js';
 import { writeHeapSnapshot, type SnapshotResult } from './heap-snapshot.js';
-import { EXIT_MEMORY_VALVE } from './runtime-tuning.js';
+import { memoryValveDisabled, memoryValveExitCode } from './runtime-tuning.js';
 import { workerEnv } from './worker-env.js';
 
 // =============================================================================
@@ -47,6 +47,9 @@ import { workerEnv } from './worker-env.js';
 /** Default fraction of the heap limit at which the valve fires. */
 export const DEFAULT_THRESHOLD = 0.9;
 
+/** The longest the valve waits for the drain before exiting anyway. */
+export const DEFAULT_DRAIN_TIMEOUT_MS = 60_000;
+
 /** How often to sample. */
 export const DEFAULT_SAMPLE_INTERVAL_MS = 30_000;
 
@@ -82,6 +85,12 @@ export interface MemoryWatchdogOptions {
   stop: () => Promise<void>;
   env?: NodeJS.ProcessEnv | undefined;
   threshold?: number | undefined;
+  /** `false` keeps sampling but never fires. Defaults to `!memoryValveDisabled()`. */
+  valve?: boolean | undefined;
+  /** Upper bound on `stop()` during the valve; a drain that never settles must not keep a leaking process alive. */
+  drainTimeoutMs?: number | undefined;
+  /** Exit code of the valve; defaults to `memoryValveExitCode()`. */
+  exitCode?: number | undefined;
   sampleIntervalMs?: number | undefined;
   log?: ((message: string, fields?: Record<string, unknown>) => void) | undefined;
   /** Test seams. */
@@ -146,6 +155,7 @@ export class MemoryWatchdog {
   private readonly options: MemoryWatchdogOptions;
   private readonly samples: MemorySample[] = [];
   private readonly threshold: number;
+  private readonly valveEnabled: boolean;
   private readonly now: () => number;
   private readonly log: (message: string, fields?: Record<string, unknown>) => void;
   private handle: unknown;
@@ -155,6 +165,7 @@ export class MemoryWatchdog {
     this.options = options;
     const env = options.env ?? process.env;
     this.threshold = options.threshold ?? resolveThreshold(env);
+    this.valveEnabled = options.valve ?? !memoryValveDisabled();
     this.now = options.now ?? Date.now;
     this.log = options.log ?? (() => {});
   }
@@ -188,7 +199,7 @@ export class MemoryWatchdog {
   /** Take one sample and act on it. Exposed so a test drives it directly. */
   async tick(): Promise<void> {
     const sample = this.sample();
-    if (sample.heapLimit <= 0 || this.fired) return;
+    if (sample.heapLimit <= 0 || this.fired || !this.valveEnabled) return;
 
     if (sample.heapUsed / sample.heapLimit >= this.threshold) {
       await this.fire(sample);
@@ -212,6 +223,11 @@ export class MemoryWatchdog {
     this.samples.push(sample);
     if (this.samples.length > MAX_SAMPLES) this.samples.shift();
     return sample;
+  }
+
+  /** False when the valve is off and the watchdog only samples. */
+  get valveArmed(): boolean {
+    return this.valveEnabled;
   }
 
   getState(): WatchdogState {
@@ -253,16 +269,30 @@ export class MemoryWatchdog {
     });
 
     // 3. Drain, keeping the node row: this process is coming back.
+    // BOUNDED: a drain that never settles (a job stuck in a native call) would
+    // otherwise keep a leaking process alive forever.
+    const limit = this.options.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS;
+    let timer: NodeJS.Timeout | undefined;
     try {
-      await this.options.stop();
+      await Promise.race([
+        this.options.stop(),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(() => {
+            this.log('memory valve drain timed out — exiting anyway', { drainTimeoutMs: limit });
+            resolve();
+          }, limit);
+        }),
+      ]);
     } catch {
       // A drain that fails must not prevent the exit — the whole reason we are
       // here is that staying alive is not an option.
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
     }
 
     // 4. A DISTINCT code, so a supervisor and a human can both tell this apart
     //    from a crash and from a clean stop.
-    (this.options.exit ?? ((code: number) => process.exit(code)))(EXIT_MEMORY_VALVE);
+    (this.options.exit ?? ((code: number) => process.exit(code)))(this.options.exitCode ?? memoryValveExitCode());
   }
 }
 
