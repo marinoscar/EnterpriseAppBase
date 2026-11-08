@@ -16,6 +16,7 @@ import {
   elapsedMs,
   formatDuration,
   nodeDashboardReducer,
+  type DashboardState,
   type NodeDashboardData,
 } from '../../node/node-dashboard-source.js';
 import type { NodeEngineEvent } from '../../node/node-events.js';
