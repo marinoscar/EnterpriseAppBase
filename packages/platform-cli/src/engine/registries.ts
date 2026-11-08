@@ -15,6 +15,7 @@ import { freezeEdgeConfigRegistry, resetEdgeConfigRegistryForTests } from './dep
 import { freezeProxyStreamRegistry, resetProxyStreamRegistryForTests } from './deploy/proxy-streams.js';
 import { freezeDeployStepRegistry, resetDeployStepRegistryForTests } from './deploy/steps/registry.js';
 import { resetCapabilityRegistriesForTests } from './node/capabilities.js';
+import { resetInstallStepRegistryForTests } from './node/install-deps.js';
 import { resetRuntimeStateForTests } from './node/runtime-state.js';
 import { freezeNodeExecutorRegistry, resetNodeExecutorRegistryForTests } from './node/executors/registry.js';
 import { freezeTuiAppRegistries, resetTuiAppRegistriesForTests } from './tui/app-registry.js';
@@ -66,6 +67,7 @@ export function resetCliRegistriesForTests(): void {
   resetDeployStepRegistryForTests();
   resetNodeExecutorRegistryForTests();
   resetCapabilityRegistriesForTests();
+  resetInstallStepRegistryForTests();
   resetRuntimeStateForTests();
   resetProxyStreamRegistryForTests();
   resetEnvGeneratorRegistryForTests();

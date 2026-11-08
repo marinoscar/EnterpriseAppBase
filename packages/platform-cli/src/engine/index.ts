@@ -578,6 +578,21 @@ export type {
   SelfTestOptions,
   SelfTestResult,
 } from './node/capabilities.js';
+export {
+  detectDistro,
+  ensureAptPackages,
+  ensureDockerContainer,
+  listInstallSteps,
+  registerInstallStep,
+  runWithSudoAnnounced,
+} from './node/install-deps.js';
+export type {
+  DistroInfo,
+  DockerContainerSpec,
+  InstallContext,
+  InstallStep,
+  RegisteredInstallStep,
+} from './node/install-deps.js';
 export { sanitizeExtraVitals } from './node/node-vitals.js';
 export { ExecutorRegistry } from './node/executors/index.js';
 export type { ExecutorNodeApi, JobExecutionContext, JobExecutor, JobInputMode } from './node/executors/index.js';

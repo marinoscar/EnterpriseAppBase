@@ -473,15 +473,23 @@ export function registerNodeCommand(program: Command, ctx?: NodeCommandContext):
     .command('install-deps')
     .description('Install the dependencies this worker’s job types need')
     .option('--dry-run', 'Print the plan without changing anything')
-    .action(async (options: { dryRun?: boolean }) => {
+    .option('--only <ids>', 'Run only these step ids (comma-separated)')
+    .action(async (options: { dryRun?: boolean; only?: string }) => {
       const stderr = ctx?.stderr ?? process.stderr;
       const configContext = contextOf(ctx);
 
-      const report = await runInstallDeps({
-        stateDir: nodeStateDir(configContext),
-        ...(options.dryRun === true ? { dryRun: true } : {}),
-        log: (message) => stderr.write(`${message}\n`),
-      });
+      let report;
+      try {
+        report = await runInstallDeps({
+          stateDir: nodeStateDir(configContext),
+          ...(options.dryRun === true ? { dryRun: true } : {}),
+          ...(options.only !== undefined ? { only: options.only.split(',').map((id) => id.trim()).filter((id) => id !== '') } : {}),
+          log: (message) => stderr.write(`${message}\n`),
+        });
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith('Unknown install step')) throw new UsageError(error.message);
+        throw error;
+      }
 
       stderr.write(formatInstallReport(report));
       if (!report.ok) throw new PreconditionError('At least one dependency step failed.');
