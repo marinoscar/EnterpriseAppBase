@@ -21,6 +21,7 @@ export {
   STORAGE_TEST_CHECK_STATUSES,
   createStorageConfigClient,
   reportsBucketMissing,
+  storageSecretStatusOf,
 } from './storage-config.js';
 export type {
   BuiltinStorageProviderKind,

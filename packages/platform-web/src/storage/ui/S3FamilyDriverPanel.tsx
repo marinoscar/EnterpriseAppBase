@@ -49,6 +49,7 @@ import {
 } from '@mui/material';
 
 import type { StorageSecretStatus } from '../headless/index.js';
+import { storageSecretStatusOf } from '../headless/index.js';
 import type { StorageDriverPanelProps } from './storageDriverPanelRegistry.js';
 import { NUMERIC_DATE, formatDate, useDisplayTimeZone } from '../../core/index.js';
 
@@ -225,6 +226,9 @@ export function S3FamilyDriverPanel({
   const accountId = text(value, 'accountId');
   const forcePathStyle = triState(value);
   const secretAccessKey = secrets.secretAccessKey ?? '';
+  // THIS driver's stored key (#1124: each S3-family driver keeps its own), not
+  // the active driver's.
+  const secretStatus = storageSecretStatusOf(config, provider);
 
   const effectiveEndpointPreview =
     provider === 'r2' ? endpoint.trim() || (accountId.trim() ? deriveR2Endpoint(accountId) : '') : '';
@@ -408,9 +412,9 @@ export function S3FamilyDriverPanel({
             // re-send a credential the admin never typed.
             autoComplete="new-password"
             placeholder={
-              config.secretStatus.configured ? (config.secretStatus.hint ?? '••••••••') : ''
+              secretStatus.configured ? (secretStatus.hint ?? '••••••••') : ''
             }
-            helperText={secretHelperText(config.secretStatus)}
+            helperText={secretHelperText(secretStatus)}
           />
         </Grid>
       </Grid>
