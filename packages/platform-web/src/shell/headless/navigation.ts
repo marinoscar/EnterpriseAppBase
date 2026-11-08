@@ -42,6 +42,30 @@ export interface ShellIconProps {
 }
 
 /**
+ * What the shell passes a destination's {@link ShellDestination.contextPane}.
+ * `activeDestination` is a plain `string`, not the app's key union, so a
+ * `ShellNavigation<K>` stays assignable to `ShellNavigation` (a component's
+ * props are contravariant).
+ *
+ * @stability experimental
+ */
+export interface ShellContextPaneProps {
+  /** The active destination's key (the one that declared the pane). */
+  activeDestination: string;
+  /** The current pathname, so the pane can mark its own active row. */
+  pathname: string;
+}
+
+/**
+ * A destination's context pane: a component rendered beside the expanded rail
+ * while the destination is active (see {@link ShellDestination.contextPane}).
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type ShellContextPane = ComponentType<ShellContextPaneProps>;
+
+/**
  * One navigation destination, fully described for every surface that draws it.
  *
  * @typeParam K - the app's destination keys.
@@ -118,6 +142,22 @@ export interface ShellDestination<K extends string = string> {
    * click, or the key press the click came from.
    */
   onClick?: (event: MouseEvent<HTMLElement>) => void;
+  /**
+   * What is inside this destination (a list of collections, of review
+   * queues), rendered as a second column beside the rail while the
+   * destination is active, so a desktop user never drills down. Shown only
+   * when the rail itself is EXPANDED (its own `lg` and not-collapsed state, not
+   * a new breakpoint gate); hidden in the collapsed or medium rail, in Console
+   * mode and below `sm` (where there is no rail). It stays mounted across route
+   * changes inside the destination: only `<main>` changes. A stable reference
+   * (a module-level component). Absent means no pane.
+   *
+   * @example
+   * ```tsx
+   * { key: 'albums', label: 'Albums', compactLabel: 'Albums', Icon: AlbumIcon, path: '/albums', contextPane: AlbumsPane }
+   * ```
+   */
+  contextPane?: ShellContextPane;
 }
 
 /**

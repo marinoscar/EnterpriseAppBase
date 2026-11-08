@@ -4,9 +4,12 @@
 
 export { ShellLayout } from './ShellLayout.js';
 export type { ShellLayoutProps } from './ShellLayout.js';
+// Re-exported beside the layout it drives (it lives in headless: no MUI).
+export { useShellMainVariant } from '../headless/main-variant.js';
+export type { ShellMainVariant } from '../headless/main-variant.js';
 export { ShellAppBar } from './ShellAppBar.js';
 export type { ShellAppBarProps } from './ShellAppBar.js';
-export { RAIL_WIDTH_COLLAPSED, RAIL_WIDTH_EXPANDED, ShellNavigationRail } from './ShellNavigationRail.js';
+export { CONTEXT_PANE_WIDTH, RAIL_WIDTH_COLLAPSED, RAIL_WIDTH_EXPANDED, ShellNavigationRail } from './ShellNavigationRail.js';
 export type { ShellNavigationRailProps } from './ShellNavigationRail.js';
 export { ShellBottomNav } from './ShellBottomNav.js';
 export type { ShellBottomNavProps } from './ShellBottomNav.js';

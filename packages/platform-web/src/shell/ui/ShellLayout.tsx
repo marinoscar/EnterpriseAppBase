@@ -16,9 +16,12 @@
 // =============================================================================
 
 import { Box, useMediaQuery, useTheme } from '@mui/material';
+import { useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { Outlet } from 'react-router-dom';
 
+import { ShellMainVariantContext } from '../headless/main-variant.js';
+import type { ShellMainVariant } from '../headless/main-variant.js';
 import type { ShellNavigation } from '../headless/navigation.js';
 import { ShellAppBar } from './ShellAppBar.js';
 import { ShellBottomNav } from './ShellBottomNav.js';
@@ -48,6 +51,15 @@ export interface ShellLayoutProps {
    * ordinary day, so a pixel baseline never sees it.
    */
   banners?: ReactNode;
+  /**
+   * How `<main>` is drawn (issue #1080). `'padded'` (default, unchanged):
+   * padding on every side and `banners` above the page. `'full-bleed'`: no
+   * horizontal or top padding and no `banners`, for a map, a full-screen
+   * viewer or a canvas. The bottom-bar clearance below `sm` (gate 3) applies
+   * in both. A page mounted inside the layout may override it for as long as
+   * it is mounted with `useShellMainVariant`.
+   */
+  mainVariant?: ShellMainVariant;
   /** After the bottom bar: dialogs mounted once for the shell (a welcome dialog). */
   overlays?: ReactNode;
   /** The page. Default `<Outlet />` (the layout is a route element). */
@@ -106,6 +118,12 @@ export function ShellLayout(props: ShellLayoutProps): ReactElement {
   // one number here, change all five.
   const showRail = useMediaQuery(theme.breakpoints.up('sm'));
 
+  // A page's `useShellMainVariant` request wins over the prop; `setState` is
+  // stable, so the context value never changes and never re-renders a page.
+  const [requestedVariant, setRequestedVariant] = useState<ShellMainVariant | null>(null);
+  const mainVariant: ShellMainVariant = requestedVariant ?? props.mainVariant ?? 'padded';
+  const fullBleed = mainVariant === 'full-bleed';
+
   const appBar = props.appBar ?? <ShellAppBar navigation={required(props.navigation, 'appBar')} brand={props.brand} />;
 
   return (
@@ -125,7 +143,7 @@ export function ShellLayout(props: ShellLayoutProps): ReactElement {
       {/* `minWidth: 0` on the ROW as well as on `<main>`: a runaway intrinsic
           width propagates through every flex level that omits it. */}
       <Box sx={{ display: 'flex', flexGrow: 1, minWidth: 0 }}>
-        {/* Focus order follows visual order: rail, then main. */}
+        {/* Focus order follows visual order: rail (and its context pane), then main. */}
         {showRail && (props.rail ?? <ShellNavigationRail navigation={required(props.navigation, 'rail')} />)}
         <Box
           component="main"
@@ -135,14 +153,20 @@ export function ShellLayout(props: ShellLayoutProps): ReactElement {
             // min-content width, so without this a wide table widens the
             // whole shell past the viewport.
             minWidth: 0,
-            p: 3,
+            // Full bleed drops the sides and the top only; the bottom is gate 3
+            // in both variants, so a full-bleed page still clears the bar.
+            p: fullBleed ? 0 : 3,
             // Clears the fixed bottom bar, which only exists below `sm`: the
             // same breakpoint the bottom bar gates on (gate 3).
             pb: { xs: 10, sm: 3 },
+            ...(fullBleed ? { display: 'flex', flexDirection: 'column' } : {}),
           }}
+          data-main-variant={mainVariant}
         >
-          {props.banners}
-          {props.children ?? <Outlet />}
+          <ShellMainVariantContext.Provider value={setRequestedVariant}>
+            {!fullBleed && props.banners}
+            {props.children ?? <Outlet />}
+          </ShellMainVariantContext.Provider>
         </Box>
       </Box>
       {/* Mounted only where it renders. The bottom bar also gates itself on

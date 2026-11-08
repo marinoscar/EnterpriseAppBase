@@ -18,6 +18,13 @@
 // rail swaps its contents for the visible cards of the console's registry,
 // with a permanent "back" row at the top. Collapsed, it stays the library
 // rail: 56px cannot hold a dozen card titles.
+//
+// CONTEXT PANE (issue #1080): an active destination that declares
+// `contextPane` gets a second column beside the EXPANDED library rail (never in
+// Console mode, never collapsed). It reuses the rail's own `expanded` boolean;
+// there is no new breakpoint read, so it is not a breakpoint gate. The pane is
+// a sibling of the `<nav>`, so focus goes rail, pane, main, and it stays
+// mounted while the pathname moves inside the destination.
 // =============================================================================
 
 import { Fragment, useMemo } from 'react';
@@ -75,6 +82,13 @@ export const RAIL_WIDTH_EXPANDED = 220;
  * the viewport, so its own list scrolls instead of the page.
  */
 const APPBAR_HEIGHT = 64;
+
+/**
+ * The context pane's width in px, beside the expanded rail (issue #1080).
+ *
+ * @stability experimental
+ */
+export const CONTEXT_PANE_WIDTH = 240;
 
 const DEFAULT_CONSOLE_BACK = { label: 'Back to library', path: '/' };
 
@@ -193,6 +207,7 @@ export interface ShellNavigationRailProps {
 
 /**
  * The navigation rail. `ShellLayout` mounts it at `sm` and up only (gate 1).
+ * Expanded, it also draws the active destination's `contextPane` beside it.
  *
  * @param props - see {@link ShellNavigationRailProps}.
  * @returns the rail.
@@ -253,6 +268,12 @@ export function ShellNavigationRail({ navigation }: ShellNavigationRailProps): R
 
   const consoleBack = consoleConfig?.back ?? DEFAULT_CONSOLE_BACK;
 
+  // The pane: the active, VISIBLE destination's, only beside the expanded
+  // library rail (`expanded` already folds in `lg` and the preference).
+  const paneDestination =
+    expanded && !consoleMode ? visibleDestinations.find((destination) => destination.key === activeDestination) : undefined;
+  const ContextPane = paneDestination?.contextPane;
+
   const subheaderSx = {
     fontSize: '0.65rem',
     fontWeight: 700,
@@ -263,7 +284,7 @@ export function ShellNavigationRail({ navigation }: ShellNavigationRailProps): R
     backgroundColor: 'transparent',
   };
 
-  return (
+  const rail = (
     <Box
       component="nav"
       aria-label={consoleMode ? 'Console navigation' : 'Main navigation'}
@@ -448,5 +469,37 @@ export function ShellNavigationRail({ navigation }: ShellNavigationRailProps): R
         </>
       )}
     </Box>
+  );
+
+  if (ContextPane === undefined || paneDestination === undefined) return rail;
+
+  return (
+    <>
+      {rail}
+      <Box
+        component="aside"
+        aria-label={paneDestination.label}
+        data-shell-context-pane={paneDestination.key}
+        sx={{
+          width: CONTEXT_PANE_WIDTH,
+          flexShrink: 0,
+          // Every flex level carries `minWidth: 0` (see ShellLayout).
+          minWidth: 0,
+          backgroundColor: theme.palette.background.paper,
+          borderRight: `1px solid ${theme.palette.divider}`,
+          position: 'sticky',
+          top: APPBAR_HEIGHT,
+          alignSelf: 'flex-start',
+          height: `calc(100vh - ${APPBAR_HEIGHT}px)`,
+          '@supports (height: 100dvh)': {
+            height: `calc(100dvh - ${APPBAR_HEIGHT}px)`,
+          },
+          overflowY: 'auto',
+          overflowX: 'hidden',
+        }}
+      >
+        <ContextPane activeDestination={paneDestination.key} pathname={pathname} />
+      </Box>
+    </>
   );
 }
