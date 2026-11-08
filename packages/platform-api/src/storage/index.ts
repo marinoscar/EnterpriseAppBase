@@ -35,6 +35,7 @@ export type {
   SignedUrlOptions,
   StoragePartUploadMode,
   StoredPart,
+  StorageDeleteFailure,
   StorageDeleteManyResult,
   StorageUploadOptions,
   StorageUploadResult,

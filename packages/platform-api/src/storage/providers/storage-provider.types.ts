@@ -31,7 +31,19 @@ export interface StorageDeleteManyResult {
   /** The keys the backend deleted (a key that was already absent counts as deleted, as with `delete`). */
   deleted: string[];
   /** The keys it could not delete, each with the backend's reason. */
-  failed: Array<{ key: string; message: string }>;
+  failed: StorageDeleteFailure[];
+}
+
+/**
+ * One key {@link StorageDeleteManyResult} could not delete.
+ *
+ * @stability experimental
+ */
+export interface StorageDeleteFailure {
+  /** The key. */
+  key: string;
+  /** The backend's reason, never secret material. */
+  message: string;
 }
 
 /**
@@ -230,8 +242,15 @@ export function normalizeEtag(eTag: string): string {
  * @stability experimental
  */
 export class StorageSizeUnsupportedError extends Error {
-  constructor(public readonly kind: string) {
+  /** The kind of the provider without a size probe. */
+  readonly kind: string;
+
+  /**
+   * @param kind - the kind of the provider without a size probe.
+   */
+  constructor(kind: string) {
     super(`The storage driver "${kind}" has no size probe.`);
+    this.kind = kind;
     this.name = 'StorageSizeUnsupportedError';
   }
 }
