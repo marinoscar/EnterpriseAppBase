@@ -1330,8 +1330,7 @@ export class AiService {
   /**
    * Steps 6-9 of one image round-trip, shared by the queued run
    * (`executeImageRun`) and the inline edit (`editImageInline`): resolve the
-   * key, apply the limits, call the port, record ONE usage row (`units: {
-   * images: n }`) and end the span. The error never carries the key.
+   * key, apply the limits, call the port, record ONE usage row (with the image count as its units) and end the span. The error never carries the key.
    */
   private async imageRoundTrip(
     scope: AiClientScope,
@@ -1596,8 +1595,7 @@ export class AiService {
 
   /**
    * Steps 6-9 of one transcription round-trip, shared by the queued run and
-   * the inline call: key, limits, the port, ONE usage row (`units: {
-   * audioSeconds }` when reported) and the span. The error never carries the key.
+   * the inline call: key, limits, the port, ONE usage row (with the audio seconds as units, when reported) and the span. The error never carries the key.
    */
   private async transcriptionRoundTrip(
     scope: AiClientScope,
