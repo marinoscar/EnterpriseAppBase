@@ -60,6 +60,10 @@ const NOTIFICATION_FIELDS = {
   link: true,
   readAt: true,
   createdAt: true,
+  data: true,
+  scopeId: true,
+  dismissedAt: true,
+  updatedAt: true,
 } as const;
 
 /**
@@ -93,8 +97,10 @@ export class NotificationStoreService {
     const { page, pageSize, unreadOnly } = query;
 
     // `userId` is in the where clause, not applied afterwards. See the header.
+    // A dismissed row is "stop showing me this": never listed (issue #1077).
     const where = {
       userId,
+      dismissedAt: null,
       ...(unreadOnly ? { readAt: null } : {}),
     };
 
@@ -131,7 +137,7 @@ export class NotificationStoreService {
    */
   async unreadCount(userId: string): Promise<number> {
     return this.prisma.notification.count({
-      where: { userId, readAt: null },
+      where: { userId, readAt: null, dismissedAt: null },
     });
   }
 
@@ -155,12 +161,20 @@ export class NotificationStoreService {
    *         else. The two are deliberately indistinguishable.
    */
   async markRead(userId: string, id: string): Promise<number> {
-    const { count } = await this.prisma.notification.updateMany({
-      where: { id, userId, readAt: null },
-      data: { readAt: new Date() },
-    });
+    // Raw, for two reasons. `data.countAtRead` snapshots the count the user
+    // saw (the re-unread rule of a STATE row compares against it), which
+    // `updateMany` cannot do per row; and Prisma's `@updatedAt` would move
+    // `updated_at`, the rolling-window anchor of a COUNTED row, so merely
+    // reading a row would keep its window open.
+    const touched = await this.prisma.$executeRaw`
+      UPDATE notifications
+      SET read_at = now(),
+          data = CASE WHEN jsonb_typeof(data -> 'count') = 'number'
+                      THEN jsonb_set(data, '{countAtRead}', data -> 'count')
+                      ELSE data END
+      WHERE id = ${id}::uuid AND user_id = ${userId}::uuid AND read_at IS NULL`;
 
-    if (count === 0) {
+    if (touched === 0) {
       // Nothing was updated: either the notification is already read (fine,
       // idempotent) or it is not this user's to touch. Distinguished by a
       // second query that is ITSELF scoped to the user, so the answer never
@@ -193,10 +207,39 @@ export class NotificationStoreService {
    * be showing 1.
    */
   async markAllRead(userId: string): Promise<number> {
-    await this.prisma.notification.updateMany({
-      where: { userId, readAt: null },
-      data: { readAt: new Date() },
-    });
+    await this.prisma.$executeRaw`
+      UPDATE notifications
+      SET read_at = now(),
+          data = CASE WHEN jsonb_typeof(data -> 'count') = 'number'
+                      THEN jsonb_set(data, '{countAtRead}', data -> 'count')
+                      ELSE data END
+      WHERE user_id = ${userId}::uuid AND read_at IS NULL AND dismissed_at IS NULL`;
+
+    return this.unreadCount(userId);
+  }
+
+  /**
+   * Dismiss one notification ("stop showing me this") and report the badge.
+   *
+   * Dismissal implies read, so the row never lingers in the unread count. The
+   * row leaves the list; the retention sweep deletes it by age. Idempotent, and
+   * ownership-scoped exactly like {@link markRead}: another user's id is a 404.
+   *
+   * @throws NotFoundException when the id belongs to nobody, or to somebody else.
+   */
+  async dismiss(userId: string, id: string): Promise<number> {
+    const touched = await this.prisma.$executeRaw`
+      UPDATE notifications
+      SET dismissed_at = now(),
+          read_at = COALESCE(read_at, now())
+      WHERE id = ${id}::uuid AND user_id = ${userId}::uuid AND dismissed_at IS NULL`;
+
+    if (touched === 0) {
+      const exists = await this.prisma.notification.count({ where: { id, userId } });
+      if (exists === 0) {
+        throw new NotFoundException('Notification not found');
+      }
+    }
 
     return this.unreadCount(userId);
   }
@@ -218,7 +261,12 @@ function toResponse(row: {
   link: string | null;
   readAt: Date | null;
   createdAt: Date;
+  data: unknown;
+  scopeId: string | null;
+  dismissedAt: Date | null;
+  updatedAt: Date;
 }): NotificationResponse {
+  const count = (row.data as { count?: unknown } | null)?.count;
   return {
     id: row.id,
     eventKey: row.eventKey,
@@ -227,5 +275,9 @@ function toResponse(row: {
     link: row.link,
     readAt: row.readAt ? row.readAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
+    count: typeof count === 'number' ? count : null,
+    scopeId: row.scopeId,
+    dismissedAt: row.dismissedAt ? row.dismissedAt.toISOString() : null,
+    updatedAt: row.updatedAt.toISOString(),
   };
 }

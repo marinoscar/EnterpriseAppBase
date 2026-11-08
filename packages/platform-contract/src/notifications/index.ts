@@ -21,6 +21,7 @@ export {
   NOTIFICATION_MAX_EVENTS_PER_CHANNEL,
   NOTIFICATION_MAX_EVENT_KEY_LENGTH,
   NOTIFICATION_SSE_EVENT,
+  NOTIFICATION_STREAM_REASONS,
   PLATFORM_NOTIFICATION_CHANNEL_IDS,
   PUSH_TEST_CONFIG_SOURCES,
   PUSH_TEST_OVERALL,
@@ -32,6 +33,7 @@ export {
 } from './constants.js';
 export type {
   BroadcastStatusName,
+  NotificationStreamReason,
   PlatformNotificationChannelId,
   PushSubscriptionPlatform,
   PushTestConfigSource,
@@ -98,6 +100,7 @@ export type {
   PushTestConfigSourceEnum,
   PushTestOverallEnum,
   PushTestSendStatusEnum,
+  NotificationStreamReasonEnum,
   PushSubscriptionPlatformEnum,
   BroadcastAudienceQuery,
   BroadcastAudienceResponse,

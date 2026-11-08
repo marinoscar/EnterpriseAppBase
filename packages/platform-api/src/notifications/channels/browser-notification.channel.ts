@@ -5,6 +5,7 @@ import type { NotificationsPrisma } from '../data/notifications-db';
 import { describeThrown } from '../describe-thrown';
 import type { NotificationChannel } from '../notification-events';
 import { isBrowserToastAllowed } from '../notification-policy';
+import { NotificationInboxWriter, type InboxContent, type InboxWriteResult } from '../notification-inbox-writer';
 import { NotificationStreamService } from '../notification-stream.service';
 import { eventBrowserTemplateRegistry } from '../registry';
 import type {
@@ -95,10 +96,14 @@ export class BrowserNotificationChannel implements NotificationChannelSender {
 
   private readonly logger = new Logger(BrowserNotificationChannel.name);
 
+  private readonly writer: NotificationInboxWriter;
+
   constructor(
     @Inject(PLATFORM_PRISMA) private readonly prisma: NotificationsPrisma,
     private readonly stream: NotificationStreamService,
-  ) {}
+  ) {
+    this.writer = new NotificationInboxWriter(prisma);
+  }
 
   /**
    * The "address" for this channel is the ACCOUNT ITSELF.
@@ -138,16 +143,17 @@ export class BrowserNotificationChannel implements NotificationChannelSender {
   ): Promise<ChannelDeliveryResult> {
     const eventKey = context.event.key;
 
+    // STATE and COUNTED rows (issue #1077) are upserted under an advisory
+    // lock; the template runs inside the write, on the final total.
+    if (context.inbox) {
+      return this.deliverFolded(context, to, context.inbox);
+    }
+
     const rendered = this.render(context);
     if (!rendered.ok) {
       return { success: false, error: rendered.error };
     }
 
-    // Normalised ONCE, here, and the same values are used for the row and for
-    // the stream. Applying the cap and the link check twice would be two
-    // chances for a tab to be shown something the database does not hold — and
-    // the stream copy is the one a native toast renders, so a divergence is a
-    // user seeing text that no audit of the table can explain.
     const title = truncate(rendered.content.title, MAX_TITLE_LENGTH);
     const body = truncate(rendered.content.body, MAX_BODY_LENGTH);
     const link = sanitizeLink(rendered.content.link);
@@ -160,28 +166,12 @@ export class BrowserNotificationChannel implements NotificationChannelSender {
         select: { id: true, createdAt: true },
       });
     } catch (err) {
-      // The database IS the delivery for this channel. A failed INSERT is a
-      // genuinely failed notification — unlike a publish that reaches no
-      // subscriber — so it is reported as one and lands in
-      // `notification_deliveries.error`.
       return {
         success: false,
         error: `Could not write the notification record: ${describeThrown(err)}`,
       };
     }
 
-    // Published AFTER the row is committed, never before. A tab that receives
-    // the event immediately renders or refetches from the same store;
-    // publishing first opens a window in which the client is told about a
-    // notification a refetch cannot find, which reads to the user as a bell
-    // that flickers and loses an item.
-    //
-    // `publish` never throws and returns how many connections it reached. ZERO
-    // IS SUCCESS: the user simply has no tab open, which is the normal state
-    // of most accounts most of the time. Treating it as a failure would fill
-    // `notification_deliveries` with failed rows for notifications that were
-    // delivered perfectly well, and would bury the real failures that table
-    // exists to surface.
     const delivered = this.stream.publish(to, {
       id: notification.id,
       eventKey,
@@ -189,37 +179,10 @@ export class BrowserNotificationChannel implements NotificationChannelSender {
       body,
       link,
       createdAt: notification.createdAt.toISOString(),
-      // THE ADMIN POLICY, APPLIED TO THE TOAST AND ONLY TO THE TOAST (#226).
-      //
-      // Note where this sits: AFTER the row was written, and on an event that
-      // is published regardless of its value. That is the invariant of #226 in
-      // one line of code — an operator who mutes browser notifications mutes
-      // the OS bubble, never the durable record. `security.role_changed` is
-      // `mandatory: true` precisely so a privilege change is never silent, and
-      // a policy that could suppress its inbox row would defeat the flag from
-      // the admin page.
-      //
-      // Read from the dispatch context rather than re-queried, so this flag and
-      // the channel decision that produced the row come from one snapshot of
-      // the policy. Absent policy resolves to the permissive default; see
-      // notification-policy.ts.
       toast: isBrowserToastAllowed(eventKey, context.policy),
-      // IS WEB PUSH PART OF THIS SAME DISPATCH? (#625)
-      //
-      // Read from the dispatcher's final channel list — policy, preferences
-      // and any per-dispatch narrowing already applied — so it describes THIS
-      // dispatch, mandatory events included. It says the push channel will be
-      // attempted, not that it succeeded or that this browser holds a
-      // subscription; the client combines it with its own subscription state
-      // to avoid a duplicate OS toast. Independent of `toast`.
       pushed: context.channels.includes('push'),
     });
 
-    // Event key and connection count only — no title, no body, no link. The
-    // rendered text is what the user was told and can name a role, an
-    // administrator or a resource; application logs are shipped, indexed and
-    // retained far more widely than the `notifications` table is. The content
-    // has exactly one home and this is not it.
     this.logger.log(
       `Recorded '${eventKey}' for user ${to} (live to ${delivered} connection(s)).`,
     );
@@ -229,6 +192,74 @@ export class BrowserNotificationChannel implements NotificationChannelSender {
     // which is how "the delivery record says sent — what did they actually
     // see?" gets answered.
     return { success: true, messageId: notification.id };
+  }
+
+  /**
+   * Write a STATE or COUNTED row and nudge open tabs when it is news.
+   *
+   * Never throws. A refresh that changes nothing the user can see (`quiet`)
+   * writes the row but sends no frame. A frame never raises an OS toast for an
+   * `incremented` row: the user already has that row unread, and a toast per
+   * folded occurrence would be the 4 000 notifications the fold exists to
+   * prevent.
+   */
+  private async deliverFolded(
+    context: NotificationDispatchContext,
+    to: string,
+    mode: NonNullable<NotificationDispatchContext['inbox']>,
+  ): Promise<ChannelDeliveryResult> {
+    const eventKey = context.event.key;
+    const render = (data: Record<string, unknown>): InboxContent => {
+      const rendered = this.render({ ...context, data });
+      if (!rendered.ok) throw new Error(rendered.error);
+      return {
+        title: truncate(rendered.content.title, MAX_TITLE_LENGTH),
+        body: truncate(rendered.content.body, MAX_BODY_LENGTH),
+        link: sanitizeLink(rendered.content.link),
+      };
+    };
+    const data = (context.data ?? {}) as Record<string, unknown>;
+
+    let written: InboxWriteResult;
+    try {
+      written =
+        mode.kind === 'state'
+          ? await this.writer.upsertState(to, eventKey, mode, data, render)
+          : await this.writer.upsertCounted(to, eventKey, mode, data, render);
+    } catch (err) {
+      return {
+        success: false,
+        error: `Could not write the notification record: ${describeThrown(err)}`,
+      };
+    }
+
+    if (!written.quiet) {
+      // Re-read nothing: the frame carries what the writer returned. Title and
+      // body come from a second pure render of the same total, so they match the row.
+      let content: InboxContent | null = null;
+      try {
+        content = render({ ...data, count: written.count });
+      } catch {
+        content = null;
+      }
+      if (content) {
+        this.stream.publish(to, {
+          id: written.id,
+          eventKey,
+          ...content,
+          createdAt: written.createdAt.toISOString(),
+          toast: written.reason !== 'incremented' && isBrowserToastAllowed(eventKey, context.policy),
+          pushed: context.channels.includes('push'),
+          count: written.count,
+          scopeId: written.scopeId,
+          updatedAt: written.updatedAt.toISOString(),
+          reason: written.reason,
+        });
+      }
+    }
+
+    this.logger.log(`Recorded '${eventKey}' (${written.reason}, count ${written.count}) for user ${to}.`);
+    return { success: true, messageId: written.id };
   }
 
   /**

@@ -107,6 +107,10 @@ const MIGRATIONS_AT_288 = [
   // #746 (PP-9.4): android_app_releases and push_subscriptions.platform (the
   // android_app channel; the four operational events still need nothing).
   '20261008120000_add_android_app',
+  // #1077: STATE and COUNTED inbox columns and the live-dedup index on
+  // notifications. A schema change for the inbox; the four operational events
+  // still need nothing.
+  '20261108011158_notifications_state_counted',
   // PP-14.19 (#937): jobs.reason becomes TEXT (the open job-reason vocabulary;
   // the four operational events still need nothing).
   '20261013115831_open_job_reason',

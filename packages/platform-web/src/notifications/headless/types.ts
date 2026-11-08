@@ -235,6 +235,14 @@ export interface AppNotification {
   readAt: string | null;
   /** ISO-8601. */
   createdAt: string;
+  /** The occurrence count of a STATE or COUNTED notification; null or absent for a plain one. */
+  count?: number | null;
+  /** The scope of a STATE or COUNTED notification, or null. */
+  scopeId?: string | null;
+  /** When it was dismissed; a dismissed notification is not listed. */
+  dismissedAt?: string | null;
+  /** Last refresh (ISO 8601). */
+  updatedAt?: string;
 }
 
 /**
@@ -292,6 +300,12 @@ export interface UnreadCountResponse {
   * @stability experimental
  */
 export type NotificationStreamEvent = Omit<AppNotification, 'readAt'> & {
+  /**
+   * Why the frame was sent: `created` (a new row), `incremented` (a COUNTED or
+   * STATE row grew while unread) or `reunread` (a read row is unread again).
+   * Absent from an older server: treat as `created`.
+   */
+  reason?: 'created' | 'incremented' | 'reunread';
   /**
    * May this client raise an OS notification for this event? (#226, epic #215)
    *

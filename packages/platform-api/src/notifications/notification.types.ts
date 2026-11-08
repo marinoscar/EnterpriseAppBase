@@ -160,6 +160,82 @@ export interface NotifyOptions {
 }
 
 /**
+ * Options of {@link NotificationsService.notifyState}.
+ *
+ * Everything in {@link NotifyOptions} applies unchanged (channels narrow,
+ * `orgId`, `timeZone`).
+ *
+ * @stability experimental
+ */
+export interface NotifyStateOptions extends NotifyOptions {
+  /**
+   * The scope this row belongs to (a group, an organization, a workspace).
+   * One user holds one live row per `(eventKey, scopeId)`. Not authorization:
+   * the producer decides who is notified.
+   */
+  scopeId?: string | null;
+
+  /**
+   * When a refresh re-marks a READ row unread. `count-increased` (default):
+   * only when `data.count` is greater than the count the user saw when they
+   * read it (`data.countAtRead`); a row with no recorded `countAtRead` is
+   * treated as already seen. `never`: a refresh never touches `readAt`.
+   */
+  reunreadWhen?: 'count-increased' | 'never';
+}
+
+/**
+ * Options of {@link NotificationsService.notifyCounted}.
+ *
+ * @stability experimental
+ */
+export interface NotifyCountedOptions extends NotifyOptions {
+  /** The scope this row belongs to; see {@link NotifyStateOptions.scopeId}. */
+  scopeId?: string | null;
+
+  /**
+   * The rolling window in milliseconds, anchored on the row's last update:
+   * an occurrence inside it folds into the live row, one after it starts a new
+   * row (the old row stays in the inbox, retired). Absent or `null`: no window,
+   * the live row keeps accumulating until the user dismisses it.
+   */
+  windowMs?: number | null;
+
+  /**
+   * Partitions the rows beyond `(user, eventKey, scope)`: two occurrences fold
+   * together only when their `match` objects are equal (key order does not
+   * matter), for example `{ jobType: 'export' }`.
+   */
+  match?: Readonly<Record<string, string | number | boolean>>;
+
+  /** How much this occurrence adds to `data.count`. Default 1; a positive integer. */
+  increment?: number;
+}
+
+/**
+ * How the in-app inbox row of one dispatch is written, when it is not a plain
+ * append. Set by `notifyState` and `notifyCounted`; read by the browser
+ * channel. Not part of the public surface.
+ *
+ * @internal
+ */
+export type InboxWrite =
+  | {
+      readonly kind: 'state';
+      readonly dedupKey: string;
+      readonly scopeId: string | null;
+      readonly count: number;
+      readonly reunreadWhen: 'count-increased' | 'never';
+    }
+  | {
+      readonly kind: 'counted';
+      readonly dedupKey: string;
+      readonly scopeId: string | null;
+      readonly windowMs: number | null;
+      readonly increment: number;
+    };
+
+/**
  * Per-dispatch options for the permission-addressed entry points
  * ({@link NotificationsService.notifyPermissionHolders} and its awaited
  * sibling) — issue #288, epic #254.
@@ -250,6 +326,14 @@ export interface NotificationDispatchContext {
    * independent and are attempted in isolation.
    */
   readonly channels: readonly NotificationChannel[];
+
+  /**
+   * Set by `notifyState` / `notifyCounted`: the browser channel upserts the
+   * inbox row instead of appending one. Absent for `notify()`.
+   *
+   * @internal
+   */
+  readonly inbox?: InboxWrite;
 }
 
 /**

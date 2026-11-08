@@ -98,6 +98,15 @@
       "reason": "At most one OPEN (pending or firing) incident per alert rule and label set; a partial unique index Prisma cannot express. The evaluator creates incidents and treats the unique violation as 'already open', so two overlapping evaluations leave one incident.",
       "doc": "docs/specs/platform-packages.md",
       "createdIn": "0040_add_alerts"
+    },
+    {
+      "name": "notifications_live_dedup_uniq_idx",
+      "table": "notifications",
+      "unique": true,
+      "definition": "CREATE UNIQUE INDEX notifications_live_dedup_uniq_idx ON public.notifications USING btree (user_id, dedup_key) WHERE ((dismissed_at IS NULL) AND (dedup_key IS NOT NULL))",
+      "reason": "At most one LIVE foldable (STATE or COUNTED) notification per user and dedup key; a partial unique index Prisma cannot express. The writer serializes on an advisory lock and treats a unique violation as 'already live', so concurrent producers leave one row.",
+      "doc": "docs/specs/platform-packages.md",
+      "createdIn": "0041_notifications_state_counted"
     }
   ]
 }

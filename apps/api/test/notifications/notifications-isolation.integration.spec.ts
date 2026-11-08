@@ -60,6 +60,10 @@ function notifRow(overrides: Partial<{
     link: null,
     readAt: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    data: null,
+    scopeId: null,
+    dismissedAt: null,
+    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
     ...overrides,
   };
 }
@@ -204,7 +208,7 @@ describe('Notifications HTTP isolation (Integration)', () => {
       // updateMany matches nothing, and the userId-scoped existence probe
       // also matches nothing, for both the id owned by B and the id that was
       // never created at all.
-      context.prismaMock.notification.updateMany.mockResolvedValue({ count: 0 } as never);
+      (context.prismaMock.$executeRaw as jest.Mock).mockResolvedValue(0);
       context.prismaMock.notification.count.mockResolvedValue(0 as never);
     });
 
@@ -290,7 +294,7 @@ describe('Notifications HTTP isolation (Integration)', () => {
     });
 
     it('markAllRead as A never touches B’s rows', async () => {
-      context.prismaMock.notification.updateMany.mockResolvedValue({ count: 2 } as never);
+      (context.prismaMock.$executeRaw as jest.Mock).mockResolvedValue(2);
       context.prismaMock.notification.count.mockResolvedValue(0 as never);
 
       const a = await userA();
@@ -300,12 +304,12 @@ describe('Notifications HTTP isolation (Integration)', () => {
         .set(authHeader(a.accessToken))
         .expect(200);
 
-      expect(context.prismaMock.notification.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: expect.objectContaining({ userId: USER_A_ID }) }),
-      );
-      const calls = context.prismaMock.notification.updateMany.mock.calls as any[];
-      for (const [args] of calls) {
-        expect(args.where.userId).not.toBe(USER_B_ID);
+      // The update is raw SQL bound to the caller's id only (it never receives B's).
+      const calls = (context.prismaMock.$executeRaw as jest.Mock).mock.calls as any[];
+      expect(calls.length).toBeGreaterThan(0);
+      for (const [, ...bound] of calls) {
+        expect(bound).toContain(USER_A_ID);
+        expect(bound).not.toContain(USER_B_ID);
       }
     });
   });

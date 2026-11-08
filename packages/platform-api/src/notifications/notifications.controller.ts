@@ -489,6 +489,27 @@ export class NotificationsController {
     return { unreadCount: await this.store.markRead(userId, id) };
   }
 
+  @Post(':id/dismiss')
+  @Auth()
+  @ApiOperation({
+    summary: 'Dismiss one notification',
+    description:
+      'Removes a notification from the caller’s list and unread count ("stop showing me this"); ' +
+      'dismissal implies read, and the retention sweep deletes the row by age. Returns the ' +
+      'caller’s resulting unread count.\n\n' +
+      '**Idempotent.** **Ownership.** An id belonging to another user returns `404`, identical to ' +
+      'an id that does not exist.',
+  })
+  @ApiParam({ name: 'id', type: String, format: 'uuid' })
+  @ApiDataResponse(UnreadCountDto, { description: 'The new unread count' })
+  @ApiResponse({ status: 404, description: 'No such notification for this user' })
+  async dismiss(
+    @CurrentUser('id') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<UnreadCountResponse> {
+    return { unreadCount: await this.store.dismiss(userId, id) };
+  }
+
   @Post('read-all')
   @Auth()
   // 200, not 204: the response carries the new count, which is the whole
