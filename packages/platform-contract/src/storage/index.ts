@@ -10,11 +10,21 @@ export {
   LEGACY_STORAGE_FLAT_FIELDS,
   MISSING_STORAGE_CONFIG_FIELDS,
   STORAGE_DRIVER_ID_PATTERN,
+  STORAGE_MIGRATION_ACTIVE_RUN_STATUSES,
+  STORAGE_MIGRATION_ITEM_STATUSES,
+  STORAGE_MIGRATION_RUN_STATUSES,
   STORAGE_OBJECT_STATUSES,
   STORAGE_PROVIDER_KINDS,
   STORAGE_SECRET_FIELD_NAMES,
 } from './constants.js';
-export type { BuiltinStorageProviderKind, StorageEnum, StorageObjectStatusName, StorageProviderKind } from './constants.js';
+export type {
+  BuiltinStorageProviderKind,
+  StorageEnum,
+  StorageMigrationItemStatusName,
+  StorageMigrationRunStatusName,
+  StorageObjectStatusName,
+  StorageProviderKind,
+} from './constants.js';
 
 // ---- the `storage` system-settings namespace --------------------------------------------
 export {
@@ -105,4 +115,18 @@ export type {
   StorageBucketProvisionResult,
   StorageBucketStep,
   StorageBucketStepId,
+} from './schemas.js';
+
+// ---- copy-only provider migration (`/api/admin/storage/migrations`, #1093) -------------
+export {
+  startStorageMigrationSchema,
+  storageMigrationListQuerySchema,
+  storageMigrationRunListSchema,
+  storageMigrationRunSchema,
+} from './schemas.js';
+export type {
+  StartStorageMigrationInput,
+  StorageMigrationListQuery,
+  StorageMigrationRun,
+  StorageMigrationRunList,
 } from './schemas.js';

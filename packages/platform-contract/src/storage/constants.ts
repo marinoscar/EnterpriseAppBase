@@ -142,3 +142,39 @@ export const STORAGE_SECRET_FIELD_NAMES = [
  * @stability experimental
  */
 export type StorageEnum<T extends readonly string[]> = { [K in T[number]]: K };
+
+/**
+ * The statuses of a copy-only provider migration run (`storage_migration_runs.status`,
+ * the `StorageMigrationRunStatus` enum of the `storage` fragment), in lifecycle order.
+ *
+ * @stability experimental
+ */
+export const STORAGE_MIGRATION_RUN_STATUSES = ['pending', 'running', 'completed', 'failed', 'cancelled'] as const;
+
+/**
+ * A {@link STORAGE_MIGRATION_RUN_STATUSES} value.
+ *
+ * @stability experimental
+ */
+export type StorageMigrationRunStatusName = (typeof STORAGE_MIGRATION_RUN_STATUSES)[number];
+
+/**
+ * The run statuses that hold the one-active-run slot (`storage_migration_runs_active_uniq_idx`).
+ *
+ * @stability experimental
+ */
+export const STORAGE_MIGRATION_ACTIVE_RUN_STATUSES = ['pending', 'running'] as const;
+
+/**
+ * The statuses of one object within a migration run (`storage_migration_items.status`).
+ *
+ * @stability experimental
+ */
+export const STORAGE_MIGRATION_ITEM_STATUSES = ['pending', 'copying', 'migrated', 'failed', 'skipped'] as const;
+
+/**
+ * A {@link STORAGE_MIGRATION_ITEM_STATUSES} value.
+ *
+ * @stability experimental
+ */
+export type StorageMigrationItemStatusName = (typeof STORAGE_MIGRATION_ITEM_STATUSES)[number];

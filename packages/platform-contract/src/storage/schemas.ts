@@ -16,3 +16,4 @@ export * from './storage-config-update.js';
 export * from './storage-config-response.js';
 export * from './storage-connection-test.js';
 export * from './storage-bucket-provision.js';
+export * from './storage-migration.js';
