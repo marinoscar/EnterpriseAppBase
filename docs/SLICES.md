@@ -296,7 +296,7 @@ A capability an app mounts: its routes, jobs, settings, Doctor checks and, in th
 
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
-| API (`platform-api`) | `/sharing`, `/sharing/testing` | `core`, `doctor`, `otel-core` | `@nestjs/schedule`, `fastify` | [README](../packages/platform-api/src/sharing/README.md) |
+| API (`platform-api`) | `/sharing`, `/sharing/testing` | `core`, `doctor`, `otel-core` | `@nestjs/event-emitter`, `@nestjs/schedule`, `fastify` | [README](../packages/platform-api/src/sharing/README.md) |
 | Web (`platform-web`) | `/sharing/headless`, `/sharing/ui` | `core` | `@mui/icons-material`, `react-router-dom` | [README](../packages/platform-web/src/sharing/README.md) |
 | Contract (`platform-contract`) | `/sharing` | none | none | [README](../packages/platform-contract/src/sharing/README.md) |
 

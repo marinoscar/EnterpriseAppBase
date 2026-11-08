@@ -45,7 +45,7 @@ const ALLOWLIST: Record<string, string> = {
   'platform/webhooks/webhooks-host.module.ts':
     'webhooks and retention: the webhooks slice\'s WEBHOOKS_SYSTEM_PRISMA port (#1046): a system-scope endpoint and its deliveries have no organization, so every query on them runs on the bypass client (webhooks), and the delivery purge deletes expired rows across organizations (retention)',
   'platform/sharing/sharing-data.adapter.ts':
-    'purge and doctor: the sharing slice\'s user purge (GroupMembershipPurge) and its read-only orphaned-groups check',
+    'purge, doctor, retention, link-resolution and invite-claim: the sharing slice\'s user purge (GroupMembershipPurge), its read-only orphaned-groups check, the grants prune job, the link-token lookup and the cross-organization lookup of the open invites addressed to one user\'s own address (GroupInvitesService.claimPendingForEmail)',
 };
 
 function sources(dir: string): string[] {
@@ -96,7 +96,7 @@ describe('PrismaSystemService injection boundary', () => {
   });
 
   it('gives every system acquisition a reason from the closed list', () => {
-    const reasons = ['backup', 'restore', 'purge', 'doctor', 'retention', 'admin-aggregate', 'migration-tooling', 'link-resolution', 'export'];
+    const reasons = ['backup', 'restore', 'purge', 'doctor', 'retention', 'admin-aggregate', 'migration-tooling', 'link-resolution', 'export', 'invite-claim'];
     const bad: string[] = [];
     for (const file of [...sources(SRC), ...sources(STORAGE_SLICE_SRC)]) {
       for (const match of code(file).matchAll(/\.(?:asSystem|runAsSystem)\(\s*'([^']*)'/g)) {

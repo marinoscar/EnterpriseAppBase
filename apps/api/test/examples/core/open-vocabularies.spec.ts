@@ -85,8 +85,8 @@ function fakeSystemClient(stale: number) {
 }
 
 describe('a system access reason (transcript-reindex)', () => {
-  it('is registered by the app, after the platform\'s nine', () => {
-    expect(systemAccessReasonRegistry.ids()).toHaveLength(10);
+  it('is registered by the app, after the platform\'s ten', () => {
+    expect(systemAccessReasonRegistry.ids()).toHaveLength(11);
     expect(systemAccessReasonRegistry.ids().at(-1)).toBe(TRANSCRIPT_REINDEX_REASON);
     expect(systemAccessReasonRegistry.require(TRANSCRIPT_REINDEX_REASON).description).toMatch(/re-index/);
   });

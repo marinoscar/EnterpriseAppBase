@@ -61,7 +61,8 @@ export type GroupAuditAction =
   | 'group:invite_created'
   | 'group:invite_revoked'
   | 'group:invite_accepted'
-  | 'group:invite_declined';
+  | 'group:invite_declined'
+  | 'group:invite_auto_accepted';
 
 /**
  * Writes one audit row INSIDE the caller's transaction, with the

@@ -38,7 +38,7 @@
     "doctor": ["@nestjs/common", "@nestjs/swagger", "fastify", "nestjs-zod", "zod"],
     "otel-core": ["@nestjs/common", "@opentelemetry/api", "fastify"],
     "telemetry": ["@nestjs/common", "@nestjs/config", "@nestjs/schedule", "@nestjs/swagger", "fastify", "nestjs-zod", "zod"],
-    "sharing": ["@nestjs/common", "@nestjs/core", "@nestjs/schedule", "@nestjs/swagger", "@opentelemetry/api", "nestjs-zod", "rxjs"],
+    "sharing": ["@nestjs/common", "@nestjs/core", "@nestjs/event-emitter", "@nestjs/schedule", "@nestjs/swagger", "@opentelemetry/api", "nestjs-zod", "rxjs"],
     "identity": ["@nestjs/common", "@nestjs/config", "@nestjs/core", "@nestjs/event-emitter", "@nestjs/jwt", "@nestjs/passport", "@nestjs/schedule", "@nestjs/swagger", "@opentelemetry/api", "fastify", "nestjs-zod", "zod"],
     "settings": ["@nestjs/common", "@nestjs/config", "@nestjs/swagger", "nestjs-zod", "zod"],
     "credentials": ["@nestjs/common"],

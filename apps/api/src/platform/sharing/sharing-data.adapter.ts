@@ -12,7 +12,8 @@
 //                the user purge (`purge`), the read-only Doctor check
 //                `sharing.groups.orphaned` (`doctor`), the grants prune job
 //                (`retention`) and the one-row lookup of a link token by its
-//                hash (`link-resolution`, #730). Allowlisted in
+//                hash (`link-resolution`, #730) and the lookup of the open invites to one
+//                user's own address (`invite-claim`). Allowlisted in
 //                test/tenancy/system-injection-boundary.spec.ts.
 // =============================================================================
 

@@ -8,7 +8,7 @@
 // what the enforcement relies on:
 //
 //   access reasons    every id matches the pattern and has a description; the
-//                     nine built-ins are registered and unchanged; an
+//                     built-ins are registered and unchanged; an
 //                     unregistered, empty, non-string or prototype-named reason
 //                     is REFUSED by the bypass entry points (`systemScopeExtension`,
 //                     `runAsSystem`); a registered one is accepted
@@ -101,7 +101,7 @@ export function describeVocabularyConformance(
   const { describe, it, expect } = harness;
 
   describe('system access reasons', () => {
-    it('registers the nine built-in reasons first, in order', () => {
+    it('registers the built-in reasons first, in order', () => {
       expect(systemAccessReasonRegistry.ids().slice(0, BUILTIN_SYSTEM_ACCESS_REASONS.length)).toEqual([...BUILTIN_SYSTEM_ACCESS_REASONS]);
     });
 

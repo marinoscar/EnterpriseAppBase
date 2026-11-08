@@ -12,7 +12,8 @@
 //                the user purge (`purge`), the read-only Doctor check
 //                `sharing.groups.orphaned` (`doctor`), the grants prune job
 //                (`retention`) and the one-row lookup of a link token by its
-//                hash (`link-resolution`). Each names its reason.
+//                hash (`link-resolution`) and the lookup of the open invites to one
+//                user's own address (`invite-claim`). Each names its reason.
 // =============================================================================
 
 import { Injectable } from '@nestjs/common';

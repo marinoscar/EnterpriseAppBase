@@ -6,7 +6,7 @@
 // passes everything here (spec, "Configuration").
 // =============================================================================
 
-import { Logger, type ModuleMetadata } from '@nestjs/common';
+import type { ModuleMetadata } from '@nestjs/common';
 
 import { definePlatformHost, type PlatformHost, type Principal } from '../core/index';
 
@@ -16,6 +16,20 @@ import { definePlatformHost, type PlatformHost, type Principal } from '../core/i
  * @stability experimental
  */
 export const SHARING_OPTIONS: unique symbol = Symbol.for('@marinoscar/platform/sharing/OPTIONS');
+
+/**
+ * How a claimed invite treats an existing member's role.
+ *
+ * @stability experimental
+ */
+export type InviteRoleMerge = 'upgrade-only' | 'replace' | 'keep';
+
+/**
+ * Every {@link InviteRoleMerge}, for validation.
+ *
+ * @stability experimental
+ */
+export const INVITE_ROLE_MERGES: readonly InviteRoleMerge[] = ['upgrade-only', 'replace', 'keep'];
 
 /**
  * The group options.
@@ -30,11 +44,29 @@ export interface SharingGroupsOptions {
   /** Default invite lifetime in days; `null` = no expiry. Default 14. */
   inviteTtlDays?: number | null;
   /**
-   * Accept matching pending invites automatically when a user signs up.
-   * Default false. Status: experimental. A no-op (with a startup warning) until
-   * the identity slice emits a user-created event.
+   * Accept every open, unexpired invite addressed to a new user's e-mail
+   * address when the user is created (`identity.user.created`). Default
+   * false. Needs `@nestjs/event-emitter` registered by the app. Status:
+   * experimental.
    */
   autoAcceptInvitesOnSignup?: boolean;
+  /**
+   * Also accept at EVERY successful sign-in (`identity.login.succeeded`), so
+   * an invite sent to an account that already exists is honoured at its next
+   * sign-in, and, in multi-organization mode, an invite whose organization
+   * membership only landed during the same sign-in is not missed. Default
+   * false. Needs `@nestjs/event-emitter`. Status: experimental.
+   */
+  autoAcceptInvitesOnSignIn?: boolean;
+  /**
+   * What a claimed invite does to a user who is ALREADY a member of its
+   * group: `upgrade-only` (default) raises the role when the invite's role
+   * ranks higher and never lowers it; `replace` sets the invite's role even
+   * when it is lower; `keep` never changes the role. Rank comes from the
+   * group role catalog (`registerGroupRole`). Applies to the automatic claim
+   * and to `GroupInvitesService.claimPendingForEmail`, not to a manual accept.
+   */
+  inviteRoleMerge?: InviteRoleMerge;
   /**
    * How long a principal's group memberships are cached, in seconds; `0`
    * turns the cache off. Default 30, the principal cache's default
@@ -121,8 +153,12 @@ export interface ResolvedSharingModuleOptions {
     readonly maxMembersPerGroup: number;
     /** Invite lifetime in days, or `null` for no expiry. */
     readonly inviteTtlDays: number | null;
-    /** Experimental; a no-op until the identity slice emits a user-created event. */
+    /** Claim the open invites to a new user's address at creation. */
     readonly autoAcceptInvitesOnSignup: boolean;
+    /** Claim them at every successful sign-in. */
+    readonly autoAcceptInvitesOnSignIn: boolean;
+    /** What a claim does to an existing member's role. */
+    readonly inviteRoleMerge: InviteRoleMerge;
     /** Membership cache TTL in seconds; `0` is off. */
     readonly membershipCacheTtlSeconds: number;
   };
@@ -160,6 +196,8 @@ export const SHARING_GROUP_DEFAULTS: ResolvedSharingModuleOptions['groups'] = Ob
   maxMembersPerGroup: 1000,
   inviteTtlDays: 14,
   autoAcceptInvitesOnSignup: false,
+  autoAcceptInvitesOnSignIn: false,
+  inviteRoleMerge: 'upgrade-only',
   membershipCacheTtlSeconds: 30,
 });
 
@@ -234,6 +272,12 @@ export function resolveSharingModuleOptions(options: SharingModuleOptions): Reso
   if (groups.autoAcceptInvitesOnSignup !== undefined && typeof groups.autoAcceptInvitesOnSignup !== 'boolean') {
     fail('`groups.autoAcceptInvitesOnSignup` must be a boolean');
   }
+  if (groups.autoAcceptInvitesOnSignIn !== undefined && typeof groups.autoAcceptInvitesOnSignIn !== 'boolean') {
+    fail('`groups.autoAcceptInvitesOnSignIn` must be a boolean');
+  }
+  if (groups.inviteRoleMerge !== undefined && !INVITE_ROLE_MERGES.includes(groups.inviteRoleMerge)) {
+    fail("`groups.inviteRoleMerge` must be 'upgrade-only', 'replace' or 'keep'");
+  }
   const grants = options.grants ?? {};
   if (grants === null || typeof grants !== 'object') fail('`grants` must be an object');
   const links = options.links ?? {};
@@ -257,6 +301,8 @@ export function resolveSharingModuleOptions(options: SharingModuleOptions): Reso
       maxMembersPerGroup: positiveInteger(groups.maxMembersPerGroup, 'maxMembersPerGroup', SHARING_GROUP_DEFAULTS.maxMembersPerGroup),
       inviteTtlDays,
       autoAcceptInvitesOnSignup: groups.autoAcceptInvitesOnSignup ?? false,
+      autoAcceptInvitesOnSignIn: groups.autoAcceptInvitesOnSignIn ?? false,
+      inviteRoleMerge: groups.inviteRoleMerge ?? SHARING_GROUP_DEFAULTS.inviteRoleMerge,
       membershipCacheTtlSeconds: positiveInteger(
         groups.membershipCacheTtlSeconds,
         'membershipCacheTtlSeconds',
@@ -277,15 +323,6 @@ export function resolveSharingModuleOptions(options: SharingModuleOptions): Reso
     }),
     principal,
   };
-
-  if (resolved.groups.autoAcceptInvitesOnSignup) {
-    // The identity slice emits no user-created event yet (#721, #727): there
-    // is nothing to hook. Documented as experimental; a seam request tracks it.
-    new Logger('SharingModule').warn(
-      '`groups.autoAcceptInvitesOnSignup` is on, but the identity slice emits no user-created event yet: ' +
-        'the option has no effect. Invitees accept their invites from GET /api/groups/invites/mine.',
-    );
-  }
 
   return Object.freeze(resolved);
 }

@@ -41,10 +41,10 @@ const client = {
 };
 
 describe('system access reasons', () => {
-  it('registers the nine built-ins through the public function; the deprecated array equals them', () => {
-    expect([...BUILTIN_SYSTEM_ACCESS_REASONS]).toEqual(systemAccessReasonRegistry.ids().slice(0, 9));
+  it('registers the ten built-ins through the public function; the deprecated array equals them', () => {
+    expect([...BUILTIN_SYSTEM_ACCESS_REASONS]).toEqual(systemAccessReasonRegistry.ids().slice(0, 10));
     expect(SYSTEM_ACCESS_REASONS).toBe(BUILTIN_SYSTEM_ACCESS_REASONS);
-    expect(systemAccessReasonRegistry.ids()).toHaveLength(9);
+    expect(systemAccessReasonRegistry.ids()).toHaveLength(10);
   });
 
   it('refuses a malformed id, an empty description and a duplicate of a built-in', () => {

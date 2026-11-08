@@ -33,6 +33,7 @@ export const SHARING_MUTATION_OPS = [
   'invite_revoke',
   'invite_accept',
   'invite_decline',
+  'invite_auto_accept',
 ] as const;
 
 /**
