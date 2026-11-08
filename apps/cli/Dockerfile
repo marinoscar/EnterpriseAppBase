@@ -113,6 +113,7 @@ ENV APPCTL_MEMORY_WATCHDOG=""
 ENV APPCTL_MEMORY_THRESHOLD=""
 ENV APPCTL_HEAP_SNAPSHOTS=""
 ENV APPCTL_NATIVE_THREADS=""
+ENV APPCTL_MODELS_DIR=""
 
 RUN mkdir -p /var/lib/worker && chown -R node:node /var/lib/worker /app
 # Non-root. A worker reads one config file and talks HTTPS to one server; it

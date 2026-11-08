@@ -1061,7 +1061,8 @@ capability over an object, and a log file is a thing people attach to issues.
 
 ```bash
 appctl node doctor                 # three independent groups of checks
-appctl node install-deps --dry-run # the dependency step framework
+appctl node install-deps --dry-run # the dependency steps (add --only <ids> to pick some)
+appctl node models status          # verify declared model files; `models pull` fetches them
 appctl node service install        # systemd user unit
 appctl node service status
 appctl node service uninstall
@@ -1087,10 +1088,13 @@ rather than a stored setting on purpose: **a worker node holds no database
 configuration at all**; the connection arrives per job, from the server, and is
 dropped when the job settles.
 
-`install-deps` ships as a **framework**, not a set of real installs: this
-template has no native dependencies, so it provides the ordered-step structure,
-per-step outcomes, distro detection and `--dry-run`, and a fork fills in its own
-steps. See [`docs/runbooks/run-worker-nodes.md`](../../docs/runbooks/run-worker-nodes.md).
+`install-deps` runs the platform's two generic steps and then the steps an app
+registers with `registerInstallStep` (this template registers none: it has no
+native dependencies). `--dry-run` runs the read-only detection only and `--only
+<ids>` runs the named steps. Model files an app declares with
+`registerModelArtifact` are pulled by `node models pull` and by a `models` step.
+Examples: `src/examples/ocr.install-step.ts`, `ocr.requirements.ts`,
+`model.artifact.ts`. See [`docs/runbooks/run-worker-nodes.md`](../../docs/runbooks/run-worker-nodes.md).
 
 `service install` writes a systemd **user** unit (no root needed) whose name
 and description derive from the CLI and app names. It sets
@@ -1215,6 +1219,7 @@ its entries, so it cannot drift the way a hand-typed copy would. Run
 | `APPCTL_MEMORY_THRESHOLD` | heapUsed/heapLimit fraction at which the valve fires. Default ~0.9. |
 | `APPCTL_HEAP_SNAPSHOTS` | `false` to disable ALL THREE heap-snapshot paths. |
 | `APPCTL_NATIVE_THREADS` | Thread cap for native image/codec libraries (libvips and the like), per pipeline. A positive whole number; unset means half the cores, between 1 and 4. Handed to every registered worker runtime hook. |
+| `APPCTL_MODELS_DIR` | Directory model artifacts are stored in and verified against. Unset means `<state dir>/models`. A container mounts a baked-in or shared volume here. |
 <!-- GENERATED:WORKER_ENV_TABLE:END -->
 
 With `APPCTL_SERVER_URL` and `APPCTL_TOKEN` set and no config file at all, the

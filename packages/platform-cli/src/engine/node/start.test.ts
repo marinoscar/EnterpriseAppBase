@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { configDirName, configFileName } from '../identity.js';
 import type { HeartbeatRequest, NodeApi } from './node-api.js';
+import { createHash } from 'node:crypto';
+import { registerModelArtifact, resetModelRegistryForTests } from './models.js';
 import { EXIT_MISSING_CAPABILITY, startNode } from './start.js';
 import { registerWorkerRuntimeHook, resetRuntimeTuningForTests, WorkerRuntimeHookError } from './runtime-tuning.js';
 import { workerEnv } from './worker-env.js';
@@ -314,6 +316,93 @@ describe('startNode', () => {
 
     expect(exits).toEqual([EXIT_MISSING_CAPABILITY]);
     expect(stderr.lines.join('')).toContain('video.transcode');
+  });
+
+  it('hard-exits when a required module is installed but not operational, naming that state', async () => {
+    writeConfig({ serverUrl: 'https://app.example.com', token: 'nod_x', nodeId: 'node-1', node: { eligibleTypes: ['app.ocr'] } });
+    const stderr = { lines: [] as string[], write(chunk: string) { this.lines.push(chunk); return true; } };
+
+    await expect(
+      startNode({
+        home,
+        env: { [workerEnv().stateDir]: join(home, 'state-installed') },
+        headless: true,
+        stderr,
+        createApi: () => api({ deregisters: 0, claims: 0 }),
+        installSignalHandlers: () => {},
+        requirements: { 'app.ocr': { required: ['module:native'], degradable: [] } },
+        probe: {
+          platform: 'linux',
+          arch: 'x64',
+          nodeVersion: process.version,
+          cpus: 1,
+          totalMemoryMb: 1024,
+          freeMemoryMb: 512,
+          binaries: {},
+          probes: { 'module:native': { label: 'Native', status: 'installed', detail: 'binding failed to load' } },
+          capabilities: [],
+        },
+        exit: ((code: number) => {
+          throw new Error(`exit ${code}`);
+        }) as never,
+      }),
+    ).rejects.toThrow(/exit 70/);
+
+    expect(stderr.lines.join('')).toContain('installed but not operational (binding failed to load)');
+  });
+
+  describe('model artifacts', () => {
+    const CONTENT = Buffer.from('weights'.repeat(100));
+    const declare = () =>
+      registerModelArtifact({
+        id: 'weights',
+        fileName: 'weights.bin',
+        sha256: createHash('sha256').update(CONTENT).digest('hex'),
+        bytes: CONTENT.length,
+        url: 'https://models.example.test/weights.bin',
+        requiredBy: ['example.checksum'],
+      });
+    afterEach(() => resetModelRegistryForTests());
+
+    async function start(modelsDir: string) {
+      writeConfig({ serverUrl: 'https://app.example.com', token: 'nod_x', nodeId: 'node-1' });
+      const node = await startNode({
+        home,
+        env: { [workerEnv().stateDir]: join(home, 'state-models'), [workerEnv().modelsDir]: modelsDir, [workerEnv().pollMs]: '250' },
+        headless: true,
+        createApi: () => api({ deregisters: 0, claims: 0 }),
+        installSignalHandlers: () => {},
+        probe: { platform: 'linux', arch: 'x64', nodeVersion: process.version, cpus: 1, totalMemoryMb: 1024, freeMemoryMb: 512, binaries: {}, capabilities: [] },
+      });
+      started.push({ stop: () => node.engine.stop({ deregister: false }) });
+      return node;
+    }
+
+    it('does not advertise a type whose required model is missing, and logs why', async () => {
+      declare();
+      const node = await start(join(home, 'empty-models'));
+
+      expect(node.engine.claimableTypes()).not.toContain('example.checksum');
+      expect(readFileSync(join(home, 'state-models', 'logs', 'node.log'), 'utf8')).toMatch(/model \\"weights\\" is missing.*not advertising example\.checksum.*models pull/);
+    });
+
+    it('does not advertise it for a corrupt model either, and advertises it once the model is valid', async () => {
+      declare();
+      const modelsDir = join(home, 'present-models');
+      mkdirSync(modelsDir, { recursive: true });
+      writeFileSync(join(modelsDir, 'weights.bin'), Buffer.alloc(CONTENT.length, 1));
+      const corrupt = await start(modelsDir);
+      expect(corrupt.engine.claimableTypes()).not.toContain('example.checksum');
+      await corrupt.engine.stop({ deregister: false });
+      await corrupt.finished;
+
+      writeFileSync(join(modelsDir, 'weights.bin'), CONTENT);
+      expect((await start(modelsDir)).engine.claimableTypes()).toContain('example.checksum');
+    });
+
+    it('is unchanged with no model declared', async () => {
+      expect((await start(join(home, 'none'))).engine.claimableTypes()).toContain('example.checksum');
+    });
   });
 
   it('reads headless from the environment, not only from the flag', async () => {

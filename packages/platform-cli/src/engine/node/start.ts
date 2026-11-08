@@ -14,6 +14,7 @@ import {
   type CapabilityProbe,
   type JobTypeRequirements,
 } from './capabilities.js';
+import { resolveModelsDir, verifyModels, withheldTypesFor } from './models.js';
 import { MemoryWatchdog, memoryWatchdogEnabled } from './memory-watchdog.js';
 import { writeHeapSnapshot } from './heap-snapshot.js';
 import {
@@ -132,11 +133,11 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
   // A node that cannot do the work it advertised must not reach the claim loop:
   // there it would take a lease, fail it, and charge the job an attempt — once
   // per job, looking healthy the whole time.
-  const probe = options.probe ?? probeCapabilities();
+  const probe = options.probe ?? (await probeCapabilities());
   const selfTestEnabled = options.selfTest ?? headless;
   if (selfTestEnabled) {
     const failures: string[] = [];
-    const result = runStartupSelfTest({
+    const result = await runStartupSelfTest({
       types: config.node.eligibleTypes,
       probe,
       ...(options.requirements !== undefined ? { requirements: options.requirements } : {}),
@@ -152,6 +153,24 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
       const exit = options.exit ?? ((code: number) => process.exit(code));
       exit(EXIT_MISSING_CAPABILITY);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Model artifacts (RETRO-G2.4): verify what is on disk, withhold what cannot run
+  // ---------------------------------------------------------------------------
+  // A type whose model file is missing or corrupt is not advertised: claiming it
+  // would take a lease and fail it. This is not fatal (unlike a missing required
+  // capability), because `node models pull` fixes it and the rest of the node
+  // is healthy. A pull needs a restart to be noticed.
+  const modelVerdicts = await verifyModels(resolveModelsDir(nodeStateDir(pathCtx), options.env ?? process.env));
+  const withheld = withheldTypesFor(modelVerdicts);
+  for (const verdict of modelVerdicts) {
+    if (verdict.status === 'ok') continue;
+    const types = [...withheld.entries()].filter(([, ids]) => ids.includes(verdict.id)).map(([type]) => type);
+    logger.warn(
+      `model "${verdict.id}" is ${verdict.status}${verdict.detail !== undefined ? ` (${verdict.detail})` : ''}; ` +
+        `${types.length > 0 ? `not advertising ${types.join(', ')}` : 'no job type depends on it'}. Run \`${cliName()} node models pull\`, then restart.`,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -207,9 +226,28 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
     nodeId,
     concurrency: config.node.concurrency,
     eligibleTypes: config.node.eligibleTypes,
+    ...(withheld.size > 0 ? { withheldTypes: [...withheld.keys()] } : {}),
     pollIntervalMs: config.node.pollIntervalMs,
     tmpDir: nodeTmpDir(pathCtx),
     capabilities: { ...(options.capabilities ?? {}), probe: { ...probe } },
+    // Cheap presence probes are refreshed on every heartbeat so the fleet page
+    // sees a sidecar go away; expensive results come from the probe cache and
+    // version banners are carried forward, never re-read.
+    // An injected probe (a test seam) is never replaced by a real one.
+    ...(options.probe === undefined
+      ? {
+          refreshCapabilities: async () => ({
+            ...(options.capabilities ?? {}),
+            probe: {
+              ...(await probeCapabilities({
+                useCache: true,
+                ...(options.env !== undefined ? { env: options.env } : {}),
+                readVersion: (name: string) => probe.versions?.[name],
+              })),
+            },
+          }),
+        }
+      : {}),
     ...(vitals !== undefined ? { collectVitals: (input) => vitals.collect(input) } : {}),
     // The engine learns the server's features from the register response (a
     // fresh registration) or from any heartbeat response (an already-registered

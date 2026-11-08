@@ -266,33 +266,91 @@ about turning this on is required to take backups at all.
 
 ### 5.2 Declare a requirement in a fork
 
-In `packages/platform-cli/src/engine/node/capabilities.ts`:
+An app declares what its job types need with registrations made before the
+node starts (the module that holds `createCli({ nodeExecutors })` is the natural
+place), all from `@marinoscar/platform-cli/node`:
 
 ```ts
-export const PROBED_BINARIES = ['ffmpeg'];
+registerProbedBinary('ffmpeg', { versionArgs: ['-version'] });
+registerCapabilityProbe(moduleCapability('sharp'));
+registerCapabilityProbe(httpServiceCapability({ id: 'ocr', env: 'APP_OCR_URL', path: '/status' }));
 
-export const JOB_TYPE_REQUIREMENTS = {
-  'video.transcode': {
-    required: [binaryCapability('ffmpeg')],
-    degradable: [binaryCapability('exiftool')],
-  },
-};
+registerJobRequirement('app.transcode', {
+  required: [binaryCapability('ffmpeg')],
+  degradable: [binaryCapability('exiftool')],
+});
+registerJobRequirement('app.ocr', { required: ['service:ocr'], degradable: ['module:sharp'] });
 ```
+
+Three kinds of key, one rule:
+
+| Key | Probe | Notes |
+|---|---|---|
+| `binary:<name>` | `which` (plus a version banner with `versionArgs`) | Registered automatically by `registerJobRequirement` |
+| `module:<name>` | `require.resolve`, never an import | A `module:` key in a requirement registers its own probe; an `operational` check separates installed from working |
+| `service:<id>` | a bounded HTTP `GET` (3 s) | The URL is read from the named env var at probe time; a 2xx is available, another HTTP answer is *installed*, no answer is *missing* |
+
+**Installed is not operational.** A module that resolves but fails its check, or
+a service that answers HTTP 500, is reported as *installed but not operational*.
+It is not in the satisfied set, so a **required** one stops the node at startup
+(exit `70`) exactly like a missing one, with a message that says which it is;
+a degradable one only warns. `node doctor` lists every module and service with
+its state under "Modules and services registered for app job types", and the
+same results ride the heartbeat capability summary to the fleet page. Cheap
+presence probes are refreshed on each heartbeat (a sidecar that goes away shows
+up without a restart); expensive results are cached for their `cacheMs`.
+
+### 5.3 Model files
+
+A job type that needs a large file (OCR data, a network) declares it with
+`registerModelArtifact({ id, fileName, sha256, bytes, url, requiredBy, targetSubdir? })`.
+The app owns the URL and the checksum, so fleet agreement on versions comes from
+the app release, not from a server call.
+
+```bash
+appctl node models status     # verify the files on disk, no download
+appctl node models pull       # download what is missing or corrupt
+appctl node models pull --ids ocr-eng --force
+```
+
+- Files live in `<state dir>/models`, or in `<PREFIX>MODELS_DIR` (point it at
+  the directory a container image bakes the files into: a valid file already
+  there is left alone, nothing is downloaded).
+- A pull streams to `<file>.partial`, **resumes** an interrupted download with a
+  `Range` request, checks the size and the sha256, and renames into place
+  atomically. A file that fails its sha256 is deleted and not retried.
+- At startup the node verifies every declared file. A job type whose model is
+  missing or corrupt is **not advertised** (the node stays healthy for
+  everything else; this is not a hard exit). The log and `node doctor` name the
+  file and the withheld types. Run `node models pull`, then restart the worker.
+- Only the origin and path of a download URL are ever logged.
 
 ## 6. Install dependencies
 
 ```bash
-appctl node install-deps --dry-run   # print the plan, change nothing
-appctl node install-deps
+appctl node install-deps --dry-run          # print the plan, change nothing
+appctl node install-deps                    # the platform's steps, then the app's
+appctl node install-deps --only models      # one or more steps, comma-separated
 ```
 
-⚠️ **This ships as a framework, not as a set of real installs.** The template
-has no native dependencies to install, and inventing some would mean a fork had
-to work out which of the steps were real. What you get is the structure —
-ordered steps, per-step `skipped | installed | failed | unsupported`, distro
-detection, an explicit sudo announcement before anything runs, and a working
-`--dry-run`. Add your own steps in `packages/platform-cli/src/engine/node/install-deps.ts` beside
-the two generic ones.
+The package ships two generic steps (the state directory, the Node.js version).
+Everything else is the app's: it registers its own steps with
+`registerInstallStep({ id, label, supported, detect, install, requiresSudo?, order?, after? })`.
+Registered steps run after the defaults, sorted by `order` (or placed right
+after another step with `after`). Each step reports `skipped | installed |
+failed | unsupported`; `detect` runs in `--dry-run` and `install` never does.
+
+Helpers for steps, none with a product baked in:
+
+- `ensureAptPackages(names, ctx)` installs only the Debian-family packages that
+  are missing, with one `apt-get install -y`.
+- `runWithSudoAnnounced(command, args, ctx)` prints the command before running
+  it (as root already, without `sudo`) and never runs it in `--dry-run`.
+- `ensureDockerContainer({ name, image, args, verify }, ctx)` creates or starts a
+  sidecar container and polls `verify` (20 checks, 2 s apart) until it answers.
+
+A step that needs `sudo` sets `requiresSudo: true`, so the plan names it before
+any step runs. Declaring a model (5.3) adds the `models` step by itself.
 
 ## 7. Memory
 
