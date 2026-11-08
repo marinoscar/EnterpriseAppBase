@@ -127,6 +127,13 @@ export function parseNotificationEvent(data: string): NotificationStreamEvent | 
     // and anything but a literal `true` reads as "not pushed", which keeps the
     // page's own toast — the fail-safe direction.
     pushed: value.pushed === true,
+    // Issue #1077: optional on the wire; an older server sends none of them.
+    ...(typeof value.count === 'number' ? { count: value.count } : {}),
+    ...(typeof value.scopeId === 'string' ? { scopeId: value.scopeId } : {}),
+    ...(typeof value.updatedAt === 'string' ? { updatedAt: value.updatedAt } : {}),
+    ...(value.reason === 'created' || value.reason === 'incremented' || value.reason === 'reunread'
+      ? { reason: value.reason }
+      : {}),
   };
 }
 
@@ -150,7 +157,7 @@ export function parseNotificationEvent(data: string): NotificationStreamEvent | 
 export function streamEventToNotification(
   event: NotificationStreamEvent,
 ): AppNotification {
-  const { toast: _toast, pushed: _pushed, ...notification } = event;
+  const { toast: _toast, pushed: _pushed, reason: _reason, ...notification } = event;
 
   return { ...notification, readAt: null };
 }
@@ -178,7 +185,12 @@ export interface NotificationStreamHandlers {
    * arrival is also going out over Web Push to this user. `false` when the
    * server did not say.
    */
-  onNotification: (notification: AppNotification, toast: boolean, pushed: boolean) => void;
+  onNotification: (
+    notification: AppNotification,
+    toast: boolean,
+    pushed: boolean,
+    reason?: 'created' | 'incremented' | 'reunread',
+  ) => void;
   /**
    * ⚠️ THE REFETCH SIGNAL. Fires on the first connect and on EVERY reconnect.
    *
@@ -234,11 +246,14 @@ export function connectNotificationStream(
       // more.
       if (!event) return;
 
-      handlers.onNotification(
-        streamEventToNotification(event),
-        event.toast,
-        event.pushed === true,
-      );
+      // The reason is passed only when the server sent one (#1077), so a frame
+      // from an older server reaches the handler exactly as it always did.
+      const notification = streamEventToNotification(event);
+      if (event.reason) {
+        handlers.onNotification(notification, event.toast, event.pushed === true, event.reason);
+      } else {
+        handlers.onNotification(notification, event.toast, event.pushed === true);
+      }
     },
   });
 }

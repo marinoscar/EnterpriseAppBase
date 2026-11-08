@@ -67,6 +67,7 @@ import {
   getNotificationConfig,
   getNotifications,
   getUnreadNotificationCount,
+  dismissNotification,
   markAllNotificationsRead,
   markNotificationRead,
 } from './api.js';
@@ -172,6 +173,8 @@ export interface NotificationContextValue {
   markRead: (id: string) => Promise<void>;
   /** Mark every notification read. */
   markAllRead: () => Promise<void>;
+  /** Dismiss one ("stop showing me this"): optimistic, with the count taken from the response. */
+  dismiss: (id: string) => Promise<void>;
 }
 
 /**
@@ -367,8 +370,39 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
    * on render is a connection that reconnects constantly.
    */
   const handleNotification = useCallback(
-    (notification: AppNotification, toast: boolean, pushed = false) => {
+    (
+      notification: AppNotification,
+      toast: boolean,
+      pushed = false,
+      reason?: 'created' | 'incremented' | 'reunread',
+    ) => {
       if (!isMounted()) return;
+
+      // STATE and COUNTED rows (#1077): a frame for a row that already exists
+      // refreshes it in place (new text and count, moved to the top). The count
+      // is then taken from the server rather than guessed: an `incremented` row
+      // was already unread and a `reunread` one was read, and the server's
+      // number settles both without this tab tracking which it held.
+      if (reason === 'incremented' || reason === 'reunread') {
+        setNotifications((current) =>
+          [notification, ...current.filter((existing) => existing.id !== notification.id)].slice(
+            0,
+            RECENT_NOTIFICATION_COUNT,
+          ),
+        );
+        void getUnreadNotificationCount()
+          .then(({ unreadCount: next }) => {
+            if (isMounted()) setUnreadCount(next);
+          })
+          .catch(() => undefined);
+        // `incremented` stops here: the user already has the row unread, so it
+        // is neither a new badge count nor a toast.
+        if (reason === 'incremented') return;
+        // `reunread` is news again: forget the id so the flow below treats it as
+        // a fresh arrival (badge, toast gates). The fetched count above settles
+        // any difference from the local +1.
+        seenNotificationIds.current.delete(notification.id);
+      }
 
       // =======================================================================
       // ⚠️ #127: DECIDE NEWNESS HERE, ONCE, BEFORE ANY STATE UPDATER RUNS
@@ -643,8 +677,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     const connection = connectNotificationStream({
       // Indirected through the ref so this effect never re-runs for a changed
       // callback identity.
-      onNotification: (notification, toast, pushed) =>
-        handlersRef.current.handleNotification(notification, toast, pushed),
+      onNotification: (notification, toast, pushed, reason) =>
+        handlersRef.current.handleNotification(notification, toast, pushed, reason),
       onOpen: () => handlersRef.current.handleStreamOpen(),
       onStateChange: (state) => {
         if (isMounted()) setStreamState(state);
@@ -766,6 +800,26 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }
   }, [isMounted, refresh]);
 
+  const dismiss = useCallback(
+    async (id: string) => {
+      let previous: AppNotification[] = [];
+      setNotifications((current) => {
+        previous = current;
+        return current.filter((item) => item.id !== id);
+      });
+
+      try {
+        const { unreadCount: next } = await dismissNotification(id);
+        if (isMounted()) setUnreadCount(next);
+      } catch (err) {
+        if (!isMounted()) return;
+        setNotifications(previous);
+        if (!(err instanceof ApiError && err.status === 401)) void refresh();
+      }
+    },
+    [isMounted, refresh],
+  );
+
   const value: NotificationContextValue = {
     notifications,
     unreadCount,
@@ -775,6 +829,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     refresh,
     markRead,
     markAllRead,
+    dismiss,
   };
 
   return (

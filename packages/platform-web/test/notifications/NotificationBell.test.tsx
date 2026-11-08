@@ -55,6 +55,7 @@ function makeFixture(overrides: Partial<NotificationContextValue> = {}): Notific
     refresh: vi.fn().mockResolvedValue(undefined),
     markRead: vi.fn().mockResolvedValue(undefined),
     markAllRead: vi.fn().mockResolvedValue(undefined),
+    dismiss: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -169,6 +170,35 @@ describe('NotificationBell', () => {
 
       expect(fixture.markRead).toHaveBeenCalledWith('row-2');
       expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it('renders the count of a STATE or COUNTED row and dismisses without activating the row', async () => {
+      const user = userEvent.setup();
+      const notification = makeNotification({ id: 'row-9', link: '/settings', readAt: null, count: 12 });
+      const fixture = makeFixture({ notifications: [notification], unreadCount: 1 });
+      useNotificationsMock.mockReturnValue(fixture);
+
+      render(<NotificationBell />);
+
+      await user.click(screen.getByLabelText('Notifications, 1 unread'));
+      expect(await screen.findByLabelText('12 occurrences')).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Dismiss notification' }));
+
+      expect(fixture.dismiss).toHaveBeenCalledWith('row-9');
+      expect(fixture.markRead).not.toHaveBeenCalled();
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it('shows no count chip for a plain row', async () => {
+      const user = userEvent.setup();
+      const fixture = makeFixture({ notifications: [makeNotification({ readAt: null })], unreadCount: 1 });
+      useNotificationsMock.mockReturnValue(fixture);
+
+      render(<NotificationBell />);
+      await user.click(screen.getByLabelText('Notifications, 1 unread'));
+
+      expect(screen.queryByLabelText(/occurrences/)).not.toBeInTheDocument();
     });
 
     it('clicking an already-read row does not call markRead again', async () => {

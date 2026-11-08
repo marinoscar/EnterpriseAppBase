@@ -67,6 +67,23 @@ describe('parseNotificationEvent', () => {
     expect(result).toEqual({ ...payload, pushed: false });
   });
 
+  // Issue #1077: STATE and COUNTED frames carry optional fields; an older server sends none.
+  it('parses the optional count, scope, refresh time and reason', () => {
+    const payload = {
+      ...valid,
+      count: 4000,
+      scopeId: 'scope-1',
+      updatedAt: '2026-01-01T00:05:00.000Z',
+      reason: 'incremented',
+    };
+    expect(parseNotificationEvent(JSON.stringify(payload))).toEqual({ ...payload, pushed: false });
+  });
+
+  it('ignores an unknown reason and a non-numeric count', () => {
+    const result = parseNotificationEvent(JSON.stringify({ ...valid, reason: 'surprise', count: '3' }));
+    expect(result).toEqual({ ...valid, pushed: false });
+  });
+
   // #625: `pushed` is optional. An older server omits it, and anything but a
   // literal `true` reads as "not pushed" so the page keeps its own toast.
   it('parses pushed: true', () => {

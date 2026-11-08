@@ -241,6 +241,17 @@ export async function markNotificationRead(id: string): Promise<UnreadCountRespo
 }
 
 /**
+ * `POST /api/notifications/:id/dismiss`: "stop showing me this". Implies read.
+ *
+ * @returns the new unread count.
+ *
+ * @stability experimental
+ */
+export async function dismissNotification(id: string): Promise<UnreadCountResponse> {
+  return api.post<UnreadCountResponse>(`/notifications/${id}/dismiss`);
+}
+
+/**
  * `POST /api/notifications/read-all`.
  *
  * @returns the new unread count (zero).

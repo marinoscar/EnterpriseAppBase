@@ -43,6 +43,7 @@ import {
   Badge,
   Box,
   Button,
+  Chip,
   CircularProgress,
   Divider,
   IconButton,
@@ -53,6 +54,7 @@ import {
   Typography,
 } from '@mui/material';
 import {
+  Close as CloseIcon,
   Notifications as NotificationsIcon,
   NotificationsNone as NotificationsNoneIcon,
 } from '@mui/icons-material';
@@ -168,7 +170,7 @@ export function NotificationBell({ slots }: NotificationBellProps = {}) {
   // wiring point is `App.tsx`, which wraps the `Layout` route element.
   if (!centre) return null;
 
-  const { notifications, unreadCount, isLoading, error, markAllRead } = centre;
+  const { notifications, unreadCount, isLoading, error, markAllRead, dismiss } = centre;
   const hasUnread = unreadCount > 0;
 
   // One instant for the whole list, so seven rows rendered in one pass cannot
@@ -359,6 +361,29 @@ export function NotificationBell({ slots }: NotificationBellProps = {}) {
                         </Typography>
                         {slots?.itemExtra?.(notification)}
                       </Box>
+                      {/* A STATE or COUNTED row carries its count (#1077). */}
+                      {typeof notification.count === 'number' && notification.count > 1 && (
+                        <Chip
+                          size="small"
+                          label={notification.count}
+                          aria-label={`${notification.count} occurrences`}
+                          sx={{ flexShrink: 0 }}
+                        />
+                      )}
+                      <Tooltip title="Dismiss">
+                        <IconButton
+                          size="small"
+                          aria-label="Dismiss notification"
+                          onClick={(event) => {
+                            // Dismissing must not also activate the row (mark read + navigate).
+                            event.stopPropagation();
+                            void dismiss(notification.id);
+                          }}
+                          sx={{ flexShrink: 0, mt: -0.5 }}
+                        >
+                          <CloseIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                     </ListItemButton>
                   </Box>
                 );
