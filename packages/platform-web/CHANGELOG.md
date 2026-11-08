@@ -1,5 +1,16 @@
 # @marinoscar/platform-web
 
+## 0.1.0-next.28
+
+### Minor Changes
+
+- 2cc3691: Storage for multi-provider apps (#1124). Per-driver credentials: the built-in S3-family drivers (`s3`, `r2`, `s3compatible`) keep their secret access key at `storage/<driverId>` and read the shared `storage/default` slot only as a fallback while their own is empty, so two S3-family drivers with different key pairs each serve their own rows; nothing moves on upgrade. `StorageSecretAddress` gains read-only `fallbacks`; new helpers `storageSecretReadAddresses`, `readStorageDriverSecret`, `describeStorageDriverSecret`. `PUT /api/admin/storage-config` writes the secrets of every driver named in `secrets` (not only the active one's), and the admin view adds the optional `secretStatuses` (contract: `storageConfigResponseSchema`). Web: `StorageConfigPage` gains `StorageDriverCredentialsPanel` (a write-only secret field per configured non-active driver, saved without switching) and the S3-family panel shows the selected driver's own stored key (`storageSecretStatusOf`). `StorageProvider` gains the optional `deleteMany(keys)` (S3 `DeleteObjects`, 1,000 keys a call) and `size(key)` (`HeadObject`), with `deleteStorageKeys` (per-key fallback) and `storageObjectSize`; the generic storage purge, the export purge and the user-data purge delete in bulk. `StorageUploadOptions.cacheControl` (S3: `CacheControl` on simple and multipart uploads). `ObjectProcessor.optional`: an optional processor's failure is recorded on the row and leaves the object `ready` when the required processors succeed. `registerStoragePartBodyParser` rejects an unknown content type with `UnsupportedMediaTypeException` (a 415 through the exception filter, not a 500). Manifest: `PlatformPermissionOptions.app.platformGrants` (`{ 'storage:write': ['viewer'] }`) widens a platform permission's role grants, platform roles included, additively, in the registries and the seed catalog. Conformance: the `storage` suite adds `storage-driver-credentials` and `storage-provider-extensions`; the driver kit adds the `bulkDelete` scenario.
+
+### Patch Changes
+
+- Updated dependencies [2cc3691]
+  - @marinoscar/platform-contract@0.1.0-next.28
+
 ## 0.1.0-next.27
 
 ### Minor Changes
