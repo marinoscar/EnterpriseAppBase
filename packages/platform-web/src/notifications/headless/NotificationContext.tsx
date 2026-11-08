@@ -67,6 +67,7 @@ import {
   getNotificationConfig,
   getNotifications,
   getUnreadNotificationCount,
+  dismissAllNotifications,
   dismissNotification,
   markAllNotificationsRead,
   markNotificationRead,
@@ -175,6 +176,8 @@ export interface NotificationContextValue {
   markAllRead: () => Promise<void>;
   /** Dismiss one ("stop showing me this"): optimistic, with the count taken from the response. */
   dismiss: (id: string) => Promise<void>;
+  /** Dismisses every live notification (issue #1090), optionally only one scope's. */
+  dismissAll: (scopeId?: string) => Promise<void>;
 }
 
 /**
@@ -628,10 +631,16 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   // Latest-callback refs, so the connection effect below can depend on
   // `isAuthenticated` ALONE. Putting the handlers in its dependency array would
   // drop and re-open the SSE connection on unrelated re-renders.
-  const handlersRef = useRef({ handleNotification, handleStreamOpen });
+  // A `sync` frame (issue #1090): the user changed the inbox in another tab.
+  // The response is the same refetch a reconnect does.
+  const handleSync = useCallback(() => {
+    void refresh();
+  }, [refresh]);
+
+  const handlersRef = useRef({ handleNotification, handleStreamOpen, handleSync });
   useEffect(() => {
-    handlersRef.current = { handleNotification, handleStreamOpen };
-  }, [handleNotification, handleStreamOpen]);
+    handlersRef.current = { handleNotification, handleStreamOpen, handleSync };
+  }, [handleNotification, handleStreamOpen, handleSync]);
 
   // ---------------------------------------------------------------------------
   // Mount fetch — INDEPENDENT of the stream, on purpose
@@ -680,6 +689,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       onNotification: (notification, toast, pushed, reason) =>
         handlersRef.current.handleNotification(notification, toast, pushed, reason),
       onOpen: () => handlersRef.current.handleStreamOpen(),
+      onSync: () => handlersRef.current.handleSync(),
       onStateChange: (state) => {
         if (isMounted()) setStreamState(state);
       },
@@ -820,6 +830,26 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     [isMounted, refresh],
   );
 
+  const dismissAll = useCallback(
+    async (scopeId?: string) => {
+      let previous: AppNotification[] = [];
+      setNotifications((current) => {
+        previous = current;
+        return scopeId ? current.filter((item) => item.scopeId !== scopeId) : [];
+      });
+
+      try {
+        const { unreadCount: next } = await dismissAllNotifications(scopeId);
+        if (isMounted()) setUnreadCount(next);
+      } catch (err) {
+        if (!isMounted()) return;
+        setNotifications(previous);
+        if (!(err instanceof ApiError && err.status === 401)) void refresh();
+      }
+    },
+    [isMounted, refresh],
+  );
+
   const value: NotificationContextValue = {
     notifications,
     unreadCount,
@@ -830,6 +860,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     markRead,
     markAllRead,
     dismiss,
+    dismissAll,
   };
 
   return (
