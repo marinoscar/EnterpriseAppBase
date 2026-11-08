@@ -20,7 +20,7 @@
 // proposed in `docs/specs/worker-nodes.md`.
 // =============================================================================
 
-import { nodeCredentialPurposeRegistry, registerNodeCredentialPurpose, type NodeCredentialResolveContext } from '../../jobs/index';
+import { nodeCredentialPurposeRegistry, registerNodeCredentialPurpose, type NodeCredentialResolveContext, type ResolvedNodeCredential } from '../../jobs/index';
 import { AI_KEYLESS_API_KEY } from '../core/provider-adapter.interface';
 import { AiKeyResolver } from './ai-key-resolver.service';
 
@@ -46,7 +46,7 @@ export function aiNodeCredentialPurposeId(providerId: string): string {
  *
  * @stability experimental
  */
-export async function resolveAiNodeCredential(providerId: string, ctx: NodeCredentialResolveContext): Promise<{ material: Record<string, string> } | null> {
+export async function resolveAiNodeCredential(providerId: string, ctx: NodeCredentialResolveContext): Promise<ResolvedNodeCredential | null> {
   const resolver = ctx.get<AiKeyResolver>(AiKeyResolver);
   let resolved;
   try {

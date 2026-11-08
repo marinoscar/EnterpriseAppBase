@@ -44,6 +44,7 @@ import {
   type NodeCredentialDeliveryState,
   type NodeCredentialIssueRequest,
   type NodeCredentialIssueResponse,
+  type NodeCredentialRevokeAllResponse,
 } from '@marinoscar/platform-contract/nodes';
 
 import { deriveSigningKey, PLATFORM_PRISMA } from '../core/index';
@@ -344,7 +345,7 @@ export class NodeCredentialDeliveryService {
    * @param userId - the administrator.
    * @returns the epoch now in force.
    */
-  async revokeAll(userId: string): Promise<{ epoch: number }> {
+  async revokeAll(userId: string): Promise<NodeCredentialRevokeAllResponse> {
     const current = await this.policy();
     const epoch = current.epoch + 1;
     await this.settings.patchSettings({ nodes: { credentialDelivery: { epoch } } } as never, userId);
