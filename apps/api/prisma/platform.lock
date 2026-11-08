@@ -241,6 +241,12 @@
       "originId": "platform:0040_add_alerts",
       "sha256": "ec4af7e5123ecd8bb6faf3505893cb2efab4d793dae84a98d8b7f26f2dff3776",
       "since": "1.0.0"
+    },
+    {
+      "localDir": "20261108011158_notifications_state_counted",
+      "originId": "platform:0041_notifications_state_counted",
+      "sha256": "c9285347971920da5310a279351d8de8acac3bba4b281e227cb025745dafc73c",
+      "since": "1.0.0"
     }
   ],
   "platformVersion": "1.0.0"
