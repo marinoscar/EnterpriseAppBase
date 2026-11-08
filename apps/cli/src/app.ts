@@ -24,6 +24,8 @@ import { CLI_VERSION } from './package-info.js';
 //   nodeExecutors     a node-eligible job type            examples/echo.executor.ts
 //                     one that needs ffmpeg, emits a
 //                     job.app.* span and an app vital     examples/transcode.executor.ts
+//                     one that reads its input by URL,
+//                     with no download (input: 'url')     examples/probe.executor.ts
 //   envSpecFragments  metadata for app.env.example keys
 //   envGroups         an opt-in group of env keys          examples/coach.env-group.ts
 //   envGenerators     a kind of generated env value        examples/coach.env-generator.ts

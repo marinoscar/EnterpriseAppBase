@@ -17,6 +17,7 @@ export {
   defaultExecutors,
   listRegisteredNodeExecutors,
   registerNodeExecutor,
+  resolveInputMode,
 } from '../engine/index.js';
 export type {
   Capability,
@@ -36,6 +37,7 @@ export type {
   ExecutorNodeApi,
   JobExecutionContext,
   JobExecutor,
+  JobInputMode,
   JobSecret,
   NodeJob,
   UploadUrlResult,

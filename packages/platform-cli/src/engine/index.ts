@@ -563,7 +563,8 @@ export type {
 } from './node/capabilities.js';
 export { sanitizeExtraVitals } from './node/node-vitals.js';
 export { ExecutorRegistry } from './node/executors/index.js';
-export type { ExecutorNodeApi, JobExecutionContext, JobExecutor } from './node/executors/index.js';
+export type { ExecutorNodeApi, JobExecutionContext, JobExecutor, JobInputMode } from './node/executors/index.js';
+export { resolveInputMode } from './node/executors/index.js';
 export type { ClaimToken, DownloadUrlResult, JobSecret, NodeJob, UploadUrlResult } from './node/node-api.js';
 export { NODE_APP_SPAN_NAME_PATTERN, isNodeSpanName } from '../telemetry/index.js';
 export type { NodeSpanAttributes, NodeSpanName } from '../telemetry/index.js';

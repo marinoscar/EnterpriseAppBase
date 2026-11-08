@@ -420,6 +420,11 @@
       "file": "packages/platform-cli/src/engine/tui/dashboard/source.ts",
       "symbol": "DashboardMode",
       "reason": "the three transports a dashboard feed can have (daemon attach, in-process, poll); a feed reports its own mode and a screen only branches on it, so a fourth transport is a new feed function, not a registered id"
+    },
+    {
+      "file": "packages/platform-cli/src/engine/node/executors/index.ts",
+      "symbol": "JobInputMode",
+      "reason": "how the engine delivers a job's input (none, a temp file, or a presigned URL); the engine branches on each mode, so it is a protocol switch, not an implementation id"
     }
   ]
 }
