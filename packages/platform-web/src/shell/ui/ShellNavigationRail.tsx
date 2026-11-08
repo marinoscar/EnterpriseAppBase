@@ -60,6 +60,7 @@ import {
   shellDestinationRoutes,
 } from '../headless/navigation.js';
 import type { ShellDestination, ShellIcon, ShellNavigation, ShellRailPreference } from '../headless/navigation.js';
+import { useReportShellContextPane } from '../headless/context-pane.js';
 import { useShellRailPreference } from '../headless/rail-preference.js';
 import { DestinationIcon, EXTERNAL_LINK_PROPS, destinationAccessibleName, useDestinationBadge } from './destination-parts.js';
 
@@ -273,6 +274,9 @@ export function ShellNavigationRail({ navigation }: ShellNavigationRailProps): R
   const paneDestination =
     expanded && !consoleMode ? visibleDestinations.find((destination) => destination.key === activeDestination) : undefined;
   const ContextPane = paneDestination?.contextPane;
+  // Tell the layout which pane is drawn (issue #1109), so a page can ask
+  // `useShellContextPaneVisible` instead of re-deriving the rail's decision.
+  useReportShellContextPane(ContextPane !== undefined && paneDestination !== undefined ? paneDestination.key : null);
 
   const subheaderSx = {
     fontSize: '0.65rem',

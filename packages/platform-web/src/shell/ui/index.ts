@@ -7,6 +7,7 @@ export type { ShellLayoutProps } from './ShellLayout.js';
 // Re-exported beside the layout it drives (it lives in headless: no MUI).
 export { useShellMainVariant } from '../headless/main-variant.js';
 export type { ShellMainVariant } from '../headless/main-variant.js';
+export { useShellContextPaneVisible } from '../headless/context-pane.js';
 export { ShellAppBar } from './ShellAppBar.js';
 export type { ShellAppBarProps } from './ShellAppBar.js';
 export { CONTEXT_PANE_WIDTH, RAIL_WIDTH_COLLAPSED, RAIL_WIDTH_EXPANDED, ShellNavigationRail } from './ShellNavigationRail.js';

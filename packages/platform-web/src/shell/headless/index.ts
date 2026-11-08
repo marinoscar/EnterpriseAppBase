@@ -31,6 +31,7 @@ export {
 export type { ShellPreferences, ShellPreferencesPort, ShellPreferencesProviderProps } from './preferences.js';
 export { useShellMainVariant } from './main-variant.js';
 export type { ShellMainVariant } from './main-variant.js';
+export { useShellContextPaneVisible } from './context-pane.js';
 export { useShellRailPreference } from './rail-preference.js';
 export type { ShellRailPreferenceOptions, UseShellRailPreferenceResult } from './rail-preference.js';
 export {
