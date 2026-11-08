@@ -1,5 +1,30 @@
 # @marinoscar/platform-cli
 
+## 0.1.0-next.25
+
+### Minor Changes
+
+- 2cbd3f5: TUI testing kit and the `tui` conformance suite (RETRO-G1.5, closes epic #1064).
+
+  Additive; nothing changes at runtime. kvox and EvoPath need no change.
+
+  - New subpath `@marinoscar/platform-cli/tui/testing`, for tests only, on `ink-testing-library` (`^4.0.0`, a new OPTIONAL peer: add it as a dev dependency of the app that tests screens). `renderTuiScreen(Screen, { session?, selection?, appState?, theme?, columns?, params? })` mounts a screen in a `TuiAppProvider` in test mode (an in-memory session; it never reads a real CLI config or token) and returns `{ lastFrame, frames, stdin, press, type, waitForFrame, nav: { stack }, unmount }`; `renderTuiRoute(route)` mounts the real router (lazy `load`, login gate); `renderTuiMenu({ nodes, screens, loggedIn })` asserts visible labels and breadcrumbs; `fakeDaemonFeed<E>()` and `fakeEmitterFeed<E>()` drive a `DashboardSource` frame by frame; `stripAnsi`, `hasAnsi`, `frameLines`, `renderAt`.
+  - New `tui` suite for `runPlatformConformance` (`@marinoscar/platform-cli/testing`): every menu entry opens a registered screen, every section is reachable, no cycles, depth at most 4; app screens and sections use `load` (opt out per route with `allowEager`); importing `@marinoscar/platform-cli/tui` and the app's registration modules loads no `ink` (checked in a fresh Node process); labels are non-empty logged in and logged out; each dashboard reducer leaves a frozen input untouched; each app screen renders at narrow widths and without colour; every login-gated entry shows the "not logged in" notice. Each check is skippable with a written reason. The pure checks (`checkTuiMenu`, `checkTuiLazy`, `checkTuiLabels`, `checkTuiNoInkImport`, `checkDashboardReducer`) are exported. An app opts in with `tui: {}`; a suite left out does not run.
+  - Migration for an app with a forked TUI: its menu tree maps to `registerTuiMenuNode`, its app state to `registerTuiStateLoader`, its active selection to `registerTuiSelection`, its dashboards to a `DashboardReducer` over a `DashboardSource` (`daemonAttachFeed`, `inProcessFeed`, `pollFeed`), its widgets to `@marinoscar/platform-cli/tui/ui`, and its Ink test helpers to `renderTuiScreen`.
+  - This release carries the whole RETRO-G1 framework: the menu tree (G1.1), the app context (G1.2), the dashboard source (G1.3), the component kit (G1.4) and this kit (G1.5).
+
+- 0aef693: Worker install steps, module and service capability probes, and model artifacts (RETRO-G2.4).
+
+  `registerInstallStep` adds app steps to `node install-deps` after the built-in ones (ordered by `order` or `after`; `--only <ids>` selects steps; `--dry-run` still changes nothing), with the helpers `ensureAptPackages`, `runWithSudoAnnounced` and `ensureDockerContainer`. `registerCapabilityProbe`, `moduleCapability` (`require.resolve`, never an import) and `httpServiceCapability` declare `module:<name>` and `service:<id>` capabilities that `registerJobRequirement` accepts; a probe is available, installed but not operational, or missing, a required one that is not available blocks startup, and the results appear in the self-test, `node doctor` and the heartbeat summary (presence probes refresh on each heartbeat). `registerModelArtifact` declares a model file (sha256, size, static or resolved URL, `targetSubdir`, `requiredBy`): `node models pull|status`, a `models` install step, download with resume and an atomic rename, and a job type whose model is missing or corrupt is not advertised. New worker variable `<PREFIX>MODELS_DIR`.
+
+  Breaking within 0.x: `probeCapabilities`, `runStartupSelfTest` and `runInstallDeps` now return promises (await them), and `InstallStep.supported`, `detect` and `install` may be asynchronous. A node with nothing registered behaves as before.
+
+### Patch Changes
+
+- 292872b: Documentation for the worker-node hardening (RETRO-G2.5): executor input modes, `binary:` / `module:` / `service:` capability keys and model artifacts in the executors README, and the shipped hardening described for operators and adopters.
+  - @marinoscar/platform-contract@0.1.0-next.25
+  - @marinoscar/platform-infra@0.1.0-next.25
+
 ## 0.1.0-next.24
 
 ### Minor Changes
