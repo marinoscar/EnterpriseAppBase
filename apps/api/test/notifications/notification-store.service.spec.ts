@@ -422,4 +422,64 @@ describe('NotificationStoreService', () => {
       expect(mockPrisma.notification.count).toHaveBeenCalledWith({ where: { id: 'other-users-notif', userId: USER_ID } });
     });
   });
+
+  // ==========================================================================
+  // status filter and dismiss-all (issue #1090)
+  // ==========================================================================
+
+  describe('list() status filter', () => {
+    async function whereFor(query: Partial<NotificationListQueryDto>) {
+      mockPrisma.$transaction.mockImplementation((ops: any) => Promise.all(ops) as never);
+      mockPrisma.notification.findMany.mockResolvedValue([] as never);
+      mockPrisma.notification.count.mockResolvedValue(0 as never);
+      await service.list(USER_ID, defaultQuery(query));
+      return (mockPrisma.notification.findMany.mock.calls[0]![0] as { where: Record<string, unknown> }).where;
+    }
+
+    it('status=dismissed lists only dismissed rows, still scoped to the user', async () => {
+      expect(await whereFor({ status: 'dismissed' })).toEqual({ userId: USER_ID, dismissedAt: { not: null } });
+    });
+
+    it('status=read lists live read rows', async () => {
+      expect(await whereFor({ status: 'read' })).toEqual({ userId: USER_ID, dismissedAt: null, readAt: { not: null } });
+    });
+
+    it('status=unread lists live unread rows', async () => {
+      expect(await whereFor({ status: 'unread' })).toEqual({ userId: USER_ID, dismissedAt: null, readAt: null });
+    });
+
+    it('status=all (and the default) lists every live row and never a dismissed one', async () => {
+      expect(await whereFor({ status: 'all' })).toEqual({ userId: USER_ID, dismissedAt: null });
+      mockPrisma.notification.findMany.mockClear();
+      expect(await whereFor({})).toEqual({ userId: USER_ID, dismissedAt: null });
+    });
+
+    it('status wins over the older unreadOnly flag', async () => {
+      expect(await whereFor({ status: 'read', unreadOnly: true })).toEqual({
+        userId: USER_ID,
+        dismissedAt: null,
+        readAt: { not: null },
+      });
+    });
+  });
+
+  describe('dismissAll()', () => {
+    it('dismisses every live row of the user, implies read, sets updated_at, and reports the count and badge', async () => {
+      (mockPrisma.$executeRaw as jest.Mock).mockResolvedValue(7);
+      mockPrisma.notification.count.mockResolvedValue(0 as never);
+
+      expect(await service.dismissAll(USER_ID)).toEqual({ dismissed: 7, unreadCount: 0 });
+
+      expectRaw(0, ['dismissed_at = now()', 'COALESCE(read_at, now())', 'updated_at = now()', 'dismissed_at IS NULL'], [USER_ID]);
+    });
+
+    it('narrows to one scope when given', async () => {
+      (mockPrisma.$executeRaw as jest.Mock).mockResolvedValue(2);
+      mockPrisma.notification.count.mockResolvedValue(1 as never);
+
+      expect(await service.dismissAll(USER_ID, 'scope-1')).toEqual({ dismissed: 2, unreadCount: 1 });
+
+      expectRaw(0, ['scope_id =', 'dismissed_at IS NULL'], [USER_ID, 'scope-1']);
+    });
+  });
 });

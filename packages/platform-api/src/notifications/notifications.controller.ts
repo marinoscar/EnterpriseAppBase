@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -13,6 +14,7 @@ import {
   Sse,
 } from '@nestjs/common';
 import {
+  ApiBody,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
@@ -46,9 +48,13 @@ import {
   type NotificationEventResponse,
 } from './dto/notification-event.dto';
 import {
+  DismissAllNotificationsDto,
+  DismissAllResultDto,
+  dismissAllNotificationsSchema,
   NotificationDto,
   NotificationListQueryDto,
   UnreadCountDto,
+  type DismissAllResult,
   type NotificationListResponse,
   type UnreadCountResponse,
 } from './dto/notification.dto';
@@ -422,6 +428,14 @@ export class NotificationsController {
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'pageSize', required: false, type: Number })
   @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['all', 'unread', 'read', 'dismissed'],
+    description:
+      'Which rows to list. `all` (the default) is every live row; `dismissed` lists only the rows ' +
+      'the caller dismissed, which no other value returns. Wins over `unreadOnly`.',
+  })
+  @ApiQuery({
     name: 'unreadOnly',
     required: false,
     enum: ['true', 'false'],
@@ -486,7 +500,9 @@ export class NotificationsController {
     @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<UnreadCountResponse> {
-    return { unreadCount: await this.store.markRead(userId, id) };
+    const unreadCount = await this.store.markRead(userId, id);
+    this.streams.publishSync(userId, 'read');
+    return { unreadCount };
   }
 
   @Post(':id/dismiss')
@@ -507,7 +523,9 @@ export class NotificationsController {
     @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<UnreadCountResponse> {
-    return { unreadCount: await this.store.dismiss(userId, id) };
+    const unreadCount = await this.store.dismiss(userId, id);
+    this.streams.publishSync(userId, 'dismissed');
+    return { unreadCount };
   }
 
   @Post('read-all')
@@ -528,7 +546,36 @@ export class NotificationsController {
   async markAllRead(
     @CurrentUser('id') userId: string,
   ): Promise<UnreadCountResponse> {
-    return { unreadCount: await this.store.markAllRead(userId) };
+    const unreadCount = await this.store.markAllRead(userId);
+    this.streams.publishSync(userId, 'read-all');
+    return { unreadCount };
+  }
+
+  @Post('dismiss-all')
+  @Auth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Dismiss all of this user’s notifications',
+    description:
+      'Dismisses every live notification of the caller ("stop showing me these"), optionally only ' +
+      'those of one `scopeId`, and returns how many were dismissed and the resulting unread count. ' +
+      'Dismissal implies read. The dismissed rows stay listable with `GET /api/notifications?status=dismissed` ' +
+      'until the retention sweep deletes them by age.\n\n' +
+      'Affects only the caller’s rows. Their other open tabs are told to refetch (a `sync` frame).',
+  })
+  @ApiBody({ type: DismissAllNotificationsDto, required: false })
+  @ApiDataResponse(DismissAllResultDto, { description: 'How many were dismissed, and the new unread count' })
+  async dismissAll(
+    @CurrentUser('id') userId: string,
+    // Optional body, parsed here rather than by the pipe: a bare `POST` with
+    // no body means "no scope", and the pipe would reject `undefined`.
+    @Body() body?: unknown,
+  ): Promise<DismissAllResult> {
+    const parsed = dismissAllNotificationsSchema.safeParse(body ?? {});
+    if (!parsed.success) throw new BadRequestException('scopeId must be a UUID');
+    const result = await this.store.dismissAll(userId, parsed.data.scopeId);
+    this.streams.publishSync(userId, 'dismissed-all');
+    return result;
   }
 
   // ---------------------------------------------------------------------------

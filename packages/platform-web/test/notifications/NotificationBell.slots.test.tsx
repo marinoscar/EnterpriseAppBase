@@ -27,6 +27,7 @@ function centre(overrides: Partial<NotificationContextValue> = {}): Notification
     markRead: vi.fn().mockResolvedValue(undefined),
     markAllRead: vi.fn().mockResolvedValue(undefined),
     dismiss: vi.fn().mockResolvedValue(undefined),
+    dismissAll: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }

@@ -59,6 +59,9 @@ describe('SystemSettingsService', () => {
 
   beforeEach(async () => {
     mockPrisma = createMockPrismaService();
+    // A write that changes the `notifications` namespace runs its `onWrite`
+    // hook in a transaction (#1090); here the transaction client is the mock.
+    mockPrisma.$transaction.mockImplementation(((fn: (tx: unknown) => unknown) => fn(mockPrisma)) as never);
     // Pass-through by default: `get(key, defaultValue)` returns `defaultValue`,
     // which mirrors ConfigService's real behaviour when nothing overrides the
     // key. Individual #148 tests below replace this with a table of real

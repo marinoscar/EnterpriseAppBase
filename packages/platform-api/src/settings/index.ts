@@ -25,8 +25,10 @@ export type {
   SettingsPrisma,
   SettingsQueryArgs,
   SettingsSystemSettingsRow,
+  SettingsTx,
   SettingsUserSettingsRow,
 } from './data/settings-db';
+export type { SettingsWriteContext, SettingsWriteHook } from './write-hooks';
 
 // ---- the augmentable namespace maps (rung 2) ---------------------------------------------
 //

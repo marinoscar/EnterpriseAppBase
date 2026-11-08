@@ -39,6 +39,7 @@ import {
   streamEventToNotification,
   connectNotificationStream,
   NOTIFICATION_SSE_EVENT,
+  NOTIFICATION_SSE_SYNC_EVENT,
   notificationStreamUrl,
 } from '../../src/notifications/headless/notificationStream.js';
 
@@ -256,6 +257,25 @@ describe('connectNotificationStream', () => {
     options.onFrame(frame);
 
     expect(onNotification).not.toHaveBeenCalled();
+  });
+
+  it('onFrame calls onSync for a sync frame and never onNotification (issue #1090)', () => {
+    const onNotification = vi.fn();
+    const onSync = vi.fn();
+    connectNotificationStream({ onNotification, onOpen: vi.fn(), onSync });
+
+    const options = connectSseMock.mock.calls[0][0] as SseOptions;
+    options.onFrame({ event: NOTIFICATION_SSE_SYNC_EVENT, data: '{"reason":"dismissed"}', id: null });
+
+    expect(onSync).toHaveBeenCalledTimes(1);
+    expect(onNotification).not.toHaveBeenCalled();
+  });
+
+  it('a sync frame without an onSync handler is ignored, not an error', () => {
+    connectNotificationStream({ onNotification: vi.fn(), onOpen: vi.fn() });
+
+    const options = connectSseMock.mock.calls[0][0] as SseOptions;
+    expect(() => options.onFrame({ event: 'sync', data: '{}', id: null })).not.toThrow();
   });
 
   it('onFrame calls onNotification with a well-formed notification frame, passing toast through as the second argument', () => {

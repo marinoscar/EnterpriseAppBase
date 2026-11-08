@@ -74,6 +74,17 @@ describe('system settings namespace registry', () => {
     });
   });
 
+  it('refuses an onWrite that is not a function, and accepts a function (issue #1090)', () => {
+    inRegistry(() => {
+      const bad = systemNamespace('hooked', { host: z.string() }, { onWrite: 'nope' as never });
+      expect(() => registerSystemSettingsNamespaces([bad])).toThrow(/onWrite must be a function/);
+
+      const good = systemNamespace('hooked', { host: z.string() }, { onWrite: async () => undefined });
+      registerSystemSettingsNamespaces([good]);
+      expect(systemSettingsNamespaceRegistry.get('hooked')?.onWrite).toBeInstanceOf(Function);
+    });
+  });
+
   it('accepts a namespace with a valid org block', () => {
     inRegistry(() => {
       registerSystemSettingsNamespaces([OVERRIDE_NS]);

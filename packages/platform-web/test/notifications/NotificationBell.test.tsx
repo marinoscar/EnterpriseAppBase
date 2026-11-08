@@ -56,6 +56,7 @@ function makeFixture(overrides: Partial<NotificationContextValue> = {}): Notific
     markRead: vi.fn().mockResolvedValue(undefined),
     markAllRead: vi.fn().mockResolvedValue(undefined),
     dismiss: vi.fn().mockResolvedValue(undefined),
+    dismissAll: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }

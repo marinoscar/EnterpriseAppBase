@@ -209,11 +209,14 @@ export async function getNotifications(params?: {
   page?: number;
   pageSize?: number;
   unreadOnly?: boolean;
+  /** `all` (default), `unread`, `read`, or `dismissed` (the only value that lists dismissed rows). */
+  status?: 'all' | 'unread' | 'read' | 'dismissed';
 }): Promise<NotificationListResponse> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set('page', String(params.page));
   if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
   if (params?.unreadOnly !== undefined) searchParams.set('unreadOnly', params.unreadOnly ? 'true' : 'false');
+  if (params?.status) searchParams.set('status', params.status);
   return api.get<NotificationListResponse>(`/notifications?${searchParams}`);
 }
 
@@ -249,6 +252,18 @@ export async function markNotificationRead(id: string): Promise<UnreadCountRespo
  */
 export async function dismissNotification(id: string): Promise<UnreadCountResponse> {
   return api.post<UnreadCountResponse>(`/notifications/${id}/dismiss`);
+}
+
+/**
+ * `POST /api/notifications/dismiss-all`.
+ *
+ * @param scopeId - dismiss only the rows of this scope; omit for every live row.
+ * @returns how many rows were dismissed, and the new unread count.
+ *
+ * @stability experimental
+ */
+export async function dismissAllNotifications(scopeId?: string): Promise<{ dismissed: number; unreadCount: number }> {
+  return api.post<{ dismissed: number; unreadCount: number }>('/notifications/dismiss-all', scopeId ? { scopeId } : {});
 }
 
 /**

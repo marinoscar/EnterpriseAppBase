@@ -58,6 +58,7 @@ vi.mock('../../src/identity/headless/index.js', async (importOriginal) => ({
 interface CapturedHandlers {
   onNotification: (notification: AppNotification, toast: boolean, pushed?: boolean) => void;
   onOpen: () => void;
+  onSync?: () => void;
   onStateChange?: (state: string) => void;
 }
 
@@ -88,6 +89,7 @@ const getNotificationsMock = vi.fn();
 const getUnreadNotificationCountMock = vi.fn();
 const markNotificationReadMock = vi.fn();
 const markAllNotificationsReadMock = vi.fn();
+const dismissAllNotificationsMock = vi.fn();
 
 vi.mock('../../src/notifications/headless/api.js', async () => {
   const actual = await vi.importActual<typeof import('../../src/notifications/headless/api.js')>(
@@ -102,6 +104,7 @@ vi.mock('../../src/notifications/headless/api.js', async () => {
     markNotificationRead: (...args: unknown[]) => markNotificationReadMock(...args),
     markAllNotificationsRead: (...args: unknown[]) =>
       markAllNotificationsReadMock(...args),
+    dismissAllNotifications: (...args: unknown[]) => dismissAllNotificationsMock(...args),
   };
 });
 
@@ -279,6 +282,91 @@ describe('NotificationContext', () => {
         expect(getNotificationsMock).toHaveBeenCalledTimes(1);
         expect(getUnreadNotificationCountMock).toHaveBeenCalledTimes(1);
       });
+    });
+  });
+
+  describe('sync frames and dismiss-all (issue #1090)', () => {
+    it('refetches the list and the unread count on a sync frame (the user changed the inbox in another tab)', async () => {
+      const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current?.isLoading).toBe(false));
+      getNotificationsMock.mockClear();
+      getUnreadNotificationCountMock.mockClear();
+
+      await act(async () => {
+        capturedHandlers!.onSync!();
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(getNotificationsMock).toHaveBeenCalledTimes(1);
+        expect(getUnreadNotificationCountMock).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('dismissAll empties the list at once and takes the badge from the server', async () => {
+      getNotificationsMock.mockResolvedValue({
+        items: [makeAppNotification({ id: 'a' }), makeAppNotification({ id: 'b' })],
+        total: 2,
+        page: 1,
+        pageSize: 20,
+        totalPages: 1,
+      });
+      getUnreadNotificationCountMock.mockResolvedValue({ unreadCount: 2 });
+      dismissAllNotificationsMock.mockResolvedValue({ dismissed: 2, unreadCount: 0 });
+      const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current?.notifications).toHaveLength(2));
+
+      await act(async () => {
+        await result.current!.dismissAll();
+      });
+
+      expect(dismissAllNotificationsMock).toHaveBeenCalledWith(undefined);
+      expect(result.current!.notifications).toEqual([]);
+      expect(result.current!.unreadCount).toBe(0);
+    });
+
+    it('dismissAll(scopeId) removes only that scope’s rows locally and passes the scope on', async () => {
+      getNotificationsMock.mockResolvedValue({
+        items: [makeAppNotification({ id: 'a', scopeId: 's1' }), makeAppNotification({ id: 'b', scopeId: 's2' })],
+        total: 2,
+        page: 1,
+        pageSize: 20,
+        totalPages: 1,
+      });
+      getUnreadNotificationCountMock.mockResolvedValue({ unreadCount: 2 });
+      dismissAllNotificationsMock.mockResolvedValue({ dismissed: 1, unreadCount: 1 });
+      const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current?.notifications).toHaveLength(2));
+
+      await act(async () => {
+        await result.current!.dismissAll('s1');
+      });
+
+      expect(dismissAllNotificationsMock).toHaveBeenCalledWith('s1');
+      expect(result.current!.notifications.map((n) => n.id)).toEqual(['b']);
+      expect(result.current!.unreadCount).toBe(1);
+    });
+
+    it('dismissAll rolls the list back and refetches when the request fails', async () => {
+      getNotificationsMock.mockResolvedValue({
+        items: [makeAppNotification({ id: 'a' })],
+        total: 1,
+        page: 1,
+        pageSize: 20,
+        totalPages: 1,
+      });
+      getUnreadNotificationCountMock.mockResolvedValue({ unreadCount: 1 });
+      dismissAllNotificationsMock.mockRejectedValue(new Error('network'));
+      const { result } = renderHook(() => useNotifications(), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current?.notifications).toHaveLength(1));
+      getNotificationsMock.mockClear();
+
+      await act(async () => {
+        await result.current!.dismissAll();
+      });
+
+      expect(result.current!.notifications.map((n) => n.id)).toEqual(['a']);
+      await waitFor(() => expect(getNotificationsMock).toHaveBeenCalled());
     });
   });
 

@@ -21,6 +21,7 @@ import {
   type SystemSettingsValue,
 } from '../registry/system-settings-namespace';
 import type { SystemSettingsNamespaces } from '../index';
+import { pendingWriteHooks } from '../write-hooks';
 import { DEFAULT_SETTINGS_OPTIONS, SETTINGS_OPTIONS, type ResolvedSettingsModuleOptions } from '../settings.options';
 
 // =============================================================================
@@ -1122,24 +1123,26 @@ export class SystemSettingsService {
       validated,
     );
 
-    const settings = await this.prisma.systemSettings.upsert<RowWithUpdater>({
-      where: { key: this.rowKey },
-      update: {
-        value: value as never,
-        updatedByUserId: userId,
-        version: { increment: 1 },
-      },
-      create: {
-        key: this.rowKey,
-        value: value as never,
-        updatedByUserId: userId,
-      },
-      include: {
-        updatedByUser: {
-          select: { id: true, email: true },
+    const settings = await this.writeWithHooks(userId, currentValue, validated, (db) =>
+      db.systemSettings.upsert<RowWithUpdater>({
+        where: { key: this.rowKey },
+        update: {
+          value: value as never,
+          updatedByUserId: userId,
+          version: { increment: 1 },
         },
-      },
-    });
+        create: {
+          key: this.rowKey,
+          value: value as never,
+          updatedByUserId: userId,
+        },
+        include: {
+          updatedByUser: {
+            select: { id: true, email: true },
+          },
+        },
+      }),
+    );
 
     // Create audit event
     await this.createAuditEvent(userId, 'system_settings:replace', settings.id, {
@@ -1218,19 +1221,21 @@ export class SystemSettingsService {
       validated,
     );
 
-    const settings = await this.prisma.systemSettings.update<RowWithUpdater>({
-      where: { key: this.rowKey },
-      data: {
-        value: value as never,
-        updatedByUserId: userId,
-        version: { increment: 1 },
-      },
-      include: {
-        updatedByUser: {
-          select: { id: true, email: true },
+    const settings = await this.writeWithHooks(userId, currentValue, validated, (db) =>
+      db.systemSettings.update<RowWithUpdater>({
+        where: { key: this.rowKey },
+        data: {
+          value: value as never,
+          updatedByUserId: userId,
+          version: { increment: 1 },
         },
-      },
-    });
+        include: {
+          updatedByUser: {
+            select: { id: true, email: true },
+          },
+        },
+      }),
+    );
 
     // Create audit event
     await this.createAuditEvent(userId, 'system_settings:patch', settings.id, {
@@ -1243,6 +1248,27 @@ export class SystemSettingsService {
     this.logger.log(`System settings patched by user: ${userId}`);
 
     return this.toResponse(settings);
+  }
+
+  /**
+   * Writes the settings row, and runs the `onWrite` hooks of the namespaces
+   * whose value changed (issues #1090, #1105) in the SAME transaction, after
+   * the row and before commit: a hook that throws rolls the write back. With
+   * no hook to run this is the plain single write, with no transaction opened.
+   */
+  private async writeWithHooks<R>(
+    userId: string,
+    before: unknown,
+    after: unknown,
+    write: (db: Pick<SettingsPrisma, 'systemSettings'>) => Promise<R>,
+  ): Promise<R> {
+    const steps = pendingWriteHooks(namespaces(), before, after, 'system', userId);
+    if (steps.length === 0) return write(this.prisma);
+    return this.prisma.$transaction(async (tx) => {
+      const row = await write(tx);
+      for (const step of steps) await step(tx);
+      return row;
+    });
   }
 
   /**

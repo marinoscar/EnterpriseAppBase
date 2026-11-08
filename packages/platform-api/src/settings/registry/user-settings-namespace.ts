@@ -22,6 +22,8 @@
 import type { z } from 'zod';
 
 import { defineRegistry } from '../../core/index';
+import type { SettingsTx } from '../data/settings-db';
+import type { SettingsWriteContext } from '../write-hooks';
 import { SETTINGS_SECRET_FIELD_NAMES, secretFieldMessage } from './secret-fields';
 import { findDefaultPaths, findSecretFieldPaths, isZodSchema } from './schema-walk';
 import { SETTINGS_NAMESPACE_KEY_PATTERN } from './system-settings-namespace';
@@ -67,6 +69,13 @@ export interface UserSettingsNamespace<K extends string = string, V = unknown, P
    */
   assertLimits?(value: V | undefined): void;
   /**
+   * Work that must commit or roll back WITH the write of this namespace
+   * (issues #1090, #1105): runs inside the write's transaction, after the row
+   * is written and before commit, when the namespace's stored value changed
+   * (PUT and PATCH alike). A throw rolls the write back. See `write-hooks.ts`.
+   */
+  onWrite?(tx: SettingsTx, context: SettingsWriteContext<V>): Promise<void>;
+  /**
    * Field names this namespace refuses on top of the global deny-list
    * (`SETTINGS_SECRET_FIELD_NAMES`), checked the same way.
    */
@@ -109,6 +118,9 @@ function validateUserNamespace(ns: UserSettingsNamespace): void {
   if (typeof ns.merge !== 'function') throw new Error('merge is required');
   if (ns.assertLimits !== undefined && typeof ns.assertLimits !== 'function') {
     throw new Error('assertLimits must be a function');
+  }
+  if (ns.onWrite !== undefined && typeof ns.onWrite !== 'function') {
+    throw new Error('onWrite must be a function');
   }
   if ((RESERVED_USER_SETTINGS_KEYS as readonly string[]).includes(ns.key)) {
     throw new Error(`"${ns.key}" is a core field of user settings, not a namespace`);

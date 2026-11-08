@@ -50,6 +50,8 @@ export const notificationsPatchSchema = wireNotificationsPatchSchema.superRefine
   }
 });
 import type { UserSettingsNamespace } from '../settings/index';
+import type { NotificationsTx } from './data/notifications-db';
+import { dismissEventsForUser, inboxDisabledEventKeys } from './notification-dismissal';
 
 /**
  * The `notifications` user settings namespace: per-channel, per-event
@@ -175,6 +177,16 @@ export const NOTIFICATIONS_USER_SETTINGS = {
     }
 
     return Object.keys(merged).length > 0 ? merged : undefined;
+  },
+  /**
+   * Dismiss-on-disable, per user (issue #1090): the live inbox rows of every
+   * event the user has switched off for the in-app inbox are dismissed in the
+   * settings write's own transaction. Without it a STATE row whose producer is
+   * now gated keeps nagging forever, because the reconcile that would drain it
+   * no longer runs. Re-enabling restores nothing.
+   */
+  async onWrite(tx, { userId, after }): Promise<void> {
+    await dismissEventsForUser(tx as unknown as NotificationsTx, userId, inboxDisabledEventKeys(after));
   },
   /**
    * Enforce the per-user cap on persisted notification preferences.

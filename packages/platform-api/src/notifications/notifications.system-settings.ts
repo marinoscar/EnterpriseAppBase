@@ -27,6 +27,8 @@ import {
   type SystemNotificationsValue,
 } from '@marinoscar/platform-contract/notifications';
 import type { SystemSettingsNamespace } from '../settings/index';
+import type { NotificationsTx } from './data/notifications-db';
+import { dismissEventsGlobally, dismissibleEventKeys } from './notification-dismissal';
 
 /**
  * The EFFECTIVE value's schema: the system value with an organization's
@@ -191,6 +193,15 @@ export const NOTIFICATIONS_SYSTEM_SETTINGS = {
     readPermission: 'org_settings:read',
     /** Writing them, from the Organization settings page. */
     writePermission: 'org_settings:write',
+  },
+  /**
+   * Dismiss-on-disable, deployment-wide (issue #1090): the live inbox rows of
+   * every non-mandatory event in `disabledEvents` are dismissed in the
+   * settings write's own transaction, so either both commit or neither does.
+   * Re-enabling an event restores nothing. See `notification-dismissal.ts`.
+   */
+  async onWrite(tx, { after }): Promise<void> {
+    await dismissEventsGlobally(tx as unknown as NotificationsTx, dismissibleEventKeys(after?.disabledEvents ?? []));
   },
   /** Merges a PATCH field by field; `disabledEvents` is replaced wholesale, `channels` per channel. */
   merge(current, patch): SystemNotificationsValue {

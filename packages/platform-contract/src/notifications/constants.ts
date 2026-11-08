@@ -99,6 +99,45 @@ export const MAX_DISABLED_NOTIFICATION_EVENTS = NOTIFICATION_MAX_EVENTS_PER_CHAN
 export const NOTIFICATION_SSE_EVENT = 'notification';
 
 /**
+ * The SSE event name of a `sync` frame: the caller read, dismissed or deleted
+ * rows in one tab, so every other open tab should refetch the list and the
+ * unread count. The frame carries no row.
+ *
+ * @stability stable
+ */
+export const NOTIFICATION_SSE_SYNC_EVENT = 'sync';
+
+/**
+ * Why a `sync` frame was sent.
+ *
+ * @stability stable
+ */
+export const NOTIFICATION_SYNC_REASONS = ['read', 'read-all', 'dismissed', 'dismissed-all', 'deleted'] as const;
+
+/**
+ * One of {@link NOTIFICATION_SYNC_REASONS}.
+ *
+ * @stability stable
+ */
+export type NotificationSyncReason = (typeof NOTIFICATION_SYNC_REASONS)[number];
+
+/**
+ * The `status` filter of `GET /api/notifications`: `all` (the default) lists
+ * every live row, `unread` and `read` narrow it, and `dismissed` lists only the
+ * rows the user dismissed (a dismissed row is never in the other three).
+ *
+ * @stability stable
+ */
+export const NOTIFICATION_LIST_STATUSES = ['all', 'unread', 'read', 'dismissed'] as const;
+
+/**
+ * One of {@link NOTIFICATION_LIST_STATUSES}.
+ *
+ * @stability stable
+ */
+export type NotificationListStatus = (typeof NOTIFICATION_LIST_STATUSES)[number];
+
+/**
  * Why a stream frame was sent (`NotificationStreamEventPayload.reason`).
  *
  * @stability stable

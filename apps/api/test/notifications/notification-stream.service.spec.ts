@@ -462,6 +462,49 @@ describe('NotificationStreamService — event bus fan-out', () => {
       });
     });
 
+    it('keeps the reason on the reference (issue #1090)', () => {
+      service.publish('user-a', makeEvent({ id: 'big-2', body: hugeBody, reason: 'incremented' }));
+
+      expect(publish).toHaveBeenCalledWith(NOTIFICATION_STREAM_BUS_CHANNEL, {
+        userId: 'user-a',
+        ref: { notificationId: 'big-2', toast: true, pushed: false, reason: 'incremented' },
+      });
+    });
+
+    it('rebuilds count, scopeId, updatedAt and reason on the by-reference path (issue #1090)', async () => {
+      const a = frames('user-a');
+      findFirst.mockResolvedValue({
+        id: 'big-3',
+        eventKey: 'security.role_changed',
+        title: 'Your roles changed',
+        body: hugeBody,
+        link: '/settings',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-02-01T00:00:00.000Z'),
+        scopeId: 'scope-1',
+        data: { count: 12, countAtRead: 3 },
+      });
+
+      await handler!(
+        { userId: 'user-a', ref: { notificationId: 'big-3', toast: true, pushed: false, reason: 'reunread' } },
+        REMOTE,
+      );
+
+      expect(notificationFrames(a)).toEqual([
+        {
+          type: NOTIFICATION_SSE_EVENT,
+          data: makeEvent({
+            id: 'big-3',
+            body: hugeBody,
+            count: 12,
+            scopeId: 'scope-1',
+            updatedAt: '2026-02-01T00:00:00.000Z',
+            reason: 'reunread',
+          }),
+        },
+      ]);
+    });
+
     it('resolves a remote reference filtered on BOTH id and user id, and rebuilds the event', async () => {
       const a = frames('user-a');
       findFirst.mockResolvedValue({
@@ -509,6 +552,44 @@ describe('NotificationStreamService — event bus fan-out', () => {
       await handler!({ userId: 'user-a', ref: { notificationId: 'big-1', toast: true, pushed: false } }, REMOTE);
 
       expect(findFirst).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('sync frames (issue #1090)', () => {
+    const syncFrames = (messages: SseMessage[]) => messages.filter((m) => m.type === 'sync');
+
+    it('publishSync writes a sync frame to that user only, locally, and publishes it on the bus', () => {
+      const a = frames('user-a');
+      const b = frames('user-b');
+
+      expect(service.publishSync('user-a', 'dismissed')).toBe(1);
+
+      expect(syncFrames(a)).toEqual([{ type: 'sync', data: { reason: 'dismissed' } }]);
+      expect(syncFrames(b)).toEqual([]);
+      expect(publish).toHaveBeenCalledWith(NOTIFICATION_STREAM_BUS_CHANNEL, {
+        userId: 'user-a',
+        sync: true,
+        reason: 'dismissed',
+      });
+    });
+
+    it('delivers a remote sync into that user’s bucket only, and ignores its own echo', async () => {
+      const a = frames('user-a');
+      const b = frames('user-b');
+
+      await handler!({ userId: 'user-a', sync: true, reason: 'read' }, REMOTE);
+      await handler!({ userId: 'user-a', sync: true, reason: 'read' }, LOCAL);
+
+      expect(syncFrames(a)).toEqual([{ type: 'sync', data: { reason: 'read' } }]);
+      expect(syncFrames(b)).toEqual([]);
+    });
+
+    it('drops a sync message with an unknown reason', async () => {
+      const a = frames('user-a');
+
+      await handler!({ userId: 'user-a', sync: true, reason: 'bogus' }, REMOTE);
+
+      expect(syncFrames(a)).toEqual([]);
     });
   });
 

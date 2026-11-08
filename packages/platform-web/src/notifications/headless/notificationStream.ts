@@ -58,6 +58,14 @@ import type { AppNotification, NotificationStreamEvent } from './types.js';
  */
 export const NOTIFICATION_SSE_EVENT = 'notification';
 
+/**
+ * The `event:` name of a `sync` frame (issue #1090): the user read, dismissed
+ * or deleted rows in ANOTHER tab, so this one must refetch the list and the
+ * unread count. Carries no row. MUST MATCH `NOTIFICATION_SSE_SYNC_EVENT` in
+ * the API's `notification-stream.service.ts`.
+ */
+export const NOTIFICATION_SSE_SYNC_EVENT = 'sync';
+
 /** The stream's URL, resolved against the same base as every other API call. */
 export function notificationStreamUrl(): string {
   return `${apiBaseUrl()}/notifications/stream`;
@@ -198,6 +206,13 @@ export interface NotificationStreamHandlers {
    * header for why nothing else recovers a gap.
    */
   onOpen: () => void;
+  /**
+   * A `sync` frame: the user changed the inbox in another tab. The caller
+   * refetches the list and the unread count, exactly as on `onOpen`. Optional
+   * so a caller that predates the frame keeps working (it just stays stale
+   * until its next reconnect).
+   */
+  onSync?: () => void;
   /** Connection state, for rendering. Optional. */
   onStateChange?: (state: SseState) => void;
 }
@@ -237,6 +252,13 @@ export function connectNotificationStream(
       // Compared by NAME, so anything the stream grows later is ignored rather
       // than mis-parsed as a notification. An unrecognised frame is not an
       // error — it is a newer server talking to an older bundle.
+      //
+      // `sync` (issue #1090) is the one other frame this client acts on: it
+      // carries no row, only the instruction to refetch.
+      if (frame.event === NOTIFICATION_SSE_SYNC_EVENT) {
+        handlers.onSync?.();
+        return;
+      }
       if (frame.event !== NOTIFICATION_SSE_EVENT) return;
 
       const event = parseNotificationEvent(frame.data);

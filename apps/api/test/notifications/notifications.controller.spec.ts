@@ -37,8 +37,10 @@ describe('NotificationsController', () => {
     unreadCount: jest.Mock;
     markRead: jest.Mock;
     markAllRead: jest.Mock;
+    dismiss: jest.Mock;
+    dismissAll: jest.Mock;
   };
-  let mockStreams: { subscribe: jest.Mock };
+  let mockStreams: { subscribe: jest.Mock; publishSync: jest.Mock };
   let mockPolicy: { getPolicy: jest.Mock };
   let mockPushSubscriptions: {
     isEnabled: jest.Mock;
@@ -53,8 +55,10 @@ describe('NotificationsController', () => {
       unreadCount: jest.fn(),
       markRead: jest.fn(),
       markAllRead: jest.fn(),
+      dismiss: jest.fn(),
+      dismissAll: jest.fn(),
     };
-    mockStreams = { subscribe: jest.fn() };
+    mockStreams = { subscribe: jest.fn(), publishSync: jest.fn() };
     mockPolicy = {
       getPolicy: jest.fn().mockResolvedValue({
         browserEnabled: true,
@@ -96,6 +100,55 @@ describe('NotificationsController', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
+  });
+
+  // ==========================================================================
+  // Inbox mutations tell the user's other tabs to refetch (issue #1090)
+  // ==========================================================================
+
+  describe('sync frames and dismiss-all (issue #1090)', () => {
+    const USER = '11111111-1111-4111-8111-111111111111';
+    const ID = '22222222-2222-4222-8222-222222222222';
+
+    it.each([
+      ['markRead', 'read', () => controller.markRead(USER, ID), 'markRead'],
+      ['dismiss', 'dismissed', () => controller.dismiss(USER, ID), 'dismiss'],
+      ['markAllRead', 'read-all', () => controller.markAllRead(USER), 'markAllRead'],
+    ] as const)('%s publishes a %s sync frame for that user after the write', async (_name, reason, call, storeMethod) => {
+      mockStore[storeMethod].mockResolvedValue(3);
+
+      await expect(call()).resolves.toEqual({ unreadCount: 3 });
+
+      expect(mockStreams.publishSync).toHaveBeenCalledWith(USER, reason);
+    });
+
+    it('does not publish a sync frame when the write fails', async () => {
+      mockStore.dismiss.mockRejectedValue(new Error('404'));
+
+      await expect(controller.dismiss(USER, ID)).rejects.toThrow('404');
+
+      expect(mockStreams.publishSync).not.toHaveBeenCalled();
+    });
+
+    it('dismiss-all returns the count, defaults to no scope and publishes a sync frame', async () => {
+      mockStore.dismissAll.mockResolvedValue({ dismissed: 4, unreadCount: 0 });
+
+      await expect(controller.dismissAll(USER, undefined)).resolves.toEqual({ dismissed: 4, unreadCount: 0 });
+
+      expect(mockStore.dismissAll).toHaveBeenCalledWith(USER, undefined);
+      expect(mockStreams.publishSync).toHaveBeenCalledWith(USER, 'dismissed-all');
+    });
+
+    it('dismiss-all passes a valid scope and rejects a malformed one before touching the store', async () => {
+      mockStore.dismissAll.mockResolvedValue({ dismissed: 1, unreadCount: 2 });
+
+      await controller.dismissAll(USER, { scopeId: ID });
+      expect(mockStore.dismissAll).toHaveBeenCalledWith(USER, ID);
+
+      mockStore.dismissAll.mockClear();
+      await expect(controller.dismissAll(USER, { scopeId: 'nope' })).rejects.toThrow('scopeId must be a UUID');
+      expect(mockStore.dismissAll).not.toHaveBeenCalled();
+    });
   });
 
   // ==========================================================================
