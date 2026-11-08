@@ -1,10 +1,15 @@
-import { connectToDaemon, DaemonNotRunningError, type DaemonClient } from './daemon.js';
-import type { DaemonMessage } from './ipc-protocol.js';
+import {
+  DashboardSource,
+  daemonAttachFeed,
+  type DashboardConnection,
+  type DashboardReducer,
+} from '../tui/dashboard/source.js';
+import type { connectToDaemon } from './daemon.js';
 import type { LogRecord } from './logger.js';
 import type { NodeEngineEvent, NodeSnapshot } from './node-events.js';
 
 // =============================================================================
-// The TUI's data source  (issue #279, epic #254)
+// The TUI's data source  (issue #279, epic #254; refactored in RETRO-G1.3)
 // =============================================================================
 //
 // The dashboard is mostly a matter of rendering a stream that already exists:
@@ -39,22 +44,79 @@ import type { NodeEngineEvent, NodeSnapshot } from './node-events.js';
 // exactly the situation somebody opened it for, so a closed connection is
 // retried until `stop()` — and `stop()` is the only thing that ends the loop,
 // so a teardown can never leave a timer behind.
+//
+// -----------------------------------------------------------------------------
+// WHERE THE MACHINERY LIVES NOW
+// -----------------------------------------------------------------------------
+//
+// The attach, reconnect and teardown contracts above are implemented ONCE, in
+// `tui/dashboard/source.ts` (`daemonAttachFeed`, `DashboardSource`), so an app
+// can reuse them for another daemon-hosted engine. What stays here is what is
+// specific to the worker: `nodeDashboardReducer` (the pure state transitions)
+// and `NodeDashboardSource`, now a thin compatibility wrapper over the two.
 // =============================================================================
 
 /** How many log lines and events the dashboard keeps. */
 export const MAX_DASHBOARD_LINES = 200;
 
-export interface DashboardState {
-  connected: boolean;
-  /** Whether a daemon was ever reached. Distinguishes "starting" from "gone". */
-  everConnected: boolean;
+/**
+ * What the worker dashboard shows, without the connection fields.
+ *
+ * @stability experimental
+ */
+export interface NodeDashboardData {
   snapshot: NodeSnapshot | undefined;
   logs: LogRecord[];
   events: NodeEngineEvent[];
-  /** The last connection failure, for the frame's notice line. */
-  error: string | undefined;
-  attempts: number;
 }
+
+/**
+ * The worker dashboard's state: its data plus the connection fields. A
+ * superset of what `NodeDashboardSource` has always exposed.
+ *
+ * @stability experimental
+ */
+export type DashboardState = NodeDashboardData & DashboardConnection;
+
+/** Keep the newest `limit`. */
+function clip<T>(items: T[], limit: number): T[] {
+  return items.length > limit ? items.slice(items.length - limit) : items;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Builds the worker dashboard's reducer with its own buffer bound.
+ *
+ * @param options - `maxLines`, how many log lines and events to keep.
+ * @returns A pure reducer: no I/O, no React, safe to call from a test.
+ * @stability experimental
+ */
+export function createNodeDashboardReducer(
+  options: { maxLines?: number | undefined } = {},
+): DashboardReducer<NodeDashboardData, NodeEngineEvent> {
+  const maxLines = options.maxLines ?? MAX_DASHBOARD_LINES;
+  return {
+    initial: () => ({ snapshot: undefined, logs: [], events: [] }),
+    hydrate: (state, snapshot) =>
+      isRecord(snapshot) && typeof snapshot.nodeId === 'string'
+        ? { ...state, snapshot: snapshot as unknown as NodeSnapshot }
+        : state,
+    reduce: (state, event) => ({ ...state, events: clip([...state.events, event], maxLines) }),
+    log: (state, lines) => ({ ...state, logs: clip([...state.logs, ...lines], maxLines) }),
+    parseEvent: (frame) =>
+      isRecord(frame) && typeof frame.kind === 'string' ? (frame as unknown as NodeEngineEvent) : undefined,
+  };
+}
+
+/**
+ * The worker dashboard's reducer with the default buffer bound.
+ *
+ * @stability experimental
+ */
+export const nodeDashboardReducer: DashboardReducer<NodeDashboardData, NodeEngineEvent> = createNodeDashboardReducer();
 
 export interface DashboardSourceOptions {
   socketPath: string;
@@ -67,35 +129,37 @@ export interface DashboardSourceOptions {
   maxLines?: number | undefined;
 }
 
+/**
+ * The worker dashboard's source over a daemon socket: a compatibility wrapper
+ * (`DashboardSource` + `nodeDashboardReducer` + `daemonAttachFeed`) that keeps
+ * the class and options the TUI has used since #279.
+ *
+ * @stability experimental
+ */
 export class NodeDashboardSource {
-  private readonly options: DashboardSourceOptions;
-  private readonly maxLines: number;
-  private client: DaemonClient | undefined;
-  private timer: unknown;
-  private stopped = false;
-
-  private state: DashboardState = {
-    connected: false,
-    everConnected: false,
-    snapshot: undefined,
-    logs: [],
-    events: [],
-    error: undefined,
-    attempts: 0,
-  };
+  private readonly source: DashboardSource<NodeDashboardData, NodeEngineEvent>;
 
   constructor(options: DashboardSourceOptions) {
-    this.options = options;
-    this.maxLines = options.maxLines ?? MAX_DASHBOARD_LINES;
+    this.source = new DashboardSource(
+      options.maxLines === undefined ? nodeDashboardReducer : createNodeDashboardReducer({ maxLines: options.maxLines }),
+      daemonAttachFeed<NodeEngineEvent>({
+        socketPath: options.socketPath,
+        reconnectMs: options.reconnectDelayMs,
+        connect: options.connect,
+        setTimer: options.setTimer,
+        clearTimer: options.clearTimer,
+      }),
+      { onChange: options.onChange },
+    );
   }
 
   getState(): DashboardState {
-    return this.state;
+    return this.source.getState();
   }
 
   /** Attach, and keep attaching. Resolves once the first attempt has settled. */
-  async start(): Promise<void> {
-    await this.attach();
+  start(): Promise<void> {
+    return this.source.start();
   }
 
   /**
@@ -105,92 +169,8 @@ export class NodeDashboardSource {
    * behind would keep a finished ink process alive, which looks like a hang.
    */
   stop(): void {
-    if (this.stopped) return;
-    this.stopped = true;
-    if (this.timer !== undefined) {
-      (this.options.clearTimer ?? ((handle: unknown) => clearTimeout(handle as NodeJS.Timeout)))(this.timer);
-      this.timer = undefined;
-    }
-    this.client?.close();
-    this.client = undefined;
-    this.publish({ connected: false });
+    this.source.stop();
   }
-
-  private async attach(): Promise<void> {
-    if (this.stopped) return;
-    this.publish({ attempts: this.state.attempts + 1 });
-
-    const connect = this.options.connect ?? connectToDaemon;
-
-    try {
-      this.client = await connect({
-        socketPath: this.options.socketPath,
-        onMessage: (message) => this.receive(message),
-        onClose: () => {
-          this.client = undefined;
-          this.publish({ connected: false });
-          this.scheduleReconnect();
-        },
-      });
-
-      this.publish({ connected: true, everConnected: true, error: undefined });
-    } catch (error) {
-      this.client = undefined;
-      this.publish({
-        connected: false,
-        error:
-          error instanceof DaemonNotRunningError
-            ? 'No worker is running here.'
-            : error instanceof Error
-              ? error.message
-              : String(error),
-      });
-      this.scheduleReconnect();
-    }
-  }
-
-  private scheduleReconnect(): void {
-    if (this.stopped || this.timer !== undefined) return;
-    const setTimer = this.options.setTimer ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
-    this.timer = setTimer(() => {
-      this.timer = undefined;
-      void this.attach();
-    }, this.options.reconnectDelayMs ?? 2_000);
-  }
-
-  private receive(message: DaemonMessage): void {
-    switch (message.type) {
-      case 'snapshot':
-        this.publish({ snapshot: message.snapshot });
-        return;
-      case 'log-tail':
-        this.publish({ logs: clip([...this.state.logs, ...message.lines], this.maxLines) });
-        return;
-      case 'event':
-        this.publish({ events: clip([...this.state.events, message.event], this.maxLines) });
-        return;
-      case 'error':
-        this.publish({ error: message.message });
-        return;
-      case 'ack':
-        // This source sends no commands, so an ack can only be the echo of
-        // another attached client's request. Not ours to render.
-        return;
-    }
-  }
-
-  private publish(patch: Partial<DashboardState>): void {
-    // A NEW OBJECT every time. The consumer is React, which compares by
-    // identity; mutating in place would render the first frame and then never
-    // update again — the classic "the TUI is frozen" bug.
-    this.state = { ...this.state, ...patch };
-    this.options.onChange(this.state);
-  }
-}
-
-/** Keep the newest `limit`. */
-function clip<T>(items: T[], limit: number): T[] {
-  return items.length > limit ? items.slice(items.length - limit) : items;
 }
 
 /** One-line summary of an engine event, shared by the dashboard and the log view. */

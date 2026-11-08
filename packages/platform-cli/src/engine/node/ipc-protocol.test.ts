@@ -96,3 +96,24 @@ describe('parseCommand', () => {
     expect(parseCommand('status')).toBeUndefined();
   });
 });
+
+describe('channels (RETRO-G1.3)', () => {
+  it('reads a frame with no channel field as the node channel', async () => {
+    const { messageChannel, isNodeSnapshotMessage, NODE_CHANNEL } = await import('./ipc-protocol.js');
+    // The wire shape an old daemon has always written.
+    const old = JSON.parse('{"type":"event","event":{"kind":"idle","at":"t"}}') as { channel?: string };
+    expect(messageChannel(old)).toBe(NODE_CHANNEL);
+    expect(messageChannel({ channel: 'backup' })).toBe('backup');
+    expect(messageChannel({ channel: '' })).toBe(NODE_CHANNEL);
+    expect(isNodeSnapshotMessage({ type: 'snapshot', snapshot: {} as never })).toBe(true);
+    expect(isNodeSnapshotMessage({ type: 'snapshot', snapshot: {}, channel: 'backup' })).toBe(false);
+    expect(isNodeSnapshotMessage({ type: 'event', event: {} as never })).toBe(false);
+  });
+
+  it('round-trips a channel frame through the framer', async () => {
+    const { frame, NdjsonParser } = await import('./ipc-protocol.js');
+    const out: unknown[] = [];
+    new NdjsonParser((v) => out.push(v)).push(frame({ type: 'event', event: { n: 1 }, channel: 'backup' }));
+    expect(out).toEqual([{ type: 'event', event: { n: 1 }, channel: 'backup' }]);
+  });
+});
