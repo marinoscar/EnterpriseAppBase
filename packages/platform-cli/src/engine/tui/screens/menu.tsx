@@ -1,12 +1,23 @@
 import { Box, Text, useInput } from 'ink';
-import SelectInput from 'ink-select-input';
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 
 import { cliName } from '../../identity.js';
 import { allTuiScreens } from '../builtin-screens.js';
 import { useTuiApp } from '../context.js';
 import { Frame } from '../layout.js';
+import { listTuiMenuNodes, TUI_MENU_ROOT } from '../menu-registry.js';
+import {
+  buildTuiMenuTree,
+  tuiBreadcrumb,
+  tuiMenuColor,
+  tuiMenuItemLabel,
+  tuiParentSectionId,
+  visibleTuiMenuChildren,
+  type TuiMenuTree,
+  type TuiMenuTreeNode,
+} from '../menu-tree.js';
 import type { Route } from '../routes.js';
+import { textColor } from '../theme.js';
 import type { TuiMenuContext, TuiScreenRegistration } from '../screen-registry.js';
 
 // =============================================================================
@@ -32,6 +43,8 @@ import type { TuiMenuContext, TuiScreenRegistration } from '../screen-registry.j
 export interface MenuScreenProps {
   onSelect: (route: Route) => void;
   onQuit: () => void;
+  /** The tree to draw; defaults to the registered nodes and screens. Tests only. */
+  tree?: TuiMenuTree | undefined;
 }
 
 /** One entry of the menu list. */
@@ -58,47 +71,110 @@ export function buildMenuItems(screens: readonly TuiScreenRegistration[], contex
   ];
 }
 
-export function MenuScreen({ onSelect, onQuit }: MenuScreenProps): ReactNode {
+// THE TREE (RETRO-G1.1, #1065). The menu is a renderer over the menu tree
+// (menu-tree.ts). A section is drawn from the `sectionId` of the navigation
+// stack's menu frame; entering one is `nav.toMenu(id)`, Esc is `nav.toMenu(parent)`,
+// and a screen opened from a section pops back to that same section. With no
+// registered menu nodes the tree is the flat list above (every screen at the
+// root, Quit last), and the lines are unchanged: no digit prefixes are drawn
+// until an app opts in to the tree, though the digit keys already work.
+// =============================================================================
+
+export function MenuScreen({ onSelect, onQuit, tree: treeProp }: MenuScreenProps): ReactNode {
   // The session comes from the app context, which reads the config once and
   // again on `session.refresh()` (the login and logout screens call it). The
   // menu used to re-read the file on every mount for the same freshness.
-  const { session } = useTuiApp();
+  const { session, nav, theme } = useTuiApp();
   const loggedIn = session.loggedIn;
 
-  const items = useMemo<MenuItem[]>(() => buildMenuItems(allTuiScreens(), { loggedIn }), [loggedIn]);
+  const tree = useMemo(() => treeProp ?? buildTuiMenuTree(listTuiMenuNodes(), allTuiScreens()), [treeProp]);
+  const requested = nav.current.kind === 'menu' ? nav.current.sectionId : undefined;
+  // A stale or unknown section id falls back to the root rather than a blank menu.
+  const sectionId = requested !== undefined && tree.sections.has(requested) ? requested : TUI_MENU_ROOT;
+  const atRoot = sectionId === TUI_MENU_ROOT;
+  const section = tree.sections.get(sectionId) ?? tree.root;
 
-  // `q` and Esc, in addition to the Quit entry. Safe on THIS screen and only
-  // this screen: every other screen has a text field, where a bare `q` is a
-  // character the user meant to type. That is why the shortcut lives here
-  // rather than in the app root — a global handler would eat the `q` out of
-  // `/api/query` on the invoke screen, and the bug would look like a broken
-  // keyboard.
+  const children = useMemo(() => visibleTuiMenuChildren(sectionId, { loggedIn }, tree), [sectionId, loggedIn, tree]);
+  // Quit closes the root menu only, always last, and is not a tree node.
+  const rows = useMemo(
+    () => [...children.map((node) => ({ key: node.id, node })), ...(atRoot ? [{ key: 'quit', node: undefined }] : [])],
+    [children, atRoot],
+  );
+
+  const [cursor, setCursor] = useState(0);
+  const index = Math.min(cursor, Math.max(rows.length - 1, 0));
+
+  const activate = (node: TuiMenuTreeNode | undefined): void => {
+    if (node === undefined) {
+      onQuit();
+    } else if (node.kind === 'section') {
+      setCursor(0);
+      nav.toMenu(node.id);
+    } else {
+      onSelect(node.route);
+    }
+  };
+
+  const up = (): void => {
+    setCursor(0);
+    nav.toMenu(tuiParentSectionId(sectionId, tree) === TUI_MENU_ROOT ? undefined : tuiParentSectionId(sectionId, tree));
+  };
+
+  // `q` quits from the ROOT menu only; Esc goes up one level (and does
+  // nothing at the root). Safe on THIS screen and only this screen: every
+  // other screen has a text field, where a bare `q` is a character the user
+  // meant to type. That is why the shortcuts live here rather than in the app
+  // root: a global handler would eat the `q` out of `/api/query` on the invoke
+  // screen, and the bug would look like a broken keyboard.
   useInput((input, key) => {
-    if (input === 'q' || key.escape) onQuit();
+    if (key.upArrow) {
+      setCursor((index - 1 + rows.length) % rows.length);
+    } else if (key.downArrow) {
+      setCursor((index + 1) % rows.length);
+    } else if (key.return) {
+      activate(rows[index]?.node);
+    } else if (key.escape) {
+      if (!atRoot) up();
+    } else if (input === 'q') {
+      if (atRoot) onQuit();
+    } else if (/^[1-9]$/.test(input)) {
+      const row = rows[Number(input) - 1];
+      if (row !== undefined) activate(row.node);
+    }
   });
 
+  const accelerators = tree.customised;
+  const hints = atRoot
+    ? ['↑↓ move', 'enter select', ...(accelerators ? ['1-9 jump'] : []), 'q quit', 'ctrl-c exit']
+    : ['↑↓ move', 'enter select', ...(accelerators ? ['1-9 jump'] : []), 'esc back', 'ctrl-c exit'];
+
   return (
-    <Frame
-      title="Menu"
-      hints={['↑↓ move', 'enter select', 'q quit', 'ctrl-c exit']}
-    >
+    <Frame title={atRoot ? 'Menu' : tuiBreadcrumb(sectionId, { loggedIn }, tree)} hints={hints}>
       <Box flexDirection="column" gap={1}>
         <Text dimColor>
-          {session.serverUrl === undefined
-            ? `No server configured yet — start with Login, or run \`${cliName()} --help\`.`
-            : `Server: ${session.serverUrl}${session.identity?.email === undefined ? '' : `  ·  ${session.identity.email}`}`}
+          {atRoot
+            ? session.serverUrl === undefined
+              ? `No server configured yet — start with Login, or run \`${cliName()} --help\`.`
+              : `Server: ${session.serverUrl}${session.identity?.email === undefined ? '' : `  ·  ${session.identity.email}`}`
+            : (section.subtitle ?? 'Choose an entry. Esc goes up one level.')}
         </Text>
 
-        <SelectInput
-          items={items}
-          onSelect={(item) => {
-            if (item.value === 'quit') {
-              onQuit();
-              return;
-            }
-            onSelect(item.value);
-          }}
-        />
+        <Box flexDirection="column">
+          {rows.map((row, i) => {
+            const selected = i === index;
+            const label =
+              row.node === undefined
+                ? 'Quit'
+                : tuiMenuItemLabel(row.node, accelerators ? i + 1 : undefined, { loggedIn });
+            const colour = row.node === undefined ? undefined : tuiMenuColor(theme, row.node.color);
+            return (
+              <Text key={row.key} bold={selected} {...textColor(colour ?? (selected ? theme.info : undefined))}>
+                {selected ? '❯ ' : '  '}
+                {label}
+              </Text>
+            );
+          })}
+        </Box>
       </Box>
     </Frame>
   );
