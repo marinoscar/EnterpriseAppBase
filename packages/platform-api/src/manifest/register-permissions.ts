@@ -65,6 +65,19 @@ export interface PlatformPermissionOptions {
      * platform role something new).
      */
     readonly grants?: readonly RoleGrantDeclaration[];
+    /**
+     * WIDENS platform permissions' grants (#1124): `{ <permission>: [<role>, ...] }`
+     * gives each listed role the permission on top of its declared
+     * `defaultGrants`, without redeclaring the permission. Unlike `grants`,
+     * the target may be a PLATFORM role (`{ 'storage:write': ['viewer'] }`).
+     * ADDITIVE ONLY: nothing is ever taken away, and a role the permission
+     * already grants by default is skipped, not an error. Each pair is
+     * validated like a grant (the role and the permission exist, the scopes
+     * match) and lands in the catalog's `rolePermissions`, so the seed writes
+     * it into `role_permissions` and the resolver reads it like a default
+     * grant. Pass the same value to `platformPermissionCatalog()` for the seed.
+     */
+    readonly platformGrants?: Readonly<Record<string, readonly string[]>>;
   };
 }
 
@@ -78,7 +91,7 @@ export interface PlatformPermissionDeclarations {
   roles: ReadonlyArray<Declarations<RoleDeclaration>>;
   /** Permission batches: the selected platform sets in seed order, those of registered slices, then the app's. */
   permissions: ReadonlyArray<Declarations<PermissionDeclaration>>;
-  /** Grant batches: the app's grants (one batch, or none). */
+  /** Grant batches: the app's grants, then its widened platform grants (a batch each, when present). */
   grants: ReadonlyArray<readonly RoleGrantDeclaration[]>;
 }
 
@@ -102,19 +115,60 @@ export function platformPermissionDeclarations(options: PlatformPermissionOption
   const registered = permissionSetRegistry.list().filter((set) => selected.has(set.slice));
   const grants = options.app?.grants ?? [];
   refusePlatformRoleGrants(grants);
+  const permissionBatches = [
+    ...PLATFORM_PERMISSION_SETS.filter((set) => selected.has(set.slice)).map((set) => set.permissions),
+    ...registered.flatMap((set) => (set.permissions === undefined ? [] : [set.permissions])),
+    ...(options.app?.permissions ?? []),
+  ];
+  const widened = widenedGrants(options.app?.platformGrants, permissionBatches, grants);
   return {
     roles: [
       PLATFORM_ROLES,
       ...registered.flatMap((set) => (set.roles === undefined ? [] : [set.roles])),
       ...(options.app?.roles ?? []),
     ],
-    permissions: [
-      ...PLATFORM_PERMISSION_SETS.filter((set) => selected.has(set.slice)).map((set) => set.permissions),
-      ...registered.flatMap((set) => (set.permissions === undefined ? [] : [set.permissions])),
-      ...(options.app?.permissions ?? []),
-    ],
-    grants: grants.length > 0 ? [grants] : [],
+    permissions: permissionBatches,
+    grants: [...(grants.length > 0 ? [grants] : []), ...(widened.length > 0 ? [widened] : [])],
   };
+}
+
+/**
+ * `platformGrants` as grant declarations, one per role, in the order the
+ * roles first appear. A role the permission already grants by default, or one
+ * an app `grants` entry already gives it, is skipped: widening is declarative
+ * ("this role holds it"), never an error for a pair that already holds. An
+ * unknown permission is refused here, naming it; an unknown role or a scope
+ * mismatch is refused by the grant registry.
+ */
+function widenedGrants(
+  platformGrants: Readonly<Record<string, readonly string[]>> | undefined,
+  permissionBatches: ReadonlyArray<Declarations<PermissionDeclaration>>,
+  grants: readonly RoleGrantDeclaration[],
+): RoleGrantDeclaration[] {
+  if (platformGrants === undefined) return [];
+  const declared = new Map<string, PermissionDeclaration>();
+  for (const batch of permissionBatches) {
+    for (const permission of Array.isArray(batch) ? batch : Object.values(batch as Readonly<Record<string, PermissionDeclaration>>)) {
+      declared.set(permission.id, permission);
+    }
+  }
+  const already = new Set(grants.flatMap((grant) => grant.permissions.map((permission) => `${grant.role}|${permission}`)));
+  const byRole = new Map<string, string[]>();
+  for (const [permissionId, roles] of Object.entries(platformGrants)) {
+    const permission = declared.get(permissionId);
+    if (!permission) {
+      throw new Error(
+        `platform permissions: platformGrants names the unknown permission ${JSON.stringify(permissionId)}; ` +
+          'name a permission of a selected slice (check `slices`).',
+      );
+    }
+    for (const role of roles) {
+      if (permission.defaultGrants.includes(role) || already.has(`${role}|${permissionId}`)) continue;
+      already.add(`${role}|${permissionId}`);
+      byRole.set(role, [...(byRole.get(role) ?? []), permissionId]);
+    }
+  }
+  return [...byRole].map(([role, permissions]) => ({ role, permissions }));
 }
 
 /** The selected slices, checked: the platform's and the registered ones. */
@@ -169,6 +223,7 @@ function refusePlatformRoleGrants(grants: readonly RoleGrantDeclaration[]): void
  *     roles: [APP_ROLES],
  *     permissions: [APP_PERMISSIONS],
  *     grants: [{ role: 'support', permissions: ['users:read'] }],
+ *     platformGrants: { 'storage:write': ['viewer'] },
  *   },
  * });
  * ```
