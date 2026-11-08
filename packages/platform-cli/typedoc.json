@@ -8,6 +8,7 @@
     "src/commands/index.ts",
     "src/tui/index.ts",
     "src/tui/ui/index.ts",
+    "src/tui/testing/index.ts",
     "src/deploy/index.ts",
     "src/node/index.ts",
     "src/api-client/index.ts",

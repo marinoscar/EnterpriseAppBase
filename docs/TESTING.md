@@ -636,6 +636,16 @@ files for the ink screens. Notable ones:
 npm run test:run --workspace=cli
 ```
 
+### TUI tests
+
+A TUI screen is tested with the platform's harness, `@marinoscar/platform-cli/tui/testing` (on `ink-testing-library`, an optional peer: add it as a dev dependency). `renderTuiScreen(Screen, { session, selection, appState, theme, columns, params })` mounts the screen in a `TuiAppProvider` in test mode (an in-memory session, never a real CLI config or token) and returns `{ lastFrame, frames, press, type, waitForFrame, nav: { stack }, unmount }`; `renderTuiRoute` mounts the real router at a route (the login gate, the lazy `load`), `renderTuiMenu` asserts a menu tree's visible labels and breadcrumb, and `fakeDaemonFeed` / `fakeEmitterFeed` drive a `DashboardSource` frame by frame. Test a dashboard reducer without ink: call `reduce`, or use a fake feed. Reference screen test: [`about.screen.test.tsx`](../apps/cli/src/examples/about.screen.test.tsx); reference: [the TUI README](../packages/platform-cli/src/tui/README.md#testing).
+
+An app also runs the `tui` conformance suite over its registrations (`runPlatformConformance({ suites: { tui: {} } })`, see [`conformance.test.ts`](../apps/cli/src/conformance.test.ts)): every menu entry opens a registered screen, every section is reachable, no cycles, depth at most 4; every app screen and section loads lazily; importing `@marinoscar/platform-cli/tui` and the app's registration module loads no `ink` (checked in a fresh Node process); labels are non-empty logged in and out; each dashboard reducer leaves a frozen input untouched; each app screen renders at 80, 40 and 24 columns and without colour; and every login-gated entry shows the "not logged in" notice. Each check takes `skip: { '<check>': 'reason' }`.
+
+| Suite id | Registered by | Invariant |
+|---|---|---|
+| `tui` | `@marinoscar/platform-cli/testing` (`runPlatformConformance`) | The app's TUI registrations are well-formed and its screens render: menu tree, lazy screens, no ink at import, labels, pure dashboard reducers, narrow widths, `NO_COLOR`, the login gate |
+
 ## End-to-end tests (Playwright)
 
 `tests/e2e/` is a separate npm package (not a workspace) that drives the real

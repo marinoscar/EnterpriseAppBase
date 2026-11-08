@@ -146,7 +146,7 @@ Each has a spec and a package README linked from [../CLAUDE.md](../CLAUDE.md).
 
 ### Step 12: CLI, infra and web shell
 
-- **CLI.** Build your CLI with `createCli()` from `@marinoscar/platform-cli` and keep only your own commands and branding ([../packages/platform-cli/README.md](../packages/platform-cli/README.md)).
+- **CLI.** Build your CLI with `createCli()` from `@marinoscar/platform-cli` and keep only your own commands and branding ([../packages/platform-cli/README.md](../packages/platform-cli/README.md)). An app with a forked TUI moves it onto the platform's in this order: its menu tree to `registerTuiMenuNode`, its app state to `registerTuiStateLoader`, its active selection to `registerTuiSelection`, its dashboards to a `DashboardReducer` over a `DashboardSource`, its widgets to `@marinoscar/platform-cli/tui/ui`, and its Ink test helpers to `@marinoscar/platform-cli/tui/testing`; then add the `tui` conformance suite ([the TUI README](../packages/platform-cli/src/tui/README.md#upgrade-notes)).
 - **Infra.** Run `npm run platform:infra:sync`. The Compose, nginx and env fragments become generated; your own additions move to the app-owned files (`infra/compose/app.env.example`, `app.*.compose.yml`, `infra/nginx/app.d/`). A drift between generated files and the lock fails `platform-infra sync --check` ([../packages/platform-infra/README.md](../packages/platform-infra/README.md)).
 - **Web shell.** Fill the shell slots (`ShellLayout`, app bar, rail, bottom nav) with your navigation, and keep the five breakpoint gates untouched ([../packages/platform-web/src/shell/README.md](../packages/platform-web/src/shell/README.md)).
 

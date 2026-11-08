@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { cleanup, hasAnsi, renderAt, stripAnsi } from '../../../../test/render-at.js';
+import { cleanup, hasAnsi, renderAt, stripAnsi } from '../testing/harness.js';
 import { ActiveItems } from './active-items.js';
 import { EventLog } from './event-log.js';
 import { MeterLegend } from './meter-legend.js';

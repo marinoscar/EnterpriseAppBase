@@ -39,7 +39,7 @@ function recorder() {
 describe('coachCommandsSuite', () => {
   it('registers once, by id, beside the built-ins', () => {
     registerCliConformanceSuite(coachCommandsSuite);
-    expect(cliConformanceSuites.list().map((suite) => suite.id)).toEqual(['cli', 'deploy-registrations', 'coach-commands']);
+    expect(cliConformanceSuites.list().map((suite) => suite.id)).toEqual(['cli', 'deploy-registrations', 'tui', 'coach-commands']);
   });
 
   it('runs with the options the app passes under its camelCase key', () => {

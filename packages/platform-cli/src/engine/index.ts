@@ -660,6 +660,15 @@ export type {
   DeployRegistrationsConformanceOptions,
   EnvTemplateFragment,
 } from './conformance.js';
+export {
+  TUI_CONFORMANCE_CHECKS,
+  checkDashboardReducer,
+  checkTuiLabels,
+  checkTuiLazy,
+  checkTuiMenu,
+  checkTuiNoInkImport,
+} from './tui/conformance.js';
+export type { TuiConformanceCheck, TuiConformanceOptions, TuiDashboardCheck } from './tui/conformance.js';
 export { checkExecutorCredentialHygiene } from './node/executors/credential-hygiene.js';
 export type { CredentialHygieneOptions, CredentialHygieneReport } from './node/executors/credential-hygiene.js';
 export { PLATFORM_DOCUMENTED_OPTIONAL_KEYS, commentedAssignments, composeEnvSpecs } from './deploy/env-fragments.js';

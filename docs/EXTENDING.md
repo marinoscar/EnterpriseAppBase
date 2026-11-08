@@ -1356,13 +1356,22 @@ Imports: `@marinoscar/platform-cli/tui`. Examples: [`workspace.tui-selection.ts`
 4. **Open a sub-screen** with `nav.push('route', params)` and come back with `nav.pop()`. Only the top screen is mounted, so keep state that must survive a push in `params`, a loader or a selection.
 5. **Restyle** with `createCli({ tuiTheme })` and draw with the tokens (`textColor(theme.primary)`); colour is off under `NO_COLOR` and `--no-color` whatever the override says.
 
+### Test a TUI screen and conform the registrations
+
+Imports: `@marinoscar/platform-cli/tui/testing` and `@marinoscar/platform-cli/testing`. Examples: [`about.screen.test.tsx`](../apps/cli/src/examples/about.screen.test.tsx), the `tui` entry of [`conformance.test.ts`](../apps/cli/src/conformance.test.ts). Reference: [the TUI README](../packages/platform-cli/src/tui/README.md#testing).
+
+1. **Add `ink-testing-library`** (`^4.0.0`) as a dev dependency; it is an optional peer of the package.
+2. **Render the screen** with `renderTuiScreen(Screen, { session, selection, appState, theme, columns, params })`, send keys with `press('down' | 'esc' | 'enter' | '1')` and `type('text')`, and wait with `waitForFrame((frame) => frame.includes('...'))`. `nav.stack` shows pushes and pops. For a gated route use `renderTuiRoute(route, { session: { loggedIn: false } })`; for a menu `renderTuiMenu({ nodes, screens, loggedIn })`.
+3. **Drive a dashboard** with `fakeDaemonFeed<E>()` or `fakeEmitterFeed<E>()` passed to `new DashboardSource(reducer, feed)`.
+4. **Run the suite**: add `tui: {}` (or `tui: { dashboards: [{ id, reducer, events, snapshot }], importEntries: ['./dist/app.js'], allowEager: [...] }`) to the `suites` of your `runPlatformConformance` call, after `createCli`. Skip a check with `skip: { 'screens-render': 'why' }`.
+
 ### Add a CLI conformance suite
 
 Imports: `@marinoscar/platform-cli/testing`. Example: [`coach.conformance-suite.ts`](../apps/cli/src/examples/coach.conformance-suite.ts); the run: [`conformance.test.ts`](../apps/cli/src/conformance.test.ts).
 
 1. **Register the suite**: `registerCliConformanceSuite({ id, title, description, register(api, options) })`. Its option key is the camelCase of the id.
 2. **Run it**: `runPlatformConformance({ suites: { yourSuite: options } })`. Every suite the app names gets its options or `{ skip: 'reason' }`; an empty reason, or `false`, throws, and the run prints which suites ran and which were skipped.
-3. **The built-ins** are `cli` (env template fragments, executor credential hygiene) and `deployRegistrations` (every env key's group and generator is registered, both deploy plans resolve, no duplicate edge-config file, the vhost renders with your stream paths).
+3. **The built-ins** are `cli` (env template fragments, executor credential hygiene), `tui` (the TUI registrations and screens, see above) and `deployRegistrations` (every env key's group and generator is registered, both deploy plans resolve, no duplicate edge-config file, the vhost renders with your stream paths).
 
 ### Add a system access reason
 
