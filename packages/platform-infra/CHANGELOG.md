@@ -1,5 +1,7 @@
 # @marinoscar/platform-infra
 
+## 0.1.0-next.27
+
 ## 0.1.0-next.26
 
 ## 0.1.0-next.25
