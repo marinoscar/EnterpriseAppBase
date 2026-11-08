@@ -132,11 +132,11 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
   // A node that cannot do the work it advertised must not reach the claim loop:
   // there it would take a lease, fail it, and charge the job an attempt — once
   // per job, looking healthy the whole time.
-  const probe = options.probe ?? probeCapabilities();
+  const probe = options.probe ?? (await probeCapabilities());
   const selfTestEnabled = options.selfTest ?? headless;
   if (selfTestEnabled) {
     const failures: string[] = [];
-    const result = runStartupSelfTest({
+    const result = await runStartupSelfTest({
       types: config.node.eligibleTypes,
       probe,
       ...(options.requirements !== undefined ? { requirements: options.requirements } : {}),

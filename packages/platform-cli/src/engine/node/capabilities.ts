@@ -275,12 +275,12 @@ export interface CapabilityProbe {
  * @returns what the machine has, including the satisfied capability keys.
  * @stability experimental
  */
-export function probeCapabilities(options?: {
+export async function probeCapabilities(options?: {
   binaries?: string[] | undefined;
   hasBinary?: ((name: string) => boolean) | undefined;
   /** Reads a found binary's version banner. Defaults to running its registered `versionArgs`. */
   readVersion?: ((name: string) => string | undefined) | undefined;
-}): CapabilityProbe {
+}): Promise<CapabilityProbe> {
   const names = options?.binaries ?? PROBED_BINARIES;
   const has = options?.hasBinary ?? isOnPath;
   const readVersion = options?.readVersion ?? readRegisteredVersion;
@@ -451,8 +451,8 @@ export interface SelfTestOptions {
  * @returns the verdict; `ok` is false when a REQUIRED capability is missing.
  * @stability experimental
  */
-export function runStartupSelfTest(options: SelfTestOptions): SelfTestResult {
-  const probe = options.probe ?? probeCapabilities();
+export async function runStartupSelfTest(options: SelfTestOptions): Promise<SelfTestResult> {
+  const probe = options.probe ?? (await probeCapabilities());
   const result = evaluateCapabilities(options.types, probe, options.requirements);
 
   for (const gap of result.missingDegradable) {

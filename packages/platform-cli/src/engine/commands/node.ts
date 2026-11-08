@@ -473,11 +473,11 @@ export function registerNodeCommand(program: Command, ctx?: NodeCommandContext):
     .command('install-deps')
     .description('Install the dependencies this worker’s job types need')
     .option('--dry-run', 'Print the plan without changing anything')
-    .action((options: { dryRun?: boolean }) => {
+    .action(async (options: { dryRun?: boolean }) => {
       const stderr = ctx?.stderr ?? process.stderr;
       const configContext = contextOf(ctx);
 
-      const report = runInstallDeps({
+      const report = await runInstallDeps({
         stateDir: nodeStateDir(configContext),
         ...(options.dryRun === true ? { dryRun: true } : {}),
         log: (message) => stderr.write(`${message}\n`),

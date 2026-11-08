@@ -87,7 +87,7 @@ export const DEFAULT_PG_PORT = 5432;
 
 export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [];
-  const probe = options.probe ?? probeCapabilities();
+  const probe = options.probe ?? (await probeCapabilities());
 
   // ---- 1. Capabilities -------------------------------------------------------
   checks.push({

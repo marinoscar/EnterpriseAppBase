@@ -51,11 +51,11 @@ describe('runInstallDeps', () => {
     } as InstallStep;
   }
 
-  it('--dry-run performs no mutation and reports the plan', () => {
+  it('--dry-run performs no mutation and reports the plan', async () => {
     const install = vi.fn();
     const stateDir = join(dir, 'state');
 
-    const report = runInstallDeps({
+    const report = await runInstallDeps({
       stateDir,
       dryRun: true,
       steps: [step({ id: 'thing', install })],
@@ -67,8 +67,8 @@ describe('runInstallDeps', () => {
     expect(existsSync(stateDir)).toBe(false);
   });
 
-  it('records the four outcomes independently', () => {
-    const report = runInstallDeps({
+  it('records the four outcomes independently', async () => {
+    const report = await runInstallDeps({
       stateDir: dir,
       steps: [
         step({ id: 'already', detect: () => true }),
@@ -89,9 +89,9 @@ describe('runInstallDeps', () => {
     expect(report.ok).toBe(false);
   });
 
-  it('announces sudo before running anything', () => {
+  it('announces sudo before running anything', async () => {
     const messages: string[] = [];
-    runInstallDeps({
+    await runInstallDeps({
       stateDir: dir,
       steps: [step({ id: 'privileged', requiresSudo: true, detect: () => true })],
       log: (message) => messages.push(message),
@@ -103,8 +103,8 @@ describe('runInstallDeps', () => {
     expect(messages.join('\n')).toContain('privileged');
   });
 
-  it('turns a throwing detect into a failed step rather than an exception', () => {
-    const report = runInstallDeps({
+  it('turns a throwing detect into a failed step rather than an exception', async () => {
+    const report = await runInstallDeps({
       stateDir: dir,
       steps: [
         step({
@@ -120,11 +120,59 @@ describe('runInstallDeps', () => {
     expect(report.results[0]).toMatchObject({ outcome: 'failed', detail: 'probe blew up' });
   });
 
-  it('creates the state directory with the shipped default steps', () => {
+  it('creates the state directory with the shipped default steps', async () => {
     const stateDir = join(dir, 'created');
-    const report = runInstallDeps({ stateDir, distro: detectDistro({ platform: 'linux', osRelease: 'ID=ubuntu\n' }) });
+    const report = await runInstallDeps({ stateDir, distro: detectDistro({ platform: 'linux', osRelease: 'ID=ubuntu\n' }) });
 
     expect(existsSync(stateDir)).toBe(true);
     expect(report.ok).toBe(true);
+  });
+});
+
+describe('runInstallDeps with asynchronous steps', () => {
+  const ubuntu = detectDistro({ platform: 'linux', osRelease: 'ID=ubuntu\n' });
+
+  it('awaits an async supported, detect and install, in order', async () => {
+    const order: string[] = [];
+    const delayed = (name: string, value: boolean) => async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      order.push(name);
+      return value;
+    };
+
+    const report = await runInstallDeps({
+      stateDir: dir,
+      distro: ubuntu,
+      steps: [
+        {
+          id: 'slow',
+          label: 'slow',
+          supported: delayed('supported', true),
+          detect: delayed('detect', false),
+          install: async () => {
+            await new Promise((resolve) => setTimeout(resolve, 5));
+            order.push('install');
+          },
+        },
+      ],
+    });
+
+    expect(order).toEqual(['supported', 'detect', 'install']);
+    expect(report.results[0]?.outcome).toBe('installed');
+  });
+
+  it('reports a rejected async install as failed with its message, and keeps going', async () => {
+    const report = await runInstallDeps({
+      stateDir: dir,
+      distro: ubuntu,
+      steps: [
+        { id: 'bad', label: 'bad', supported: () => true, detect: () => false, install: async () => { throw new Error('boom'); } },
+        { id: 'good', label: 'good', supported: () => true, detect: async () => true, install: () => {} },
+      ],
+    });
+
+    expect(report.ok).toBe(false);
+    expect(report.results.map((r) => [r.id, r.outcome])).toEqual([['bad', 'failed'], ['good', 'skipped']]);
+    expect(report.results[0]?.detail).toBe('boom');
   });
 });

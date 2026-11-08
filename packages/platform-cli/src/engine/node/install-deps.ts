@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync } from 'node:fs';
 
 import { cliName } from '../identity.js';
@@ -39,7 +39,8 @@ export interface InstallContext {
   distro: DistroInfo;
   dryRun: boolean;
   stateDir: string;
-  run: (command: string, args: string[]) => void;
+  /** Runs a command to completion with inherited stdio; rejects on a non-zero exit. */
+  run: (command: string, args: string[]) => void | Promise<void>;
   log: (message: string) => void;
 }
 
@@ -49,10 +50,11 @@ export interface InstallStep {
   /** Escalation is declared up front so the plan can announce it. */
   requiresSudo?: boolean | undefined;
   /** Can this step run at all here? Returning false yields `unsupported`. */
-  supported(context: InstallContext): boolean;
+  supported(context: InstallContext): boolean | Promise<boolean>;
   /** Already satisfied? Returning true yields `skipped`. */
-  detect(context: InstallContext): boolean;
-  install(context: InstallContext): void;
+  detect(context: InstallContext): boolean | Promise<boolean>;
+  /** Do the install. May be async: a download or a container health poll is. */
+  install(context: InstallContext): void | Promise<void>;
 }
 
 export interface StepResult {
@@ -145,7 +147,7 @@ export interface InstallDepsOptions {
   steps?: InstallStep[] | undefined;
   dryRun?: boolean | undefined;
   distro?: DistroInfo | undefined;
-  run?: ((command: string, args: string[]) => void) | undefined;
+  run?: ((command: string, args: string[]) => void | Promise<void>) | undefined;
   log?: ((message: string) => void) | undefined;
 }
 
@@ -163,7 +165,7 @@ export interface InstallDepsReport {
  * `--dry-run` PERFORMS NO MUTATION: `detect` still runs (it is read-only and
  * is what makes the plan accurate), `install` does not.
  */
-export function runInstallDeps(options: InstallDepsOptions): InstallDepsReport {
+export async function runInstallDeps(options: InstallDepsOptions): Promise<InstallDepsReport> {
   const steps = options.steps ?? DEFAULT_INSTALL_STEPS;
   const dryRun = options.dryRun === true;
   const log = options.log ?? (() => {});
@@ -175,9 +177,7 @@ export function runInstallDeps(options: InstallDepsOptions): InstallDepsReport {
     stateDir: options.stateDir,
     run:
       options.run ??
-      ((command, args) => {
-        execFileSync(command, args, { stdio: 'inherit' });
-      }),
+      ((command, args) => runInherited(command, args)),
     log,
   };
 
@@ -192,14 +192,21 @@ export function runInstallDeps(options: InstallDepsOptions): InstallDepsReport {
   const results: StepResult[] = [];
 
   for (const step of steps) {
-    if (!step.supported(context)) {
+    let supported: boolean;
+    try {
+      supported = await step.supported(context);
+    } catch (error) {
+      results.push({ id: step.id, label: step.label, outcome: 'failed', detail: messageOf(error) });
+      continue;
+    }
+    if (!supported) {
       results.push({ id: step.id, label: step.label, outcome: 'unsupported', detail: `Not supported on ${distro.id}` });
       continue;
     }
 
     let satisfied: boolean;
     try {
-      satisfied = step.detect(context);
+      satisfied = await step.detect(context);
     } catch (error) {
       results.push({ id: step.id, label: step.label, outcome: 'failed', detail: messageOf(error) });
       continue;
@@ -216,7 +223,7 @@ export function runInstallDeps(options: InstallDepsOptions): InstallDepsReport {
     }
 
     try {
-      step.install(context);
+      await step.install(context);
       results.push({ id: step.id, label: step.label, outcome: 'installed' });
     } catch (error) {
       results.push({ id: step.id, label: step.label, outcome: 'failed', detail: messageOf(error) });
@@ -234,6 +241,18 @@ export function formatInstallReport(report: InstallDepsReport): string {
     lines.push(`  ${result.outcome.padEnd(11)} ${result.label}${result.detail === undefined ? '' : ` — ${result.detail}`}`);
   }
   return `${lines.join('\n')}\n`;
+}
+
+/** Runs a command with inherited stdio, rejecting on a spawn error or a non-zero exit. */
+function runInherited(command: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: 'inherit' });
+    child.once('error', reject);
+    child.once('exit', (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${command} ${args.join(' ')} exited with ${code === null ? `signal ${String(signal)}` : `code ${code}`}`));
+    });
+  });
 }
 
 function messageOf(error: unknown): string {
