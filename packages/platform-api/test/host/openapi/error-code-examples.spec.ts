@@ -28,8 +28,8 @@ describe('ErrorDto.code in the OpenAPI document', () => {
       'TOO_MANY_REQUESTS',
       'INTERNAL_ERROR',
     ]);
-    // A slice registers the domain codes it throws when it is imported (the identity slice's `ROLE_NOT_ASSIGNABLE`).
-    expect(examples.slice(10, -1)).toEqual(['ROLE_NOT_ASSIGNABLE']);
+    // A slice registers the domain codes it throws when it is imported (the identity slice's `ROLE_NOT_ASSIGNABLE` and `INVALID_RETURN_URI`).
+    expect(examples.slice(10, -1)).toEqual(['ROLE_NOT_ASSIGNABLE', 'INVALID_RETURN_URI']);
     expect(examples.at(-1)).toBe('ERROR');
   });
 
