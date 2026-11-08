@@ -51,5 +51,7 @@ export interface StorageSystemData {
    * @param reason - why (`'purge'`, `'admin-aggregate'`); recorded on the active span.
    * @returns the client, seen as {@link StoragePrisma}.
    */
-  asSystem(reason: SystemAccessReason): Pick<StoragePrisma, 'storageObject' | 'storageObjectChunk'>;
+  asSystem(
+    reason: SystemAccessReason,
+  ): Pick<StoragePrisma, 'storageObject' | 'storageObjectChunk' | 'storageMigrationRun' | 'storageMigrationItem'>;
 }

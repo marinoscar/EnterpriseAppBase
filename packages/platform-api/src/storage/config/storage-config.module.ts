@@ -10,6 +10,11 @@ import { StorageSubmissionService } from './storage-submission.service';
 import { StorageBucketDoctorCheck } from './doctor/storage-bucket.doctor-check';
 import { StorageConfigDoctorCheck } from './doctor/storage-config.doctor-check';
 import { StorageEgressContributor } from './doctor/egress/storage.egress.contributor';
+import { StorageMigrateObjectHandler } from '../migration/storage-migrate-object.handler';
+import { StorageMigratePlanHandler } from '../migration/storage-migrate-plan.handler';
+import { StorageMigrationController } from '../migration/storage-migration.controller';
+import { StorageMigrationService } from '../migration/storage-migration.service';
+import { StorageMigrationSettledListener } from '../migration/storage-migration-settled.listener';
 
 // =============================================================================
 // StorageConfigModule (issue #375, epic #372)
@@ -81,7 +86,7 @@ import { StorageEgressContributor } from './doctor/egress/storage.egress.contrib
  */
 @Module({
   imports: [StorageProvidersModule, CredentialsModule],
-  controllers: [StorageConfigController],
+  controllers: [StorageConfigController, StorageMigrationController],
   providers: [
     StorageConfigAdminService,
     StorageSubmissionService,
@@ -92,6 +97,10 @@ import { StorageEgressContributor } from './doctor/egress/storage.egress.contrib
     StorageBucketDoctorCheck,
     // Egress inventory (#773): the object store's host (server and browser).
     StorageEgressContributor,
+    StorageMigrationService,
+    StorageMigratePlanHandler,
+    StorageMigrateObjectHandler,
+    StorageMigrationSettledListener,
   ],
 })
 export class StorageConfigModule {}

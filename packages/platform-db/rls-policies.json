@@ -83,6 +83,20 @@
       "reason": "Organization isolation of webhook delivery attempts, whose payload is the event body sent; the row carries the endpoint's org_id because a policy cannot join through its parent.",
       "doc": "docs/SECURITY-ARCHITECTURE.md",
       "createdIn": "0039_add_webhooks"
+    },
+    {
+      "name": "storage_migration_runs_org_isolation",
+      "table": "storage_migration_runs",
+      "reason": "Organization isolation of copy-only storage provider migration runs (#1093); a deployment-wide run has a NULL org_id and is visible to the bypass (system) client only.",
+      "doc": "docs/specs/storage-providers.md",
+      "createdIn": "0042_add_storage_migrations"
+    },
+    {
+      "name": "storage_migration_items_org_isolation",
+      "table": "storage_migration_items",
+      "reason": "Organization isolation of the per-object rows of a storage migration run; the row carries its object's org_id because a policy cannot join through its parent.",
+      "doc": "docs/specs/storage-providers.md",
+      "createdIn": "0042_add_storage_migrations"
     }
   ]
 }

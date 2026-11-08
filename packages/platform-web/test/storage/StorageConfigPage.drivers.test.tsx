@@ -12,6 +12,21 @@ import { screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 
 vi.mock('../../src/storage/headless/use-storage-config.js', () => ({ useStorageConfig: vi.fn() }));
+// The migration panel (#1093) has its own hook and its own suite; here it is idle.
+vi.mock('../../src/storage/headless/use-storage-migrations.js', () => ({
+  useStorageMigrations: () => ({
+    runs: [],
+    activeRun: null,
+    isLoading: false,
+    loadError: null,
+    isWorking: false,
+    actionError: null,
+    clearActionError: () => undefined,
+    start: async () => true,
+    cancel: async () => true,
+    refresh: async () => undefined,
+  }),
+}));
 
 import { useStorageConfig } from '../../src/storage/headless/use-storage-config.js';
 import type { StorageConfigView, StorageConnectionTestResult } from '../../src/storage/headless/index.js';

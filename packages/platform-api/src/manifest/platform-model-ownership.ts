@@ -165,6 +165,26 @@ const WEBHOOKS_MODEL_OWNERSHIP: readonly ModelOwnershipDef[] = [
 ];
 
 /**
+ * The storage slice's copy-only provider migration tables (#1093), under
+ * forced row-level security on `org_id`.
+ */
+const STORAGE_MIGRATION_MODEL_OWNERSHIP: readonly ModelOwnershipDef[] = [
+  {
+    model: 'StorageMigrationRun',
+    kind: 'org',
+    orgField: 'orgId',
+    rationale:
+      'A copy-only storage provider migration run. Deployment-wide today, so its nullable org_id is NULL and the policy shows the row to the system client only; the column lets a future organization-owned run need no migration.',
+  },
+  {
+    model: 'StorageMigrationItem',
+    kind: 'org',
+    rationale:
+      "One object of a migration run. Carries its object's org_id (a policy cannot join through its parent) and a composite foreign key (object_id, org_id) to the object, so an item can never point at another organisation's object.",
+  },
+];
+
+/**
  * Every platform model's ownership kind (`org`, `org-optional`, `user` or
  * `system`), in registration order: the base inventory, then the sharing,
  * settings, credentials, android-app and webhooks slices' own classifications.
@@ -183,6 +203,8 @@ export const PLATFORM_MODEL_OWNERSHIP: readonly ModelOwnershipDef[] = Object.fre
   ...ANDROID_APP_MODEL_OWNERSHIP,
   // The webhooks slice's two org tables (#1046).
   ...WEBHOOKS_MODEL_OWNERSHIP,
+  // The storage slice's provider-migration tables (#1093).
+  ...STORAGE_MIGRATION_MODEL_OWNERSHIP,
 ]);
 
 /**

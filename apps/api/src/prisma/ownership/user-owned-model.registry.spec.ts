@@ -34,6 +34,8 @@ describe('the app fills userOwnedModelRegistry', () => {
     'AndroidAppRelease',
     // webhooks (#1046)
     'WebhookEndpoint',
+    // storage provider migration (#1093)
+    'StorageMigrationRun',
   ];
 
   it('registers the packaged platform inventory in the baseline order, then the (empty) app list', () => {
@@ -42,12 +44,12 @@ describe('the app fills userOwnedModelRegistry', () => {
     expect(userOwnedModelRegistry.list()).toEqual([...PLATFORM_USER_OWNED_MODELS, ...APP_USER_OWNED_MODELS]);
   });
 
-  it('holds 34 models and 41 User foreign keys (the sharing slice adds 4 and 8: groups #728, grants #729; settings 1 and 1, #733; org credentials 1 and 1, #735; android-app 1 and 1, #746; webhooks 1 and 1, #1046)', () => {
+  it('holds 35 models and 43 User foreign keys (the sharing slice adds 4 and 8: groups #728, grants #729; settings 1 and 1, #733; org credentials 1 and 1, #735; android-app 1 and 1, #746; webhooks 1 and 1, #1046; storage migration 1 and 2, #1093)', () => {
     const fields = userOwnedModelRegistry
       .list()
       .flatMap((def) => [...(def.ownerField ? [def.ownerField] : []), ...(def.actorFields ?? [])]);
-    expect(userOwnedModelRegistry.size).toBe(34);
-    expect(fields).toHaveLength(41);
+    expect(userOwnedModelRegistry.size).toBe(35);
+    expect(fields).toHaveLength(43);
   });
 
   it('gives every entry a non-empty rationale', () => {

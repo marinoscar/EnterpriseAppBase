@@ -54,3 +54,18 @@ export type {
   StorageObjectsTransport,
   WaitForReadyOptions,
 } from './objects-client.js';
+export { useStorageMigrations } from './use-storage-migrations.js';
+export type { UseStorageMigrationsOptions, UseStorageMigrationsReturn } from './use-storage-migrations.js';
+export {
+  STORAGE_MIGRATION_ACTIVE_RUN_STATUSES,
+  STORAGE_MIGRATION_RUN_STATUSES,
+  createStorageMigrationsClient,
+  isActiveStorageMigration,
+} from './storage-migrations.js';
+export type {
+  StartStorageMigrationInput,
+  StorageMigrationRun,
+  StorageMigrationRunList,
+  StorageMigrationRunStatusName,
+  StorageMigrationsClient,
+} from './storage-migrations.js';

@@ -17,7 +17,15 @@ const OWNERSHIP: Record<string, string[]> = {
     'Organization', 'Membership', 'Invite', 'MembershipStatus', 'InviteStatus', 'RoleScope',
   ],
   settings: ['OrgSettings', 'SystemSettings', 'UserSettings'],
-  storage: ['StorageObject', 'StorageObjectChunk', 'StorageObjectStatus'],
+  storage: [
+    'StorageObject',
+    'StorageObjectChunk',
+    'StorageObjectStatus',
+    'StorageMigrationRun',
+    'StorageMigrationItem',
+    'StorageMigrationRunStatus',
+    'StorageMigrationItemStatus',
+  ],
   credentials: ['Credential', 'UserCredential', 'OrgCredential'],
   notifications: ['Notification', 'NotificationDelivery', 'PushSubscription', 'NotificationBroadcast', 'NotificationDeliveryStatus', 'NotificationBroadcastStatus'],
   jobs: ['Job', 'JobStatsRollup', 'WorkerNode', 'NodeCredential', 'JobNodeSecret', 'WorkerNodeEvent', 'JobStatus', 'NodeStatus'],
@@ -47,10 +55,10 @@ describe('the shipped platform fragments', () => {
     expect(declared.sort()).toEqual([...names].sort());
   });
 
-  it('declare 46 models and 14 enums, each once', () => {
+  it('declare 48 models and 16 enums, each once', () => {
     const all = inputs.flatMap((i) => parseBlocks(i.text, i.name).blocks).filter((b) => !b.extend);
-    expect(all.filter((b) => b.kind === 'model')).toHaveLength(46);
-    expect(all.filter((b) => b.kind === 'enum')).toHaveLength(14);
+    expect(all.filter((b) => b.kind === 'model')).toHaveLength(48);
+    expect(all.filter((b) => b.kind === 'enum')).toHaveLength(16);
     expect(new Set(all.map((b) => b.name)).size).toBe(all.length);
   });
 
@@ -84,7 +92,7 @@ describe('the shipped platform fragments', () => {
     expect(composeFragments(inputs).warnings).toEqual([]);
   });
 
-  it('move the 28 User back-relations and Job.backupRun into the slices that own the foreign keys', () => {
+  it('move the 30 User back-relations and Job.backupRun into the slices that own the foreign keys', () => {
     const { extensions } = composeFragments(inputs);
     const by = (m: string): string[] => extensions.filter((e) => e.model === m).map((e) => `${e.from.replace('package:', '').replace('.prisma', '')}:${e.field}`).sort();
     expect(by('User')).toEqual([
@@ -97,7 +105,7 @@ describe('the shipped platform fragments', () => {
       'settings:orgSettingsUpdates', 'settings:settingsUpdates', 'settings:userSettings',
       'sharing:grantsGiven', 'sharing:grantsReceived', 'sharing:grantsRevoked',
       'sharing:groupInvitesClaimed', 'sharing:groupInvitesSent', 'sharing:groupMembersAdded', 'sharing:groupMemberships', 'sharing:groupsCreated',
-      'storage:storageObjects',
+      'storage:storageMigrationRunsCancelled', 'storage:storageMigrationRunsStarted', 'storage:storageObjects',
       'webhooks:webhookEndpoints',
     ]);
     expect(by('Job')).toEqual(['db-backup:backupRun']);

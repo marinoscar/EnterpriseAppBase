@@ -225,8 +225,15 @@ export type { ProfileImageControllerShape } from './profile-image/profile-image.
 // ---- the host ports and the data (rung 3) -------------------------------------------------
 export { STORAGE_SYSTEM_DATA } from './ports';
 export type { StorageSystemData } from './ports';
-export { StorageObjectStatus, storageForOrg, storageRunInOrg } from './data/storage-db';
+export {
+  StorageMigrationItemStatus,
+  StorageMigrationRunStatus,
+  StorageObjectStatus,
+  storageForOrg,
+  storageRunInOrg,
+} from './data/storage-db';
 export type {
+  StorageBatchDelegate,
   StorageBatchPayload,
   StorageDelegate,
   StorageInputJsonArray,
@@ -235,6 +242,8 @@ export type {
   StorageJsonArray,
   StorageJsonObject,
   StorageJsonValue,
+  StorageMigrationItemRow,
+  StorageMigrationRunRow,
   StorageObject,
   StorageObjectChunk,
   StoragePrisma,
@@ -242,6 +251,15 @@ export type {
   StorageRunInOrgOptions,
   StorageTx,
 } from './data/storage-db';
+
+// ---- copy-only provider migration (`/api/admin/storage/migrations`, #1093) ----------------
+export * from './migration/index';
+export { StorageMigrationController } from './migration/storage-migration.controller';
+export {
+  StartStorageMigrationDto,
+  StorageMigrationRunDto,
+  StorageMigrationRunListDto,
+} from './migration/dto/storage-migration.dto';
 
 // ---- permissions, as data for the app's permission registry -------------------------------
 export { STORAGE_PERMISSIONS } from './storage.permissions';

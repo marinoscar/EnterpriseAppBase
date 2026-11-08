@@ -188,6 +188,124 @@ export interface StorageObjectChunk {
   uploadedAt: Date;
 }
 
+/**
+ * `StorageMigrationRunStatus`: where a copy-only provider migration run is.
+ *
+ * @stability experimental
+ */
+export const StorageMigrationRunStatus: {
+  readonly [K in 'pending' | 'running' | 'completed' | 'failed' | 'cancelled']: K;
+} = Object.freeze({
+  pending: 'pending',
+  running: 'running',
+  completed: 'completed',
+  failed: 'failed',
+  cancelled: 'cancelled',
+} as const);
+
+/**
+ * A {@link StorageMigrationRunStatus} value.
+ *
+ * @stability experimental
+ */
+export type StorageMigrationRunStatus = (typeof StorageMigrationRunStatus)[keyof typeof StorageMigrationRunStatus];
+
+/**
+ * `StorageMigrationItemStatus`: where one object of a migration run is.
+ *
+ * @stability experimental
+ */
+export const StorageMigrationItemStatus: {
+  readonly [K in 'pending' | 'copying' | 'migrated' | 'failed' | 'skipped']: K;
+} = Object.freeze({
+  pending: 'pending',
+  copying: 'copying',
+  migrated: 'migrated',
+  failed: 'failed',
+  skipped: 'skipped',
+} as const);
+
+/**
+ * A {@link StorageMigrationItemStatus} value.
+ *
+ * @stability experimental
+ */
+export type StorageMigrationItemStatus = (typeof StorageMigrationItemStatus)[keyof typeof StorageMigrationItemStatus];
+
+/**
+ * One `storage_migration_runs` row (`StorageMigrationRun` in the `storage` fragment, #1093).
+ *
+ * @stability experimental
+ */
+export interface StorageMigrationRunRow {
+  /** The run id (UUID). */
+  id: string;
+  /** `null`: a deployment-wide run (every run today). */
+  orgId: string | null;
+  /** The driver copied from. */
+  sourceProvider: string;
+  /** The driver copied to. */
+  targetProvider: string;
+  /** Lifecycle status. */
+  status: StorageMigrationRunStatus;
+  /** Snapshot: objects the planner listed. */
+  totalCount: number;
+  /** Snapshot: migrated items. */
+  migratedCount: number;
+  /** Snapshot: failed items. */
+  failedCount: number;
+  /** Snapshot: skipped items. */
+  skippedCount: number;
+  /** When the planner had queued every item. */
+  plannedAt: Date | null;
+  /** Who started it. */
+  startedById: string | null;
+  /** Who cancelled it. */
+  cancelledById: string | null;
+  /** When the planner began. */
+  startedAt: Date | null;
+  /** When it finished. */
+  finishedAt: Date | null;
+  /** When it was cancelled. */
+  cancelledAt: Date | null;
+  /** The last error recorded. */
+  lastError: string | null;
+  /** Creation. */
+  createdAt: Date;
+  /** Last update. */
+  updatedAt: Date;
+}
+
+/**
+ * One `storage_migration_items` row: one object of a run.
+ *
+ * @stability experimental
+ */
+export interface StorageMigrationItemRow {
+  /** The row id. */
+  id: string;
+  /** The run. */
+  runId: string;
+  /** The object. */
+  objectId: string;
+  /** The object's organization. */
+  orgId: string;
+  /** Lifecycle status. */
+  status: StorageMigrationItemStatus;
+  /** The `storage.migrate_object` job, once queued. */
+  jobId: string | null;
+  /** The byte count the copy was verified against. */
+  sizeBytes: bigint | null;
+  /** The sha256 (hex) the copy was verified against. */
+  checksumSha256: string | null;
+  /** The last error recorded. */
+  lastError: string | null;
+  /** Creation. */
+  createdAt: Date;
+  /** Last update. */
+  updatedAt: Date;
+}
+
 // ---- delegates ----------------------------------------------------------------------
 
 /**
@@ -225,8 +343,22 @@ export interface StorageDelegate<Row> {
 }
 
 /**
+ * A delegate that also batches: `createMany` and `groupBy` (the migration tables).
+ *
+ * @typeParam Row - the model's row type.
+ *
+ * @stability experimental
+ */
+export interface StorageBatchDelegate<Row> extends StorageDelegate<Row> {
+  /** `createMany`. */
+  createMany(args: StorageQueryArgs): Promise<StorageBatchPayload>;
+  /** `groupBy`; the call site names the `by` and `_count` it reads. */
+  groupBy(args: StorageQueryArgs): Promise<any[]>;
+}
+
+/**
  * The transaction client (or org-scoped client) the slice works with: the
- * storage fragment's two models.
+ * storage fragment's models.
  *
  * @stability experimental
  */
@@ -235,6 +367,10 @@ export interface StorageTx {
   storageObject: StorageDelegate<StorageObject>;
   /** `storage_object_chunks`. */
   storageObjectChunk: StorageDelegate<StorageObjectChunk>;
+  /** `storage_migration_runs` (#1093). */
+  storageMigrationRun: StorageBatchDelegate<StorageMigrationRunRow>;
+  /** `storage_migration_items` (#1093). */
+  storageMigrationItem: StorageBatchDelegate<StorageMigrationItemRow>;
 }
 
 /**

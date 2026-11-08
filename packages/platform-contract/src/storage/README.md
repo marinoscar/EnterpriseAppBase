@@ -48,11 +48,11 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 
 ## Data
 
-No tables. `systemStorageSchema` is the `storage` value of the `global` system-settings row; `version`, `updatedAt` and `updatedBy` of the admin view come from that row. Object sizes and part totals are strings (64-bit values lose precision as JSON numbers); dates are ISO strings; `forcePathStyle` is tri-state (`null` means "this vendor's convention"). The `storage` value stores `provider` plus a `drivers` record; the six flat fields (`bucket`, `region`, `endpoint`, `accountId`, `accessKeyId`, `forcePathStyle`) are optional deprecated aliases of the active built-in driver, read from an old row and accepted on PUT and PATCH.
+No tables. The migration run shape (`storageMigrationRunSchema`) mirrors `storage_migration_runs` with counts derived from its items (`pendingCount` is queued or copying), dates as ISO strings. `systemStorageSchema` is the `storage` value of the `global` system-settings row; `version`, `updatedAt` and `updatedBy` of the admin view come from that row. Object sizes and part totals are strings (64-bit values lose precision as JSON numbers); dates are ISO strings; `forcePathStyle` is tri-state (`null` means "this vendor's convention"). The `storage` value stores `provider` plus a `drivers` record; the six flat fields (`bucket`, `region`, `endpoint`, `accountId`, `accessKeyId`, `forcePathStyle`) are optional deprecated aliases of the active built-in driver, read from an old row and accepted on PUT and PATCH.
 
 ## Permissions and settings
 
-None declared here. The routes carrying these shapes are gated by `storage:read|write` (objects), `storage_config:read|write` (admin) and `system_settings:*` (the namespace through `/api/system-settings`).
+None declared here. The routes carrying these shapes are gated by `storage:read|write` (objects), `storage_config:read|write` (admin, including `/api/admin/storage/migrations`) and `system_settings:*` (the namespace through `/api/system-settings`).
 
 ## UI
 
@@ -75,6 +75,8 @@ The secret access key is not representable in the stored settings, the GET branc
 The API slice's `storage` suite (`@marinoscar/platform-api/storage/testing`) scans `systemStorageSchema`, `storageResponseSchema` and `storageConfigResponseSchema` for secret-named fields; see its README.
 
 ## Upgrade notes
+
+#1093: additive. New `startStorageMigrationSchema` (`{ sourceProvider, targetProvider }`, driver ids that differ), `storageMigrationRunSchema`, `storageMigrationListQuerySchema`, `storageMigrationRunListSchema` and their types, and the zod-free `STORAGE_MIGRATION_RUN_STATUSES`, `STORAGE_MIGRATION_ACTIVE_RUN_STATUSES` and `STORAGE_MIGRATION_ITEM_STATUSES`.
 
 #1079: `initUploadResponseSchema` gains the required `partUploadAuth` (`none` | `bearer`) and its `presignedUrls[].url` is a plain non-empty string (for `bearer` it is the API's part route, which may be root-relative); new `getPartUrlsSchema` / `getPartUrlsResponseSchema` (the `POST :id/upload/part-urls` body and payload), `partUrlSchema`, `PART_UPLOAD_AUTH_MODES`, `INIT_UPLOAD_PART_URL_BATCH`, `PART_URLS_MAX_PER_CALL` and `UPLOAD_ERROR_REASONS`. `uploadStatusResponseSchema.uploadedParts` now means the parts the storage backend holds.
 

@@ -28,8 +28,9 @@ bucket, region, endpoint or credential; the admin UI is the only source.
 
 What it is not:
 
-- **Not a migration tool.** Switching bucket or provider does not copy
-  objects (§2.7).
+- **Not an automatic migration.** Switching bucket or provider does not copy
+  objects (§2.7). An administrator copies them deliberately with a copy-only
+  provider migration (§2.10), which never deletes the source.
 - **Not multi-bucket.** One configuration is live at a time. Objects written
   under an earlier configuration keep their recorded `bucket` and
   `storage_provider`, but are not readable through the new one.
@@ -439,6 +440,75 @@ keying the part route's size check on each driver (the platform's bounded
 stream enforces it once); a `Content-Length`-only size rule (a chunked or lying
 body would pass).
 
+### 2.10 Copy-only provider migration (#1093)
+
+Per-row routing (§2.9) keeps every object readable where it was written, so a
+deployment can hold objects on several drivers at once. The copy-only
+migration moves them deliberately: an administrator starts a run from driver
+A to driver B, and every `ready` object recorded on A is **copied, verified,
+repointed, and left on A** as a fallback.
+
+**Data.** `storage_migration_runs` (one per run: source, target, status
+`pending` → `running` → `completed` | `failed`, or `cancelled`; count
+snapshots; `plannedAt`; who started and cancelled it) and
+`storage_migration_items` (one per object: its organization's `org_id`,
+status `pending` → `copying` → `migrated` | `failed` | `skipped`, the
+verified `size_bytes` and `checksum_sha256`). Platform migration
+`0042_add_storage_migrations`. Both tables force row-level security on
+`org_id`; a run is deployment-wide, so its `org_id` is NULL and only the bypass
+client sees it. An item references its object by the composite
+`(object_id, org_id)` and is unique per `(run_id, object_id)` (the idempotency
+anchor).
+
+**One run at a time.** The raw-SQL partial unique index
+`storage_migration_runs_active_uniq_idx` (`((true)) WHERE status IN ('pending',
+'running')`) decides who wins a concurrent start, across processes; the loser
+is a `409` with `details.activeRunId`. There is no `findFirst` pre-check.
+
+**Two server-only jobs**, at the housekeeping priority, each `skipDedup`:
+
+1. `storage.migrate_plan`, one per run (`orgId: null`): pages the source's
+   `ready` objects by id, creates the items (`skipDuplicates`) and queues one
+   `storage.migrate_object` per item in the object's organization. A retried
+   planner resumes: it queues only items with no `jobId`. It sets `plannedAt`
+   last; the run cannot finalize before.
+2. `storage.migrate_object`, one per object: under `JobScope.run` (the object's
+   organization), an item is `skipped` when its run is no longer running
+   (cancelled), or its object is gone, not `ready`, or no longer recorded on the
+   source (an earlier run moved it). Otherwise:
+   - **copy**: the source's download is piped through a metering transform
+     (sha256 and byte count on one pass) straight into the target's `upload`,
+     under the same key. Nothing is buffered.
+   - **verify**: the object is read back from the target and hashed; the byte
+     counts and checksums of both sides, and the row's `size`, must agree.
+   - **repoint**: only then, in one org-scoped transaction, `storage_provider`
+     and `bucket` move to the target, guarded on `storage_provider = source AND
+     storage_key = key` (an object changed during the copy is `skipped`, not
+     repointed).
+   - **leave the source**: nothing ever deletes it.
+
+Neither job is node-eligible: a copy needs both drivers' secrets, which are
+never brokered to a worker node. A thrown error retries with backoff; when a
+job gives up, a `job.settled` listener marks its item `failed` (a planner that
+gives up fails its run). Counts are derived from the items on every read, and
+the run finalizes with ONE conditional update (`status = 'running' AND
+planned_at IS NOT NULL`), so any number of jobs finishing together finalize it
+exactly once.
+
+**Cancel** flips the run to `cancelled` and marks its queued items `skipped`
+at once: the run stops before its next unclaimed object. An object being
+copied at that moment finishes (its copy is verified). **A re-run** after a
+completed or cancelled run lists only objects still on the source, so it skips
+everything already moved.
+
+Rejected: deleting the source after a verified copy (the source is the
+fallback; a later cleanup is an operator decision); one job per run copying
+every object (no per-object retry, and a multi-hour job); a new permission
+(`storage_config:*` already means "decide where the bytes live").
+Limitation: the three built-in S3 flavours share one credential slot
+(`storage/default`), so copying between two of them that need different keys
+requires a driver registered with its own `credentialAddress`.
+
 ## 3. Configuration and permissions
 
 **Settings:** the `storage` namespace (§2.1) and the active driver's credentials (the built-ins' `storage` credential; another driver's `storage_<id>` purpose).
@@ -472,6 +542,10 @@ Admin only. They are distinct from `system_settings:*` and from `storage:*`
 | `PUT /api/admin/storage-config` | Select the driver and merge its settings; blank secret preserves; `If-Match`; `409` + `SWITCH` on relocation | `storage_config:write` |
 | `POST /api/admin/storage-config/test` | The active driver's `testConnection` against the submitted config; always `200` | `storage_config:write` |
 | `POST /api/admin/storage-config/bucket` | The active driver's `provision` (the S3 family creates and hardens the bucket); always `200`, may be `guided` | `storage_config:write` |
+| `POST /api/admin/storage/migrations` | Start a copy-only migration `{ sourceProvider, targetProvider }` (§2.10); `400` `details.reason` `UNKNOWN_DRIVER` / `SOURCE_NOT_CONFIGURED` / `TARGET_NOT_CONFIGURED` / `SAME_LOCATION`; `409` `details.activeRunId` | `storage_config:write` |
+| `GET /api/admin/storage/migrations` | Runs, newest first (`page`, `pageSize` ≤ 100), counts derived from the items | `storage_config:read` |
+| `GET /api/admin/storage/migrations/:runId` | One run: total, migrated, failed, skipped, pending | `storage_config:read` |
+| `POST /api/admin/storage/migrations/:runId/cancel` | Cancel a pending or running run; `409` when it already finished | `storage_config:write` |
 
 **Wire shape** (the zod schemas are in `@marinoscar/platform-contract/storage`;
 the details are the generated OpenAPI):
@@ -796,8 +870,12 @@ Against a real provider, follow the
   `StorageConfigService.resolveDriver`) and the resumable-upload seams:
   `partUploadAuth`, `POST upload/part-urls`, the API-proxied
   `PUT upload/parts/:n`, backend-reported upload status (S3 `ListParts`), and
-  `409 UPLOAD_PARTS_MISSING` / `UPLOAD_SESSION_INVALID` on complete. Copy-only
-  migration between providers is a follow-up.
+  `409 UPLOAD_PARTS_MISSING` / `UPLOAD_SESSION_INVALID` on complete.
+- #1093 added the copy-only provider migration (§2.10): the
+  `storage_migration_runs` and `storage_migration_items` tables, the
+  one-active-run index, the `storage.migrate_plan` and `storage.migrate_object`
+  jobs, the `/api/admin/storage/migrations` routes and the page's migration
+  panel.
 - #925 (PP-14.7, epic #918) opened the provider kind: `registerStorageDriver`
   and the `storage-driver` pluggable kind, the `{ provider, drivers }` shape of
   the `storage` namespace with read-time compatibility for the flat fields, the

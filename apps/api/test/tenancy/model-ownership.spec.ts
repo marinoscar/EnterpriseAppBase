@@ -68,6 +68,8 @@ describe('model ownership vs prisma/schema/', () => {
     'AndroidAppRelease',
     'WebhookEndpoint',
     'WebhookDelivery',
+    'StorageMigrationRun',
+    'StorageMigrationItem',
     ]);
     expect(modelOwnershipRegistry.list()).toEqual([...PLATFORM_MODEL_OWNERSHIP]);
   });
@@ -78,7 +80,7 @@ describe('model ownership vs prisma/schema/', () => {
     expect(modelNames.filter((m) => !registered.includes(m))).toEqual([]);
   });
 
-  it('lists exactly the twelve org models, the org-optional AuditEvent and Job, and the user and system rest', () => {
+  it('lists exactly the fourteen org models, the org-optional AuditEvent and Job, and the user and system rest', () => {
     expect(modelsOfKind('org').map((d) => d.model).sort()).toEqual([
       'AiRun',
       'AiUsageEvent',
@@ -88,6 +90,8 @@ describe('model ownership vs prisma/schema/', () => {
       'GroupMember',
       'OrgCredential',
       'OrgSettings',
+      'StorageMigrationItem',
+      'StorageMigrationRun',
       'StorageObject',
       'StorageObjectChunk',
       'WebhookDelivery',

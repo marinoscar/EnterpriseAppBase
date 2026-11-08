@@ -410,5 +410,16 @@
     "sha256": "c9285347971920da5310a279351d8de8acac3bba4b281e227cb025745dafc73c",
     "since": "1.0.0",
     "slice": "notifications"
+  },
+  {
+    "dir": "0042_add_storage_migrations",
+    "id": "0042_add_storage_migrations",
+    "requires": [
+      "identity"
+    ],
+    "rls": true,
+    "sha256": "8d37841523a5b4737379df567d5ad3feb37abb0f29dcef416cd34f20167ba181",
+    "since": "1.0.0",
+    "slice": "storage"
   }
 ]
