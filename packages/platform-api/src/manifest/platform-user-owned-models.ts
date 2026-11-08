@@ -237,6 +237,20 @@ const WEBHOOKS_USER_OWNED_MODELS: readonly UserOwnedModelDef[] = [
 ];
 
 /**
+ * The storage slice's provider-migration run (#1093): it records who started
+ * and who cancelled it (SetNull), and is a deployment artifact, not user data.
+ */
+const STORAGE_MIGRATION_USER_OWNED_MODELS: readonly UserOwnedModelDef[] = [
+  {
+    model: 'StorageMigrationRun',
+    actorFields: ['startedById', 'cancelledById'],
+    purge: 'detach',
+    export: 'exclude',
+    rationale: 'A deployment-wide storage provider migration; it records who started it and who cancelled it.',
+  },
+];
+
+/**
  * Every platform model with a foreign key to `User`, with its role, purge and
  * export policy, in registration order: the base inventory, then the sharing,
  * settings, credentials and android-app slices' own entries.
@@ -255,6 +269,8 @@ export const PLATFORM_USER_OWNED_MODELS: readonly UserOwnedModelDef[] = Object.f
   ...ANDROID_APP_USER_OWNED_MODELS,
   // The webhooks slice's endpoint table (#1046).
   ...WEBHOOKS_USER_OWNED_MODELS,
+  // The storage slice's provider-migration run (#1093).
+  ...STORAGE_MIGRATION_USER_OWNED_MODELS,
 ]);
 
 /**
