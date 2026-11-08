@@ -285,6 +285,62 @@ describe('NodeEngine — the top-up pool', () => {
 
     expect(engine.claimableTypes()).toEqual(['test.job']);
   });
+
+  it('withholds a type it has an executor for (a required model is missing), whether or not types were requested', () => {
+    const make = (eligibleTypes: string[]) =>
+      new NodeEngine({
+        api: fakeApi([], recorder()),
+        nodeId: 'node-1',
+        concurrency: 1,
+        eligibleTypes,
+        withheldTypes: ['test.job'],
+        executors: new ExecutorRegistry().register(new ControlledExecutor()),
+        scheduler: fakeScheduler(),
+        tmpDir: tmp,
+      });
+
+    expect(make(['test.job']).claimableTypes()).toEqual([]);
+    expect(make([]).claimableTypes()).toEqual([]);
+  });
+
+  it('sends the refreshed capability summary on the next heartbeat and keeps the last one when a refresh fails', async () => {
+    const sent: Array<Record<string, unknown> | undefined> = [];
+    const api = fakeApi([], recorder(), {
+      async heartbeat(_nodeId, body) {
+        sent.push(body.capabilities);
+        return {} as never;
+      },
+    });
+    let n = 0;
+    const engine = new NodeEngine({
+      api,
+      nodeId: 'node-1',
+      concurrency: 1,
+      capabilities: { probe: { generation: 0 } },
+      refreshCapabilities: async () => {
+        n += 1;
+        if (n === 2) throw new Error('probe exploded');
+        return { probe: { generation: n } };
+      },
+      executors: new ExecutorRegistry().register(new ControlledExecutor()),
+      scheduler: fakeScheduler(),
+      tmpDir: tmp,
+      sleep: tick,
+      pollIntervalMs: 1,
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(sent.length).toBeGreaterThan(0));
+    engine.setConcurrency(2);
+    engine.setConcurrency(3);
+    await vi.waitFor(() => expect(sent.length).toBeGreaterThanOrEqual(3));
+    await engine.drain();
+    await run;
+
+    expect(sent[0]).toEqual({ probe: { generation: 1 } });
+    expect(sent[1]).toEqual({ probe: { generation: 1 } });
+    expect(sent[2]).toEqual({ probe: { generation: 3 } });
+  });
 });
 
 describe('NodeEngine — concurrency changes', () => {

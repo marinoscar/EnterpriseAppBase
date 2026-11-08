@@ -210,6 +210,24 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
     pollIntervalMs: config.node.pollIntervalMs,
     tmpDir: nodeTmpDir(pathCtx),
     capabilities: { ...(options.capabilities ?? {}), probe: { ...probe } },
+    // Cheap presence probes are refreshed on every heartbeat so the fleet page
+    // sees a sidecar go away; expensive results come from the probe cache and
+    // version banners are carried forward, never re-read.
+    // An injected probe (a test seam) is never replaced by a real one.
+    ...(options.probe === undefined
+      ? {
+          refreshCapabilities: async () => ({
+            ...(options.capabilities ?? {}),
+            probe: {
+              ...(await probeCapabilities({
+                useCache: true,
+                ...(options.env !== undefined ? { env: options.env } : {}),
+                readVersion: (name: string) => probe.versions?.[name],
+              })),
+            },
+          }),
+        }
+      : {}),
     ...(vitals !== undefined ? { collectVitals: (input) => vitals.collect(input) } : {}),
     // The engine learns the server's features from the register response (a
     // fresh registration) or from any heartbeat response (an already-registered

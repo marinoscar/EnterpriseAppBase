@@ -104,6 +104,16 @@ export interface NodeEngineOptions {
   leaseRenewIntervalMs?: number | undefined;
   heartbeatIntervalMs?: number | undefined;
   capabilities?: Record<string, unknown> | undefined;
+  /**
+   * Called before each heartbeat to refresh the capability summary (cheap
+   * presence probes). A rejection or `undefined` keeps the last summary.
+   */
+  refreshCapabilities?: (() => Promise<Record<string, unknown> | undefined>) | undefined;
+  /**
+   * Job types this node must not claim although it has an executor for them
+   * (a required model is missing, say). Removed from the advertised set.
+   */
+  withheldTypes?: readonly string[] | undefined;
   /** Test seams. */
   fetch?: typeof globalThis.fetch | undefined;
   scheduler?: EngineScheduler | undefined;
@@ -190,7 +200,9 @@ export class NodeEngine {
   private readonly heartbeatIntervalMs: number;
   private readonly pollIntervalMs: number;
   private readonly tmpDir: string;
-  private readonly capabilities: Record<string, unknown> | undefined;
+  private capabilities: Record<string, unknown> | undefined;
+  private readonly refreshCapabilities: (() => Promise<Record<string, unknown> | undefined>) | undefined;
+  private readonly withheldTypes: ReadonlySet<string>;
   private readonly requestedTypes: string[];
 
   readonly nodeId: string;
@@ -264,6 +276,8 @@ export class NodeEngine {
     this.persistConcurrency = options.persistConcurrency;
     this.tmpDir = options.tmpDir ?? join(process.cwd(), '.node-tmp');
     this.capabilities = options.capabilities;
+    this.refreshCapabilities = options.refreshCapabilities;
+    this.withheldTypes = new Set(options.withheldTypes ?? []);
     this.collectVitals = options.collectVitals;
     this.vitalsEnabled = options.collectVitals !== undefined;
     this.hostTelemetry = options.hostTelemetry;
@@ -304,8 +318,11 @@ export class NodeEngine {
    * before asking.
    */
   claimableTypes(): string[] {
-    if (this.requestedTypes.length === 0) return this.executors.types();
-    return this.requestedTypes.filter((type) => this.executors.has(type));
+    const types =
+      this.requestedTypes.length === 0
+        ? this.executors.types()
+        : this.requestedTypes.filter((type) => this.executors.has(type));
+    return this.withheldTypes.size === 0 ? types : types.filter((type) => !this.withheldTypes.has(type));
   }
 
   /**
@@ -886,6 +903,14 @@ export class NodeEngine {
    * is an ordinary failure: there is nothing left to take out.
    */
   private async beat(): Promise<void> {
+    if (this.refreshCapabilities !== undefined) {
+      try {
+        const fresh = await this.refreshCapabilities();
+        if (fresh !== undefined) this.capabilities = fresh;
+      } catch {
+        // a failed refresh keeps the last summary; a probe must not cost a heartbeat
+      }
+    }
     const base: HeartbeatRequest = {
       status: 'online',
       concurrency: this.concurrency,

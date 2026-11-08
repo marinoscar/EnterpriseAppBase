@@ -316,6 +316,39 @@ describe('startNode', () => {
     expect(stderr.lines.join('')).toContain('video.transcode');
   });
 
+  it('hard-exits when a required module is installed but not operational, naming that state', async () => {
+    writeConfig({ serverUrl: 'https://app.example.com', token: 'nod_x', nodeId: 'node-1', node: { eligibleTypes: ['app.ocr'] } });
+    const stderr = { lines: [] as string[], write(chunk: string) { this.lines.push(chunk); return true; } };
+
+    await expect(
+      startNode({
+        home,
+        env: { [workerEnv().stateDir]: join(home, 'state-installed') },
+        headless: true,
+        stderr,
+        createApi: () => api({ deregisters: 0, claims: 0 }),
+        installSignalHandlers: () => {},
+        requirements: { 'app.ocr': { required: ['module:native'], degradable: [] } },
+        probe: {
+          platform: 'linux',
+          arch: 'x64',
+          nodeVersion: process.version,
+          cpus: 1,
+          totalMemoryMb: 1024,
+          freeMemoryMb: 512,
+          binaries: {},
+          probes: { 'module:native': { label: 'Native', status: 'installed', detail: 'binding failed to load' } },
+          capabilities: [],
+        },
+        exit: ((code: number) => {
+          throw new Error(`exit ${code}`);
+        }) as never,
+      }),
+    ).rejects.toThrow(/exit 70/);
+
+    expect(stderr.lines.join('')).toContain('installed but not operational (binding failed to load)');
+  });
+
   it('reads headless from the environment, not only from the flag', async () => {
     writeConfig({ serverUrl: 'https://app.example.com', token: 'nod_x', nodeId: 'node-1' });
     const record = { deregisters: 0, claims: 0 };

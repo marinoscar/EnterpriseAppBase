@@ -4,7 +4,7 @@ import { promisify } from 'node:util';
 
 import { cliName } from '../identity.js';
 import { ApiError, NetworkError } from '../errors.js';
-import { probeCapabilities, evaluateCapabilities, isWritable, type CapabilityProbe } from './capabilities.js';
+import { probeCapabilities, evaluateCapabilities, isWritable, type CapabilityGap, type CapabilityProbe } from './capabilities.js';
 import { PG_DUMP_COMMAND } from './pg-dump.js';
 import { readLiveStatus } from './lifecycle.js';
 import type { NodeApi } from './node-api.js';
@@ -106,9 +106,9 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
     status: selfTest.ok ? (selfTest.missingDegradable.length > 0 ? 'warn' : 'pass') : 'fail',
     detail: selfTest.ok
       ? selfTest.missingDegradable.length > 0
-        ? `Reduced function: ${selfTest.missingDegradable.map((gap) => `${gap.capability} (${gap.type})`).join(', ')}`
+        ? `Reduced function: ${selfTest.missingDegradable.map(describeGap).join(', ')}`
         : 'Every advertised type has what it needs'
-      : `Missing: ${selfTest.missingRequired.map((gap) => `${gap.capability} (${gap.type})`).join(', ')}`,
+      : `Missing: ${selfTest.missingRequired.map(describeGap).join(', ')}`,
     action: selfTest.ok
       ? undefined
       : `Install the missing dependencies, or drop those types with \`${cliName()} node register --types ...\`.`,
@@ -134,6 +134,34 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
             : `${name}: not found`,
         )
         .join('; '),
+    });
+  }
+
+  // ---- 1a'. Modules and services an app registered (registerCapabilityProbe) ---
+  //
+  // One line per capability with its state, so installed-but-not-operational
+  // reads differently from missing. A warning, never a failure, for the same
+  // reason as the binaries above: the job requirement's verdict is the check
+  // before this one.
+  const registered = Object.entries(probe.probes ?? {});
+  if (registered.length > 0) {
+    const notAvailable = registered.filter(([, entry]) => entry.status !== 'available');
+    checks.push({
+      id: 'probed-capabilities',
+      group: 'capabilities',
+      label: 'Modules and services registered for app job types',
+      status: notAvailable.length > 0 ? 'warn' : 'pass',
+      detail: registered
+        .map(([key, entry]) => {
+          const state = entry.status === 'available' ? 'available' : entry.status === 'installed' ? 'installed but not operational' : 'missing';
+          const extra = [entry.version, entry.detail].filter((part): part is string => part !== undefined).join('; ');
+          return `${entry.label} [${key}]: ${state}${extra !== '' ? ` (${extra})` : ''}`;
+        })
+        .join('; '),
+      action:
+        notAvailable.length > 0
+          ? `Run \`${cliName()} node install-deps\` or fix the entries above; "installed" means present but failing its check.`
+          : undefined,
     });
   }
 
@@ -486,3 +514,9 @@ const GROUP_TITLES: Record<DoctorCheck['group'], string> = {
   api: 'The server',
   daemon: 'The worker',
 };
+
+/** One capability gap as a doctor line: key, type, and installed-versus-missing with the probe's reason. */
+function describeGap(gap: CapabilityGap): string {
+  const state = gap.state === 'installed' ? ' installed but not operational' : '';
+  return `${gap.capability} (${gap.type})${state}${gap.detail !== undefined ? `: ${gap.detail}` : ''}`;
+}

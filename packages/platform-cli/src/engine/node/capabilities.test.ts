@@ -1,11 +1,19 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   binaryCapability,
   evaluateCapabilities,
+  httpServiceCapability,
   JOB_TYPE_REQUIREMENTS,
+  listCapabilityProbes,
+  moduleCapability,
   probeCapabilities,
   PROBED_BINARIES,
+  registerCapabilityProbe,
   registerJobRequirement,
   registerProbedBinary,
   resetCapabilityRegistriesForTests,
@@ -312,5 +320,218 @@ describe('registerProbedBinary and registerJobRequirement (PP-14.19)', () => {
 
     expect(PROBED_BINARIES).toEqual(['pg_dump', 'psql']);
     expect(JOB_TYPE_REQUIREMENTS['app.gpu']).toEqual({ required: ['gpu:cuda'], degradable: [] });
+  });
+});
+
+// =============================================================================
+// Module and service probes  (RETRO-G2.4, #1074)
+// =============================================================================
+
+describe('registerCapabilityProbe', () => {
+  afterEach(() => resetCapabilityRegistriesForTests());
+
+  it('runs registered probes, lists available ones as capabilities, and reports each outcome', async () => {
+    registerCapabilityProbe({ key: 'module:alpha', label: 'Alpha', probe: () => ({ status: 'available', version: '1.2.3' }) });
+    registerCapabilityProbe({ key: 'service:beta', label: 'Beta', probe: () => ({ status: 'installed', detail: 'answers HTTP 503' }) });
+    registerCapabilityProbe({ key: 'custom:gamma', label: 'Gamma', probe: () => ({ status: 'missing' }) });
+
+    const result = await probeCapabilities({ binaries: [] });
+
+    expect(result.capabilities).toEqual(['module:alpha']);
+    expect(result.probes).toEqual({
+      'module:alpha': { label: 'Alpha', status: 'available', version: '1.2.3' },
+      'service:beta': { label: 'Beta', status: 'installed', detail: 'answers HTTP 503' },
+      'custom:gamma': { label: 'Gamma', status: 'missing' },
+    });
+  });
+
+  it('turns a throwing probe and a probe that outlives its budget into missing, never an exception', async () => {
+    registerCapabilityProbe({ key: 'module:boom', label: 'Boom', probe: () => { throw new Error('kaput'); } });
+    registerCapabilityProbe({ key: 'service:slow', label: 'Slow', timeoutMs: 20, probe: () => new Promise(() => {}) });
+
+    const result = await probeCapabilities({ binaries: [] });
+
+    expect(result.probes?.['module:boom']).toMatchObject({ status: 'missing', detail: expect.stringContaining('kaput') });
+    expect(result.probes?.['service:slow']).toMatchObject({ status: 'missing', detail: expect.stringContaining('within 20 ms') });
+    expect(result.capabilities).toEqual([]);
+  });
+
+  it('reuses a cached result only when asked to, and never at startup', async () => {
+    let calls = 0;
+    registerCapabilityProbe({ key: 'service:cached', label: 'C', cacheMs: 60_000, probe: () => ({ status: calls++ === 0 ? 'available' : 'missing' }) });
+
+    await probeCapabilities({ binaries: [] });
+    const refreshed = await probeCapabilities({ binaries: [], useCache: true });
+    const fresh = await probeCapabilities({ binaries: [] });
+
+    expect(refreshed.probes?.['service:cached']?.status).toBe('available');
+    expect(fresh.probes?.['service:cached']?.status).toBe('missing');
+    expect(calls).toBe(2);
+  });
+
+  it('cuts the detail to printable text of at most 200 characters', async () => {
+    registerCapabilityProbe({ key: 'service:noisy', label: 'N', probe: () => ({ status: 'missing', detail: `line\n\u0007${'x'.repeat(500)}` }) });
+
+    const detail = (await probeCapabilities({ binaries: [] })).probes?.['service:noisy']?.detail ?? '';
+
+    expect(detail.length).toBeLessThanOrEqual(200);
+    expect(detail).not.toMatch(/[\n\u0007]/);
+  });
+
+  it('refuses a malformed or binary: key, a duplicate, and a missing label or function', () => {
+    const ok = { label: 'L', probe: () => ({ status: 'available' as const }) };
+    expect(() => registerCapabilityProbe({ key: 'nokind', ...ok })).toThrow(/<kind>:<name>/);
+    expect(() => registerCapabilityProbe({ key: 'binary:ffmpeg', ...ok })).toThrow(/reserved/);
+    expect(() => registerCapabilityProbe({ key: 'module:x', label: '', probe: ok.probe })).toThrow(/label/);
+    expect(() => registerCapabilityProbe({ key: 'module:x', label: 'L', probe: undefined as never })).toThrow(/probe/);
+    registerCapabilityProbe({ key: 'module:x', ...ok });
+    expect(() => registerCapabilityProbe({ key: 'module:x', ...ok })).toThrow(/already registered/);
+  });
+});
+
+describe('moduleCapability', () => {
+  it('resolves a real module without importing it, and reports a missing one', async () => {
+    const present = await moduleCapability('vitest').probe({ env: {}, signal: new AbortController().signal });
+    const absent = await moduleCapability('definitely-not-installed-xyz').probe({ env: {}, signal: new AbortController().signal });
+
+    expect(present.status).toBe('available');
+    expect(present.version).toMatch(/^\d+\./);
+    expect(absent).toEqual({ status: 'missing', detail: 'definitely-not-installed-xyz is not installed' });
+  });
+
+  it('never executes the module: resolving a module whose top-level code throws still succeeds', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cap-mod-'));
+    try {
+      mkdirSync(join(dir, 'node_modules', 'explodes'), { recursive: true });
+      writeFileSync(join(dir, 'node_modules', 'explodes', 'package.json'), JSON.stringify({ name: 'explodes', version: '9.9.9', main: 'index.js' }));
+      writeFileSync(join(dir, 'node_modules', 'explodes', 'index.js'), "throw new Error('top-level code ran');\n");
+
+      const result = await moduleCapability('explodes', { resolveFrom: join(dir, 'x.js') }).probe({ env: {}, signal: new AbortController().signal });
+
+      expect(result).toEqual({ status: 'available', version: '9.9.9' });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('separates installed from operational with an operational check', async () => {
+    const context = { env: {}, signal: new AbortController().signal };
+    const failing = await moduleCapability('vitest', { operational: () => { throw new Error('native binding failed to load'); } }).probe(context);
+    const refused = await moduleCapability('vitest', { operational: () => 'no GPU' }).probe(context);
+    const passing = await moduleCapability('vitest', { operational: async () => true }).probe(context);
+
+    expect(failing).toMatchObject({ status: 'installed', detail: expect.stringContaining('native binding failed to load') });
+    expect(refused).toMatchObject({ status: 'installed', detail: 'no GPU' });
+    expect(passing.status).toBe('available');
+  });
+
+  it('refuses a name that is not an npm package name', () => {
+    expect(() => moduleCapability('../x')).toThrow(/npm package name/);
+    expect(() => moduleCapability('')).toThrow(/npm package name/);
+  });
+});
+
+describe('httpServiceCapability', () => {
+  const signal = new AbortController().signal;
+  const answer = (status: number) => (async () => new Response('', { status })) as unknown as typeof fetch;
+
+  it('maps 2xx to available, another HTTP answer to installed, and a connection error to missing', async () => {
+    const base = { id: 'ocr', url: 'http://ocr.example.test:9000', path: '/status' };
+
+    expect(await httpServiceCapability({ ...base, fetch: answer(200) }).probe({ env: {}, signal })).toMatchObject({ status: 'available' });
+    expect(await httpServiceCapability({ ...base, fetch: answer(503) }).probe({ env: {}, signal })).toMatchObject({ status: 'installed', detail: expect.stringContaining('HTTP 503') });
+    const down = await httpServiceCapability({ ...base, fetch: (async () => { throw new Error('ECONNREFUSED'); }) as unknown as typeof fetch }).probe({ env: {}, signal });
+    expect(down).toMatchObject({ status: 'missing', detail: expect.stringContaining('ECONNREFUSED') });
+  });
+
+  it('reads the base URL from the named env var at probe time, and reports an unset one as missing', async () => {
+    const requested: string[] = [];
+    const definition = httpServiceCapability({
+      id: 'ocr',
+      env: 'APP_OCR_URL',
+      path: 'health',
+      fetch: (async (target: URL) => { requested.push(String(target)); return new Response('', { status: 200 }); }) as unknown as typeof fetch,
+    });
+
+    expect(await definition.probe({ env: {}, signal })).toEqual({ status: 'missing', detail: 'APP_OCR_URL is not set' });
+    expect(await definition.probe({ env: { APP_OCR_URL: 'http://ocr.example.test:9000/base' }, signal })).toMatchObject({ status: 'available' });
+    expect(requested).toEqual(['http://ocr.example.test:9000/base/health']);
+  });
+
+  it('times out into missing and never shows credentials or a query string', async () => {
+    const hang = ((_target: URL, init: { signal: AbortSignal }) =>
+      new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(new Error('aborted'))))) as unknown as typeof fetch;
+
+    const result = await httpServiceCapability({ id: 'slow', url: 'http://user:secret@svc.example.test/x?token=abc', path: '/', timeoutMs: 30, fetch: hang }).probe({ env: {}, signal });
+
+    expect(result.status).toBe('missing');
+    expect(result.detail).toContain('no answer within 30 ms');
+    expect(result.detail).not.toMatch(/secret|token|user:/);
+  });
+
+  it('refuses a bad id or no URL source', () => {
+    expect(() => httpServiceCapability({ id: 'Bad Id', url: 'http://x' })).toThrow(/service id/);
+    expect(() => httpServiceCapability({ id: 'ok' })).toThrow(/url or the name/);
+  });
+});
+
+describe('module and service keys in job requirements', () => {
+  afterEach(() => resetCapabilityRegistriesForTests());
+
+  it('auto-registers a module probe for a module: key, and lets an explicit registration replace it', async () => {
+    registerJobRequirement('app.ocr', { required: ['module:vitest'], degradable: ['module:definitely-not-installed-xyz'] });
+
+    expect(listCapabilityProbes().map((p) => p.key)).toEqual(['module:vitest', 'module:definitely-not-installed-xyz']);
+    registerCapabilityProbe(moduleCapability('vitest', { label: 'Custom label' }));
+    expect(listCapabilityProbes()[0]?.label).toBe('Custom label');
+  });
+
+  it('stops a node whose required module is absent, naming the key, and only warns for a degradable one', async () => {
+    registerJobRequirement('app.ocr', { required: ['module:definitely-not-installed-xyz'], degradable: ['module:vitest-missing-too'] });
+    const failures: string[] = [];
+    const warnings: string[] = [];
+
+    const result = await runStartupSelfTest({ types: ['app.ocr'], fail: (m) => failures.push(m), warn: (m) => warnings.push(m) });
+
+    expect(result.ok).toBe(false);
+    expect(failures.join('\n')).toContain('module:definitely-not-installed-xyz');
+    expect(failures.join('\n')).toContain('definitely-not-installed-xyz is not installed');
+    expect(warnings.join('\n')).toContain('module:vitest-missing-too');
+  });
+
+  it('a required capability that is installed but not operational blocks startup and says so; a degradable one only warns', async () => {
+    registerCapabilityProbe({ key: 'module:native', label: 'Native', probe: () => ({ status: 'installed', detail: 'binding failed to load' }) });
+    registerCapabilityProbe({ key: 'service:side', label: 'Side', probe: () => ({ status: 'installed', detail: 'answers HTTP 500' }) });
+    registerJobRequirement('app.hard', { required: ['module:native'] });
+    registerJobRequirement('app.soft', { required: [], degradable: ['service:side'] });
+    const failures: string[] = [];
+    const warnings: string[] = [];
+
+    const hard = await runStartupSelfTest({ types: ['app.hard'], fail: (m) => failures.push(m) });
+    const soft = await runStartupSelfTest({ types: ['app.soft'], warn: (m) => warnings.push(m) });
+
+    expect(hard.ok).toBe(false);
+    expect(hard.missingRequired).toEqual([{ type: 'app.hard', capability: 'module:native', state: 'installed', detail: 'binding failed to load' }]);
+    expect(failures.join('\n')).toMatch(/installed but not operational \(binding failed to load\)/);
+    expect(soft.ok).toBe(true);
+    expect(warnings.join('\n')).toMatch(/installed but not operational on this machine \(answers HTTP 500\)/);
+  });
+
+  it('a required service key with no registered probe can never be satisfied, and says why', async () => {
+    registerJobRequirement('app.svc', { required: ['service:nowhere'] });
+
+    const result = evaluateCapabilities(['app.svc'], await probeCapabilities({ binaries: [] }));
+
+    expect(result.missingRequired).toEqual([{ type: 'app.svc', capability: 'service:nowhere', detail: 'no probe is registered for this capability' }]);
+  });
+
+  it('a required service gates the self-test while it is down and passes once it recovers', async () => {
+    let up = false;
+    registerCapabilityProbe({ key: 'service:ocr', label: 'OCR', probe: () => ({ status: up ? 'available' : 'missing' }) });
+    registerJobRequirement('app.ocr', { required: ['service:ocr'] });
+
+    expect((await runStartupSelfTest({ types: ['app.ocr'] })).ok).toBe(false);
+    up = true;
+    expect((await runStartupSelfTest({ types: ['app.ocr'] })).ok).toBe(true);
   });
 });
