@@ -65,7 +65,12 @@ export const STORAGE_MIGRATION_SYSTEM_ACCESS_REASON = 'storage-migration';
  *
  * @stability experimental
  */
-export const STORAGE_MIGRATION_AUDIT_ACTIONS = {
+export const STORAGE_MIGRATION_AUDIT_ACTIONS: {
+  /** A run was started. */
+  readonly START: 'storage.migration.start';
+  /** A run was cancelled. */
+  readonly CANCEL: 'storage.migration.cancel';
+} = {
   START: 'storage.migration.start',
   CANCEL: 'storage.migration.cancel',
 } as const;

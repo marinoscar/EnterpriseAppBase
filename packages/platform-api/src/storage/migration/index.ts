@@ -1,7 +1,7 @@
 // Copy-only storage provider migration (issue #1093). Exported from the
 // storage slice index.
 export { StorageMigrationService } from './storage-migration.service';
-export type { StorageMigrationRunView } from './storage-migration.service';
+export type { StorageMigrationItemCounts, StorageMigrationRunPage, StorageMigrationRunView } from './storage-migration.service';
 export { StorageMigratePlanHandler } from './storage-migrate-plan.handler';
 export type { StorageMigratePlanPayload } from './storage-migrate-plan.handler';
 export { StorageMigrateObjectHandler } from './storage-migrate-object.handler';

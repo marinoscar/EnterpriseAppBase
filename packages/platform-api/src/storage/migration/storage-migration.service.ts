@@ -106,14 +106,46 @@ export interface StorageMigrationRunView {
   createdAt: string;
 }
 
-/** The per-status item counts of one run. */
-interface ItemCounts {
+/**
+ * The per-status item counts of one run.
+ *
+ * @stability experimental
+ */
+export interface StorageMigrationItemCounts {
+  /** Every item. */
   total: number;
+  /** `migrated`. */
   migrated: number;
+  /** `failed`. */
   failed: number;
+  /** `skipped`. */
   skipped: number;
+  /** `pending` or `copying`. */
   pending: number;
 }
+
+/**
+ * One page of runs, newest first.
+ *
+ * @stability experimental
+ */
+export interface StorageMigrationRunPage {
+  /** The page's runs. */
+  items: StorageMigrationRunView[];
+  /** The page's position in the list. */
+  meta: {
+    /** The page, 1-based. */
+    page: number;
+    /** Runs per page. */
+    pageSize: number;
+    /** Runs across pages. */
+    totalItems: number;
+    /** How many pages there are. */
+    totalPages: number;
+  };
+}
+
+type ItemCounts = StorageMigrationItemCounts;
 
 const EMPTY_COUNTS: ItemCounts = { total: 0, migrated: 0, failed: 0, skipped: 0, pending: 0 };
 
@@ -289,10 +321,7 @@ export class StorageMigrationService {
    * @param query - page (1-based) and page size.
    * @returns the page and its position.
    */
-  async list(query: { page: number; pageSize: number }): Promise<{
-    items: StorageMigrationRunView[];
-    meta: { page: number; pageSize: number; totalItems: number; totalPages: number };
-  }> {
+  async list(query: { page: number; pageSize: number }): Promise<StorageMigrationRunPage> {
     const db = this.db();
     const [rows, totalItems] = await Promise.all([
       db.storageMigrationRun.findMany({
@@ -379,7 +408,7 @@ export class StorageMigrationService {
    * @param runIds - the runs.
    * @returns a map from run id to its counts (absent: no items).
    */
-  async countsFor(runIds: readonly string[]): Promise<Map<string, ItemCounts>> {
+  async countsFor(runIds: readonly string[]): Promise<Map<string, StorageMigrationItemCounts>> {
     const result = new Map<string, ItemCounts>();
     if (runIds.length === 0) return result;
 

@@ -11,7 +11,7 @@ import {
   storageMigrationListQuerySchema,
   type StorageMigrationListQuery,
 } from './dto/storage-migration.dto';
-import { StorageMigrationService, type StorageMigrationRunView } from './storage-migration.service';
+import { StorageMigrationService, type StorageMigrationRunPage, type StorageMigrationRunView } from './storage-migration.service';
 
 // =============================================================================
 // /api/admin/storage/migrations — copy-only storage provider migration (#1093)
@@ -69,7 +69,7 @@ export class StorageMigrationController {
   @ApiResponse({ status: 200, description: 'One page of runs', type: StorageMigrationRunListDto })
   async list(
     @Query(new ZodValidationPipe(storageMigrationListQuerySchema)) query: StorageMigrationListQuery,
-  ): Promise<{ data: Awaited<ReturnType<StorageMigrationService['list']>> }> {
+  ): Promise<{ data: StorageMigrationRunPage }> {
     return { data: await this.migrations.list(query) };
   }
 
