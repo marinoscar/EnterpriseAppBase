@@ -282,6 +282,12 @@ export interface DataTableConformanceOptions<Row> {
  * `describe` block (or at module scope) — see the module docblock for the
  * default-fixture vs. custom-fixture usage split.
  *
+ * Against a page's own columns, a case whose precondition is unmet is
+ * SKIPPED rather than failed (issue #1109): no `sortable` column skips the
+ * sort round trip and the card sort control (the resize and #243 cases run
+ * without a sort), and no hideable column skips the picker case. `filterOnly`
+ * columns are never counted as headers: they are not drawn.
+ *
  * @stability experimental
  */
 export function runDataTableConformanceSuite<Row = ConformanceRow>(
@@ -320,10 +326,25 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
   const rowLabel = (row: Row): string => rowAccessibleName(drawable, row, rowId(row));
 
   const sortableColumns = drawable.filter((column) => column.sortable);
-  /** The column whose header a "clicking sorts" assertion uses. */
-  const primarySortColumn = sortableColumns[0]!;
+  /**
+   * Whether the table has a sortable column at all (issue #1109). Many real
+   * tables have none; a case that needs one (the sort round-trip, the card
+   * sort control) is SKIPPED rather than failed, and a case that merely
+   * passes a sort along (the resize, the #243 guard) runs without it.
+   */
+  const hasSortableColumn = sortableColumns.length > 0;
+  /**
+   * The column whose header a "clicking sorts" assertion uses. Only read
+   * inside a case gated on {@link hasSortableColumn}, or behind a check.
+   */
+  const primarySortColumn = sortableColumns[0] as DataTableColumn<Row>;
   /** A second one, so "reflects the controlled state" is not the same column. */
   const secondarySortColumn = sortableColumns[1] ?? primarySortColumn;
+  /** The controlled sort the stateful cases start from, or `null` with no sortable column. */
+  const initialSort: DataTableSortState | null = hasSortableColumn
+    ? { field: primarySortColumn.id, direction: 'desc' }
+    : null;
+  const expectedSortProbe = initialSort ? `${initialSort.field}:${initialSort.direction}` : 'none';
 
   /** An enum filter to stand in for "a filter is active". */
   const enumFilterColumn = drawable.find(
@@ -409,10 +430,7 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
           new Set([rowId(rows[0]!)]),
         );
         const [page, setPage] = useState(0);
-        const [sort, setSort] = useState<DataTableSortState | null>({
-          field: primarySortColumn.id,
-          direction: 'desc',
-        });
+        const [sort, setSort] = useState<DataTableSortState | null>(initialSort);
         const [filters, setFilters] = useState<DataTableFilterModel>([sampleFilter]);
 
         return (
@@ -445,25 +463,19 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
       renderWithTheme(<Stateful />, 'light', themes);
 
       expect(screen.getByTestId('probe-selection')).toHaveTextContent(rowId(rows[0]!));
-      expect(screen.getByTestId('probe-sort')).toHaveTextContent(
-        `${primarySortColumn.id}:desc`,
-      );
+      expect(screen.getByTestId('probe-sort')).toHaveTextContent(expectedSortProbe);
       expect(screen.getByTestId('probe-filters')).toHaveTextContent('1');
 
       setContainerWidth(400);
       expect(layoutOf()).toBe('mobile');
       expect(screen.getByTestId('probe-selection')).toHaveTextContent(rowId(rows[0]!));
-      expect(screen.getByTestId('probe-sort')).toHaveTextContent(
-        `${primarySortColumn.id}:desc`,
-      );
+      expect(screen.getByTestId('probe-sort')).toHaveTextContent(expectedSortProbe);
       expect(screen.getByTestId('probe-filters')).toHaveTextContent('1');
 
       setContainerWidth(1400);
       expect(layoutOf()).toBe('desktop');
       expect(screen.getByTestId('probe-selection')).toHaveTextContent(rowId(rows[0]!));
-      expect(screen.getByTestId('probe-sort')).toHaveTextContent(
-        `${primarySortColumn.id}:desc`,
-      );
+      expect(screen.getByTestId('probe-sort')).toHaveTextContent(expectedSortProbe);
       expect(screen.getByTestId('probe-filters')).toHaveTextContent('1');
     });
   });
@@ -490,7 +502,8 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
       expect(onPaginationChange).toHaveBeenCalledWith({ page: 1, pageSize: 2 });
     });
 
-    it('emits a sort request and reflects the controlled state — never sorts rows itself', () => {
+    // Needs a sortable column; a table without one skips it (issue #1109).
+    it.runIf(hasSortableColumn)('emits a sort request and reflects the controlled state — never sorts rows itself', () => {
       const onSortChange = vi.fn();
       renderTable({ sort: { sort: null, onSortChange } });
 
@@ -631,13 +644,14 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
   describe(`${label} conformance — visibility, density, persisted defaults`, () => {
     it('opens with every hideable column visible when nothing is persisted (contract default)', () => {
       renderTable();
-      for (const column of columns) {
+      // `drawable`, not `columns`: a `filterOnly` column has no header (issue #1109).
+      for (const column of drawable) {
         if (column.hideable === false) continue;
         expect(screen.getByRole('columnheader', { name: new RegExp(`^${column.label}$`, 'i') })).toBeInTheDocument();
       }
     });
 
-    it('hides a column via the picker and keeps it out of a CSV export', () => {
+    it.runIf(hideableColumn !== undefined)('hides a column via the picker and keeps it out of a CSV export', () => {
       renderTable({ csvExport: {} });
       fireEvent.click(screen.getByTestId('datatable-columns-button'));
       fireEvent.click(screen.getByTestId(`datatable-column-toggle-${hideableColumn!.id}`));
@@ -719,7 +733,10 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
         selection: { selectedIds: new Set([rowId(rows[0]!)]), onSelectionChange: vi.fn() },
         bulkActions: [{ id: 'archive', label: 'Archive', onClick: vi.fn() }],
         rowActions: [{ id: 'retry', label: 'Retry', onClick: vi.fn() }],
-        sort: { sort: { field: primarySortColumn.id, direction: 'asc' }, onSortChange: vi.fn() },
+        // A sort affordance only where the table has one (issue #1109).
+        ...(hasSortableColumn
+          ? { sort: { sort: { field: primarySortColumn.id, direction: 'asc' as const }, onSortChange: vi.fn() } }
+          : {}),
         csvExport: {},
       });
       assertNoInvisibleHitTargets(wrapper());
@@ -1027,7 +1044,9 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
       expect(expander).toHaveAttribute('aria-expanded', 'true');
     });
 
-    it('the card sort control and pagination are fully keyboard-operable (no pointer-only affordance)', async () => {
+    // The sort half needs a sortable column (issue #1109); the pagination half
+    // below runs for every table.
+    it.runIf(hasSortableColumn)('the card sort control is fully keyboard-operable (no pointer-only affordance)', async () => {
       const user = userEvent.setup();
       const onSortChange = vi.fn();
       renderAtWidth(400, {
@@ -1040,6 +1059,12 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
       expect(onSortChange).toHaveBeenCalledWith({
         field: primarySortColumn.id,
         direction: 'asc',
+      });
+    });
+
+    it('the card pagination is fully keyboard-operable (no pointer-only affordance)', () => {
+      renderAtWidth(400, {
+        pagination: { page: 0, pageSize: 25, total: 137, onPaginationChange: vi.fn() },
       });
 
       const nextPage = screen.getByRole('button', { name: /go to next page/i });
