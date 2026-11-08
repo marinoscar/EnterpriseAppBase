@@ -43,6 +43,9 @@ const REGISTERED_JOB_TYPES: Readonly<Record<string, string>> = {
   'db.restore.old-db-drop': 'Restore cleanup',
   'storage.cleanup.stale-uploads': 'Stale upload cleanup',
   'storage.object.process': 'Object processing',
+  // Copy-only storage provider migration (#1093): server-only, permanent.
+  'storage.migrate_plan': 'Storage migration (plan)',
+  'storage.migrate_object': 'Storage migration (copy object)',
   'auth.token.cleanup': 'Token cleanup',
   'device-auth.code.cleanup': 'Device code cleanup',
   'nodes.fleet.sweep': 'Fleet sweep',
