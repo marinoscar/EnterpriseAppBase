@@ -331,6 +331,8 @@ Object storage holds uploads, backups, exports and APKs. It is configured here a
 4. If the bucket is missing and the credential may create it, choose **Create bucket**.
 5. Choose **Save changes**. To rotate a key later, paste only the new secret and save.
 
+Each provider keeps its own key. Objects stay on the provider they were written to, so a provider you switched away from still serves its objects as long as its key is stored: under **Credentials of the other configured providers**, type that provider's secret and choose **Save <provider> credentials**. This does not change where new uploads go. A deployment that stored one shared key before this release keeps using it for every built-in provider until you save a provider's own.
+
 Saving a different bucket or provider while objects still point at the old one asks you to type a confirmation first. Nothing is deleted, but this deployment can no longer read those objects. Procedure: [runbooks/storage-configuration.md](runbooks/storage-configuration.md). Design: [specs/storage-providers.md](specs/storage-providers.md).
 
 ## Email
