@@ -11,6 +11,8 @@
 // The tokens are `Symbol.for(...)` keys, so two copies of this file agree.
 // =============================================================================
 
+import type { SystemAccessReason } from '../core/index';
+
 /**
  * Why the slice runs without an organization scope. A subset of core's
  * `SystemAccessReason`: the user purge, the read-only Doctor check, the
@@ -21,6 +23,17 @@
  * @stability experimental
  */
 export type SharingSystemReason = 'purge' | 'doctor' | 'retention' | 'link-resolution' | 'invite-claim';
+
+/**
+ * The reason a {@link SharingDataPort.runAsSystem} call carries: one of the
+ * slice's own ({@link SharingSystemReason}) or, for the system listings
+ * (`GroupsService.listForSystem`, `GroupMembershipService.membersForSystem`,
+ * #1137), a reason the APP registered with `registerSystemAccessReason`
+ * (`memory-generation`). Validated at run time; an unregistered one throws.
+ *
+ * @stability experimental
+ */
+export type SharingSystemAccessReason = SharingSystemReason | SystemAccessReason;
 
 /**
  * Injection token of the app's {@link SharingDataPort}.
@@ -55,10 +68,10 @@ export interface SharingDataPort {
    * One interactive transaction on the system (bypass) client. The reference
    * app binds it to `PrismaSystemService.runAsSystem`.
    *
-   * @param reason - why; recorded on the active span.
+   * @param reason - why; recorded on the active span. The slice's own reasons, or an app-registered one for the system listings (#1137).
    * @param fn - the unit of work.
    */
-  runAsSystem<R>(reason: SharingSystemReason, fn: (tx: unknown) => Promise<R>): Promise<R>;
+  runAsSystem<R>(reason: SharingSystemAccessReason, fn: (tx: unknown) => Promise<R>): Promise<R>;
 }
 
 /**

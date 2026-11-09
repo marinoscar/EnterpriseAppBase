@@ -43,6 +43,7 @@ import {
   type IssuedLinkGrant,
   type LinkGrantCreate,
   type LinkGrantList,
+  type LinkGrantListQuery,
   type LinkGrantView,
 } from '@marinoscar/platform-contract/sharing';
 
@@ -51,11 +52,12 @@ import { Trace } from '../../otel-core/index';
 import { AccessPolicy } from '../access/access-policy.service';
 import { findResourceType, type ResolvedResourceType } from '../access/resource-types';
 import { asSharingTx, type GrantRow, type SharingTx } from '../data/sharing-tx';
-import { SHARING_ERROR_REASONS, conflict, expiryInPast, linksUnavailable, resourceNotFound, roleNotGrantable } from '../errors';
+import { SHARING_ERROR_REASONS, conflict, expiryInPast, linksUnavailable, missingPermission, resourceNotFound, roleNotGrantable } from '../errors';
 import { SHARING_EVENTS, type GrantEventPayload } from '../events';
-import { iso, paged, requireActiveOrg } from '../groups/group-common';
+import { holds, iso, paged, requireActiveOrg } from '../groups/group-common';
 import { SharingEffects } from '../groups/sharing-effects';
 import type { SharingLinkResolutionOutcome } from '../metrics';
+import { SHARING_PERMISSIONS } from '../permissions';
 import { SHARING_DATA, type SharingDataPort } from '../ports';
 import { SHARING_OPTIONS, type ResolvedSharingModuleOptions } from '../sharing.options';
 import { hashLinkToken, isLinkToken, linkTokenPurpose, mintLinkToken } from './link-token';
@@ -312,6 +314,76 @@ export interface ImportedLegacyLink {
 }
 
 /**
+ * The largest page {@link LinkGrantsService.listExpiring} returns.
+ *
+ * @stability experimental
+ */
+export const EXPIRING_LINKS_MAX_LIMIT = 1000;
+
+/**
+ * What {@link LinkGrantsService.listExpiring} looks for: the active links of
+ * one organization whose expiry falls within the next `within` milliseconds.
+ *
+ * @stability experimental
+ */
+export interface ExpiringLinksQuery {
+  /** The organization to sweep (a job payload's `orgId`, never request input). */
+  readonly orgId: string;
+  /** The window, in milliseconds from now: links expiring in `(now, now + within]`. A positive integer. */
+  readonly within: number;
+  /** Only links of this resource type. */
+  readonly resourceType?: string;
+  /** The `nextCursor` of the previous page; absent for the first page. */
+  readonly cursor?: string;
+  /**
+   * Links per page, 1..{@link EXPIRING_LINKS_MAX_LIMIT}.
+   *
+   * @defaultValue 200
+   */
+  readonly limit?: number;
+}
+
+/**
+ * One link about to expire, as a sweep sees it. It never carries the token,
+ * its hash, its ciphertext or the URL: the sweep warns the link's creator,
+ * it does not hand the link out.
+ *
+ * @stability experimental
+ */
+export interface ExpiringLinkGrant {
+  /** The grant. */
+  readonly grantId: string;
+  /** The record's organization. */
+  readonly orgId: string;
+  /** The record's resource type. */
+  readonly resourceType: string;
+  /** The record. */
+  readonly resourceId: string;
+  /** The role the link grants. */
+  readonly role: string;
+  /** The owner's label, or `null`. */
+  readonly label: string | null;
+  /** When the link stops working (within the window). */
+  readonly expiresAt: Date;
+  /** Who created it (the person to warn), or `null`. */
+  readonly grantedById: string | null;
+  /** When it was created. */
+  readonly createdAt: Date;
+}
+
+/**
+ * One page of {@link LinkGrantsService.listExpiring}.
+ *
+ * @stability experimental
+ */
+export interface ExpiringLinkGrantPage {
+  /** The links of this page, by grant id. */
+  readonly items: readonly ExpiringLinkGrant[];
+  /** The cursor of the next page, or `null` on the last one. */
+  readonly nextCursor: string | null;
+}
+
+/**
  * Imports an existing clear-text share token as a link grant: hashes and
  * encrypts it exactly as a minted one, inside the caller's transaction. FOR
  * DATA MIGRATIONS ONLY (never a request path), and it needs
@@ -499,22 +571,26 @@ export class LinkGrantsService {
   /**
    * `GET /api/grants/links?resourceType&resourceId`: the record's links that
    * are not revoked (expired ones included, so the sharer sees them), newest
-   * first, each with its re-derived URL.
+   * first, each with its re-derived URL. `scope=org` is {@link listForOrg}.
    *
    * @param principal - the caller (`sharing:read`).
-   * @param query - the record and the page.
+   * @param query - the record and the page, or `scope=org` and its filters.
    * @returns a page of links.
    * @throws NotFoundException 404 when the caller may not manage the record's links.
+   * @throws ForbiddenException 403 `MISSING_PERMISSION` for `scope=org` without `sharing:admin`.
    */
   @Trace('sharing.link.list')
-  async list(principal: Principal, query: GrantListQuery): Promise<LinkGrantList> {
+  async list(principal: Principal, query: GrantListQuery | LinkGrantListQuery): Promise<LinkGrantList> {
+    if ('scope' in query && query.scope === 'org') return this.listForOrg(principal, query);
+    if (query.resourceType === undefined || query.resourceId === undefined) throw resourceNotFound();
+    const resourceId = query.resourceId;
     const orgId = requireActiveOrg(principal);
     const rt = this.registered(query.resourceType);
     const appUrl = this.appUrl();
     return this.data.runInOrg({ orgId, userId: principal.userId }, async (raw) => {
       const tx = asSharingTx(raw);
-      await this.policy.requireIn(raw, principal, linkShareAction(rt), { type: rt.type, id: query.resourceId });
-      const where = { orgId, resourceType: rt.type, resourceId: query.resourceId, granteeKind: 'link', revokedAt: null };
+      await this.policy.requireIn(raw, principal, linkShareAction(rt), { type: rt.type, id: resourceId });
+      const where = { orgId, resourceType: rt.type, resourceId, granteeKind: 'link', revokedAt: null };
       const total = await tx.grant.count({ where });
       const rows = await tx.grant.findMany<GrantRow>({
         where,
@@ -524,6 +600,117 @@ export class LinkGrantsService {
       });
       return paged(rows.map((row) => toLinkGrantView(row, appUrl)), total, query.page, query.pageSize);
     });
+  }
+
+  /**
+   * `GET /api/grants/links?scope=org` (#1136): every link grant of the
+   * caller's active organization, newest first, for an administrator page.
+   * Revoked and expired links are included unless `status` narrows the list;
+   * each item carries its re-derived URL (`null` once revoked), as the
+   * per-record list does. Runs in the organization's scope, so row-level
+   * security confines it to that organization.
+   *
+   * @param principal - the caller; must hold `sharing:admin`.
+   * @param query - the page and the filters (`status`, `resourceType`, `grantedById`).
+   * @returns a page of links.
+   * @throws ForbiddenException 403 `MISSING_PERMISSION` without `sharing:admin`.
+   *
+   * @example
+   * ```ts
+   * const page = await links.listForOrg(principal, { scope: 'org', page: 1, pageSize: 50, status: 'active' });
+   * ```
+   */
+  @Trace('sharing.link.list_org')
+  async listForOrg(
+    principal: Principal,
+    query: Pick<LinkGrantListQuery, 'page' | 'pageSize' | 'status' | 'resourceType' | 'grantedById'>,
+  ): Promise<LinkGrantList> {
+    const orgId = requireActiveOrg(principal);
+    if (!holds(principal, SHARING_PERMISSIONS.SHARING_ADMIN)) throw missingPermission(SHARING_PERMISSIONS.SHARING_ADMIN);
+    const now = new Date(this.now());
+    const where: Record<string, unknown> = {
+      orgId,
+      granteeKind: 'link',
+      ...(query.resourceType !== undefined ? { resourceType: query.resourceType } : {}),
+      ...(query.grantedById !== undefined ? { grantedById: query.grantedById } : {}),
+      ...linkStatusWhere(query.status, now),
+    };
+    const appUrl = this.appUrl();
+    return this.data.runInOrg({ orgId, userId: principal.userId }, async (raw) => {
+      const tx = asSharingTx(raw);
+      const total = await tx.grant.count({ where });
+      const rows = await tx.grant.findMany<GrantRow>({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      });
+      return paged(rows.map((row) => toLinkGrantView(row, appUrl)), total, query.page, query.pageSize);
+    });
+  }
+
+  /**
+   * The active links of ONE organization that expire within the next
+   * `within` milliseconds (#1136), for a sweep job that warns their creators.
+   * Pages by grant id (`cursor`, `nextCursor`). Runs in the organization's
+   * scope with no user id (no row-level-security bypass), so it needs no
+   * system access reason; a job that sweeps every organization calls it once
+   * per organization. Never returns a token or a URL.
+   *
+   * @param query - the organization, the window, and the page.
+   * @returns the links expiring in `(now, now + within]` and the next cursor.
+   * @throws RangeError when `within` is not a positive integer, or `limit` is outside 1..{@link EXPIRING_LINKS_MAX_LIMIT}.
+   *
+   * @example
+   * ```ts
+   * let cursor: string | undefined;
+   * do {
+   *   const page = await links.listExpiring({ orgId, within: 7 * 86_400_000, cursor });
+   *   for (const link of page.items) await warnOwner(link);
+   *   cursor = page.nextCursor ?? undefined;
+   * } while (cursor);
+   * ```
+   */
+  @Trace('sharing.link.list_expiring')
+  async listExpiring(query: ExpiringLinksQuery): Promise<ExpiringLinkGrantPage> {
+    if (!Number.isInteger(query.within) || query.within <= 0) throw new RangeError('listExpiring: within must be a positive integer of milliseconds');
+    const limit = query.limit ?? 200;
+    if (!Number.isInteger(limit) || limit < 1 || limit > EXPIRING_LINKS_MAX_LIMIT) {
+      throw new RangeError(`listExpiring: limit must be an integer in 1..${EXPIRING_LINKS_MAX_LIMIT}`);
+    }
+    const now = this.now();
+    const where = {
+      orgId: query.orgId,
+      granteeKind: 'link',
+      revokedAt: null,
+      expiresAt: { gt: new Date(now), lte: new Date(now + query.within) },
+      ...(query.resourceType !== undefined ? { resourceType: query.resourceType } : {}),
+      ...(query.cursor !== undefined ? { id: { gt: query.cursor } } : {}),
+    };
+    const rows = await this.data.runInOrg({ orgId: query.orgId }, (raw) =>
+      asSharingTx(raw).grant.findMany<
+        Pick<GrantRow, 'id' | 'orgId' | 'resourceType' | 'resourceId' | 'role' | 'linkLabel' | 'expiresAt' | 'grantedById' | 'createdAt'>
+      >({
+        where,
+        select: { id: true, orgId: true, resourceType: true, resourceId: true, role: true, linkLabel: true, expiresAt: true, grantedById: true, createdAt: true },
+        orderBy: [{ id: 'asc' }],
+        take: limit,
+      }),
+    );
+    const items: ExpiringLinkGrant[] = rows.map((row) =>
+      Object.freeze({
+        grantId: row.id,
+        orgId: row.orgId,
+        resourceType: row.resourceType,
+        resourceId: row.resourceId,
+        role: row.role,
+        label: row.linkLabel,
+        expiresAt: row.expiresAt!,
+        grantedById: row.grantedById,
+        createdAt: row.createdAt,
+      }),
+    );
+    return { items, nextCursor: rows.length === limit ? rows[rows.length - 1]!.id : null };
   }
 
   /**
@@ -628,6 +815,26 @@ export class LinkGrantsService {
    */
   importLegacyToken(tx: unknown, input: LegacyLinkImport): Promise<ImportedLegacyLink> {
     return importLegacyToken(tx, input);
+  }
+}
+
+/**
+ * The `where` fragment of a link status filter, at `now`.
+ *
+ * @param status - `active`, `expired`, `revoked`, or absent for every link.
+ * @param now - the current time.
+ * @returns the fragment to spread into a `grants` filter.
+ */
+function linkStatusWhere(status: LinkGrantListQuery['status'], now: Date): Record<string, unknown> {
+  switch (status) {
+    case 'active':
+      return { revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] };
+    case 'expired':
+      return { revokedAt: null, expiresAt: { lte: now } };
+    case 'revoked':
+      return { revokedAt: { not: null } };
+    default:
+      return {};
   }
 }
 

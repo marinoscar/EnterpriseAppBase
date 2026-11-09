@@ -124,6 +124,28 @@ describeWithDb('groups under row-level security (real Postgres, ordinary role)',
     expect((await sharing.principalGroups.scopeFor(asBob())).groupIds).toEqual([groupB]);
   });
 
+  // #1137: the system listings a background sweep uses.
+  it('lists groups for a sweep: one organization in its scope, every organization on the bypass', async () => {
+    const scoped = await sharing.groups.listForSystem({ reason: 'retention', orgId: ORG_A });
+    expect(scoped.items.map((g) => g.id)).toEqual([groupA]);
+    expect(scoped.items[0]).toMatchObject({ orgId: ORG_A, memberCount: 1 });
+    const all = await sharing.groups.listForSystem({ reason: 'retention' });
+    expect(all.items.map((g) => g.id).sort()).toEqual([groupA, groupB].sort());
+    // Paging: one per page, then the rest.
+    const first = await sharing.groups.listForSystem({ reason: 'retention', limit: 1 });
+    const second = await sharing.groups.listForSystem({ reason: 'retention', limit: 1, cursor: first.nextCursor! });
+    expect([...first.items, ...second.items].map((g) => g.id).sort()).toEqual([groupA, groupB].sort());
+  });
+
+  it("lists a group's members for a sweep, and nothing of B's group in A's scope", async () => {
+    expect(await sharing.members.membersForSystem(groupA, { reason: 'retention', orgId: ORG_A, roles: ['admin'] })).toEqual([
+      expect.objectContaining({ groupId: groupA, orgId: ORG_A, userId: alice, role: 'admin' }),
+    ]);
+    expect(await sharing.members.membersForSystem(groupA, { reason: 'retention', orgId: ORG_A, roles: ['viewer'] })).toEqual([]);
+    expect(await sharing.members.membersForSystem(groupB, { reason: 'retention', orgId: ORG_A })).toEqual([]);
+    expect((await sharing.members.membersForSystem(groupB, { reason: 'retention' })).map((m) => m.userId)).toEqual([bob]);
+  });
+
   it('writes the audit rows with the organization and no e-mail address', async () => {
     const rows = await db.admin((c) => c.query<{ action: string; org_id: string; meta: unknown }>("SELECT action, org_id, meta FROM audit_events WHERE action LIKE 'group:%' ORDER BY created_at"));
     expect(rows.rows.length).toBeGreaterThanOrEqual(2);

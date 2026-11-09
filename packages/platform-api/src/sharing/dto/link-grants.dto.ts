@@ -1,8 +1,8 @@
 import { createZodDto } from 'nestjs-zod';
 import {
-  grantListQuerySchema,
   issuedLinkGrantSchema,
   linkGrantCreateSchema,
+  linkGrantListQuerySchema,
   linkGrantListSchema,
   publicLinkResolutionSchema,
 } from '@marinoscar/platform-contract/sharing';
@@ -28,11 +28,11 @@ export class CreateLinkGrantDto extends createZodDto(linkGrantCreateSchema) {}
  */
 export class IssuedLinkGrantResponseDto extends createZodDto(issuedLinkGrantSchema) {}
 /**
- * `GET /api/grants/links` query.
+ * `GET /api/grants/links` query: one record's links, or `scope=org` (#1136).
  *
  * @stability experimental
  */
-export class LinkGrantListQueryDto extends createZodDto(grantListQuerySchema) {}
+export class LinkGrantListQueryDto extends createZodDto(linkGrantListQuerySchema) {}
 /**
  * A page of link grants.
  *

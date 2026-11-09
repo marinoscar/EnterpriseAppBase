@@ -38,6 +38,7 @@ export type {
   SharingJobsPort,
   SharingNotifier,
   SharingNotifyHint,
+  SharingSystemAccessReason,
   SharingSystemReason,
   SharingTenancy,
 } from './ports';
@@ -174,6 +175,8 @@ export type { GroupPurgeSummary } from './user-data';
 export { GroupsService } from './groups/groups.service';
 export { GroupMembershipService } from './groups/group-membership.service';
 export type { GroupAccess } from './groups/group-membership.service';
+export { SYSTEM_GROUPS_DEFAULT_LIMIT, SYSTEM_GROUPS_MAX_LIMIT } from './groups/system-listing';
+export type { SystemGroup, SystemGroupListQuery, SystemGroupMember, SystemGroupPage, SystemMemberQuery } from './groups/system-listing';
 export { GROUP_INVITES_CLOCK, GroupInvitesService, inviteStatus } from './groups/group-invites.service';
 export type { InviteClaimResult } from './groups/group-invites.service';
 export { InviteAutoAcceptListener } from './groups/invite-auto-accept.listener';
@@ -194,6 +197,7 @@ export { GrantsPruneTask } from './jobs/grants-prune.task';
 // ---- link grants and the public-route pattern (#730) --------------------------------
 export {
   ANY_LINK_RESOURCE_TYPE,
+  EXPIRING_LINKS_MAX_LIMIT,
   LINK_GRANTS_CLOCK,
   LinkGrantsService,
   importLegacyToken,
@@ -202,6 +206,9 @@ export {
   toLinkGrantView,
 } from './links/link-grants.service';
 export type {
+  ExpiringLinkGrant,
+  ExpiringLinkGrantPage,
+  ExpiringLinksQuery,
   ImportedLegacyLink,
   LegacyLinkImport,
   LinkResolution,

@@ -104,6 +104,24 @@ export const GROUP_LIST_SCOPES = ['mine', 'all'] as const;
 export const GROUP_INVITE_LIST_FILTERS = ['pending', 'all'] as const;
 
 /**
+ * The scopes of `GET /api/grants/links` (#1136): `resource` (the links of one
+ * record, the default) or `org` (every link of the active organization; needs
+ * `sharing:admin`).
+ *
+ * @stability experimental
+ */
+export const LINK_GRANT_LIST_SCOPES = ['resource', 'org'] as const;
+
+/**
+ * The status filters of `GET /api/grants/links?scope=org` (#1136): `active`
+ * (not revoked, not expired), `expired` (not revoked, past its expiry) and
+ * `revoked`.
+ *
+ * @stability experimental
+ */
+export const LINK_GRANT_STATUS_FILTERS = ['active', 'expired', 'revoked'] as const;
+
+/**
  * The entries of a sharing enum schema, as `z.enum` types them: each value
  * keyed by itself (`SharingEnumEntries<GroupRole>` is
  * `{ admin: 'admin', editor: 'editor', viewer: 'viewer' }`). Named so a

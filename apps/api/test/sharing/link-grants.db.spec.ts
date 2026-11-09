@@ -234,4 +234,30 @@ describeWithDb('link grants (real Postgres)', () => {
     // Dave (ORG_B) cannot list ORG_A's links: the same 404 as a missing record.
     await expect(sharing.links.list(dave(), { resourceType: TEST_DOC_TYPE, resourceId: docs.a2, page: 1, pageSize: 50 })).rejects.toThrow('Resource not found');
   });
+  // #1136: the organization-wide list of an administrator and the expiry sweep.
+  it("lists every link of the admin's organization only, filtered by status, and the links about to expire", async () => {
+    const admin = principalOf(u.alice, 'alice@example.test', ORG_A, 'org_admin');
+    const soon = await sharing.links.create(alice(), { resourceType: TEST_DOC_TYPE, resourceId: docs.a1, expiresAt: new Date(Date.now() + 3_600_000).toISOString() });
+
+    const all = await sharing.links.list(admin, { scope: 'org', page: 1, pageSize: 100 });
+    expect(all.items.length).toBeGreaterThan(0);
+    expect(all.items.every((item) => item.orgId === ORG_A)).toBe(true);
+    expect(all.items.map((item) => item.id)).toContain(soon.grant.id);
+
+    const revoked = await sharing.links.listForOrg(admin, { page: 1, pageSize: 100, status: 'revoked' });
+    expect(revoked.items.length).toBeGreaterThan(0);
+    expect(revoked.items.every((item) => item.revokedAt !== null)).toBe(true);
+    const active = await sharing.links.listForOrg(admin, { page: 1, pageSize: 100, status: 'active' });
+    expect(active.items.every((item) => item.revokedAt === null)).toBe(true);
+    expect(active.items.map((item) => item.id)).toContain(soon.grant.id);
+
+    // A contributor without sharing:admin is refused.
+    await expect(sharing.links.list(alice(), { scope: 'org', page: 1, pageSize: 10 })).rejects.toMatchObject({ status: 403 });
+
+    const expiring = await sharing.links.listExpiring({ orgId: ORG_A, within: 2 * 3_600_000 });
+    expect(expiring.items.map((item) => item.grantId)).toContain(soon.grant.id);
+    expect(expiring.items.every((item) => item.orgId === ORG_A)).toBe(true);
+    expect(JSON.stringify(expiring.items)).not.toContain('lnk_');
+    expect((await sharing.links.listExpiring({ orgId: ORG_B, within: 2 * 3_600_000 })).items.map((item) => item.grantId)).not.toContain(soon.grant.id);
+  });
 });
