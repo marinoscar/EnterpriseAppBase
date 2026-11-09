@@ -20,6 +20,8 @@
 
 import { DynamicModule, Module, type ModuleMetadata, type Provider, type Type } from '@nestjs/common';
 
+import { AllowlistModule } from './allowlist/allowlist.module';
+import { AllowlistService } from './allowlist/allowlist.service';
 import { AuthModule } from './auth/auth.module';
 import { authProviderRegistry } from './auth/providers/auth-provider.registry';
 import './auth/providers/google.provider';
@@ -27,6 +29,7 @@ import { DeviceAuthModule } from './device-auth/device-auth.module';
 import { IDENTITY_SIGNIN_POLICY } from './auth/sign-in-policy';
 import { IdentityMetadataService } from './metadata/identity-metadata.service';
 import { IDENTITY_OPTIONS, resolveIdentityModuleOptions, type IdentityModuleOptions } from './identity.options';
+import { IDENTITY_ALLOWLIST } from './ports';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PatModule } from './pat/pat.module';
 import { RolesModule } from './roles/roles.module';
@@ -57,7 +60,7 @@ export class IdentityModule {
    * The slice for one app.
    *
    * @param options - see {@link IdentityModuleOptions}.
-   * @returns the dynamic module. It provides `IDENTITY_OPTIONS` globally.
+   * @returns the dynamic module. It provides `IDENTITY_OPTIONS` and `IDENTITY_ALLOWLIST` globally.
    * @throws Error when an option is invalid, or `enableTestAuth` is set in production.
    *
    * @example
@@ -103,17 +106,21 @@ export class IdentityModule {
     return {
       module: IdentityModule,
       global: true,
-      imports: [composition],
+      // AllowlistModule again (already scanned through AuthModule, a singleton): it
+      // makes AllowlistService visible here for the IDENTITY_ALLOWLIST alias.
+      imports: [composition, AllowlistModule],
       providers: [
         { provide: IDENTITY_OPTIONS, useValue: resolved },
         // The metadata helpers over users.metadata and organizations.metadata (PP-14.27):
         // global with this module, so an app service injects it without importing anything.
         IdentityMetadataService,
+        // The allowlist as an app service reaches it (#1138): `ensureAllowed`, `isEmailAllowed`.
+        { provide: IDENTITY_ALLOWLIST, useExisting: AllowlistService },
         // The app's sign-in policy (PP-14.9), visible to `AuthService` because
         // this module is global; absent when the app bound none.
         ...(resolved.signInPolicy ? [{ provide: IDENTITY_SIGNIN_POLICY, ...resolved.signInPolicy } as Provider] : []),
       ],
-      exports: [IDENTITY_OPTIONS, IdentityMetadataService, ...(resolved.signInPolicy ? [IDENTITY_SIGNIN_POLICY] : [])],
+      exports: [IDENTITY_OPTIONS, IdentityMetadataService, IDENTITY_ALLOWLIST, ...(resolved.signInPolicy ? [IDENTITY_SIGNIN_POLICY] : [])],
     };
   }
 }

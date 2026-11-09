@@ -16,6 +16,7 @@ export type { IdentityConfiguration } from './identity.configuration';
 
 // ---- the host ports (rung 3): one token per app capability --------------------------
 export {
+  IDENTITY_ALLOWLIST,
   IDENTITY_AUTH_CREDENTIALS,
   IDENTITY_EVENT_BUS,
   IDENTITY_JOBS,
@@ -29,6 +30,9 @@ export {
 export type {
   AllowlistInvitationNotice,
   AuthProviderCredentials,
+  EnsureAllowedOptions,
+  EnsureAllowedResult,
+  IdentityAllowlist,
   IdentityEventBus,
   IdentityEventBusHealth,
   IdentityEventBusMeta,
