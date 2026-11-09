@@ -49,6 +49,7 @@ import { groupRoleCan, managerGroupRoleIds } from '../group-roles';
 import { holds, isGroupsAdmin, iso, lockGroup, paged, requireActiveOrg, requireGroupRole, writeAudit } from './group-common';
 import { MemberLookupThrottle } from './member-lookup-throttle';
 import { SharingEffects } from './sharing-effects';
+import { runForSystem, type SystemGroupMember, type SystemMemberQuery } from './system-listing';
 
 /**
  * What `GroupMembershipService.access` found.
@@ -100,6 +101,53 @@ export class GroupMembershipService {
     private readonly throttle: MemberLookupThrottle,
     private readonly effects: SharingEffects,
   ) {}
+
+  /**
+   * The members of one group, optionally only those with some roles, for a
+   * background sweep (#1137): ids and roles only, oldest first.
+   *
+   * Requires a REGISTERED system access reason, recorded on the active span.
+   * With `orgId` it runs in that organization's scope (row-level security
+   * on, no user id); without it, on the system client under `reason`. An
+   * unknown group (or one outside `orgId`) is an empty list, not an error.
+   * The list is bounded by the deployment's `groups.maxMembersPerGroup`.
+   *
+   * @param groupId - the group (a `listForSystem` item's `id`).
+   * @param query - the reason, the organization, and the roles.
+   * @returns the members.
+   * @throws ScopedAccessError when `reason` is not registered.
+   *
+   * @example
+   * ```ts
+   * const admins = await membership.membersForSystem(group.id, { reason: 'memory-generation', orgId: group.orgId, roles: ['admin'] });
+   * ```
+   */
+  @Trace('sharing.group.members.list_system')
+  async membersForSystem(groupId: string, query: SystemMemberQuery): Promise<SystemGroupMember[]> {
+    const roles = query.roles && query.roles.length > 0 ? [...query.roles] : undefined;
+    const rows = await runForSystem(this.data, query.reason, query.orgId, (raw) =>
+      asSharingTx(raw).groupMember.findMany<Pick<GroupMemberRow, 'groupId' | 'orgId' | 'userId' | 'role' | 'addedById' | 'createdAt'>>({
+        where: {
+          groupId,
+          ...(query.orgId !== undefined ? { orgId: query.orgId } : {}),
+          ...(roles ? { role: { in: roles } } : {}),
+        },
+        select: { groupId: true, orgId: true, userId: true, role: true, addedById: true, createdAt: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: this.options.groups.maxMembersPerGroup + 1,
+      }),
+    );
+    return rows.map((row) =>
+      Object.freeze({
+        groupId: row.groupId,
+        orgId: row.orgId,
+        userId: row.userId,
+        role: row.role,
+        addedById: row.addedById,
+        createdAt: row.createdAt,
+      }),
+    );
+  }
 
   /**
    * Loads a group of the caller's active organization and checks the caller

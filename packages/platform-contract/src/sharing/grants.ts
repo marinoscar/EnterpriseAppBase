@@ -16,13 +16,14 @@
 //   GET    /api/sharing/grantee-kinds                                  -> granteeKindListSchema (PP-14.16)
 //
 //   POST   /api/grants/links                    linkGrantCreateSchema  -> issuedLinkGrantSchema (#730)
-//   GET    /api/grants/links?resourceType&resourceId grantListQuerySchema -> linkGrantListSchema (#730)
+//   GET    /api/grants/links?resourceType&resourceId linkGrantListQuerySchema -> linkGrantListSchema (#730)
+//   GET    /api/grants/links?scope=org          linkGrantListQuerySchema -> linkGrantListSchema (#1136, sharing:admin)
 //   GET    /api/public/links/current            (X-Link-Token header)  -> publicLinkResolutionSchema (#730)
 // =============================================================================
 
 import { z } from 'zod';
 
-import { BUILTIN_GRANTEE_KINDS, GRANTEE_KIND_ID_PATTERN, GRANTEE_KIND_INPUTS, LINK_TOKEN_PATTERN, SHARING_IDENTIFIER_PATTERN, SHARING_LIMITS } from './constants.js';
+import { BUILTIN_GRANTEE_KINDS, GRANTEE_KIND_ID_PATTERN, GRANTEE_KIND_INPUTS, LINK_GRANT_LIST_SCOPES, LINK_GRANT_STATUS_FILTERS, LINK_TOKEN_PATTERN, SHARING_IDENTIFIER_PATTERN, SHARING_LIMITS } from './constants.js';
 import { wireEnum } from './enum.js';
 import { groupEmailSchema, pageQuerySchema } from './groups.js';
 
@@ -456,6 +457,40 @@ export const linkGrantListSchema = z.object({
 });
 
 /**
+ * `GET /api/grants/links` query (#730, #1136).
+ *
+ * - `scope=resource` (the default): the links of ONE record, so
+ *   `resourceType` and `resourceId` are required; the caller must be allowed
+ *   to share the record by link.
+ * - `scope=org`: every link grant of the caller's active organization, for an
+ *   administrator page (`sharing:admin`). `status`, `resourceType` and
+ *   `grantedById` narrow it; `resourceId` is ignored. Revoked links are
+ *   included unless `status` says otherwise.
+ *
+ * @stability experimental
+ */
+export const linkGrantListQuerySchema = pageQuerySchema
+  .extend({
+    /** `resource` or `org`. */
+    scope: wireEnum(LINK_GRANT_LIST_SCOPES)
+      .default('resource')
+      .describe('`resource`: the links of one record (the default). `org`: every link of the organization (needs `sharing:admin`).'),
+    /** The record's resource type (required for `scope=resource`; a filter for `scope=org`). */
+    resourceType: resourceTypeSchema.optional(),
+    /** The record (required for `scope=resource`). */
+    resourceId: z.uuid().optional(),
+    /** `scope=org` only: `active`, `expired` or `revoked`; absent: every link. */
+    status: wireEnum(LINK_GRANT_STATUS_FILTERS).optional(),
+    /** `scope=org` only: the user who created the links. */
+    grantedById: z.uuid().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.scope !== 'resource') return;
+    if (value.resourceType === undefined) ctx.addIssue({ code: 'custom', path: ['resourceType'], message: 'resourceType is required unless scope=org' });
+    if (value.resourceId === undefined) ctx.addIssue({ code: 'custom', path: ['resourceId'], message: 'resourceId is required unless scope=org' });
+  });
+
+/**
  * What resolving a link token publicly returns (#730). An unknown, expired or
  * revoked token is a generic 404, never a different answer.
  *
@@ -594,6 +629,13 @@ export type IssuedLinkGrant = z.output<typeof issuedLinkGrantSchema>;
  * @stability experimental
  */
 export type LinkGrantList = z.output<typeof linkGrantListSchema>;
+
+/**
+ * The parsed `GET /api/grants/links` query (#730, #1136).
+ *
+ * @stability experimental
+ */
+export type LinkGrantListQuery = z.output<typeof linkGrantListQuerySchema>;
 
 /**
  * The public resolution of a link token (#730).

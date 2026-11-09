@@ -1032,4 +1032,69 @@ describe('AllowlistService', () => {
       );
     });
   });
+  // #1138: the idempotent, silent entry an app (a group invitation) uses.
+  describe('ensureAllowed', () => {
+    it('is a no-op for an existing entry: no 409, no insert, no audit row, no e-mail', async () => {
+      mockPrisma.allowedEmail.findUnique.mockResolvedValue(mockPendingEntry);
+      const result = await service.ensureAllowed('  Pending@Example.com ', { addedById: 'inviter', notify: true });
+      expect(result).toEqual({ id: 'entry-1', email: 'pending@example.com', created: false, claimed: false });
+      expect(mockPrisma.allowedEmail.findUnique).toHaveBeenCalledWith({ where: { email: 'pending@example.com' } });
+      expect(mockPrisma.allowedEmail.create).not.toHaveBeenCalled();
+      expect(mockPrisma.auditEvent.create).not.toHaveBeenCalled();
+      expect(mockNotifications.notifyAddress).not.toHaveBeenCalled();
+    });
+
+    it('reports a claimed entry as claimed', async () => {
+      mockPrisma.allowedEmail.findUnique.mockResolvedValue(mockClaimedEntry);
+      await expect(service.ensureAllowed('claimed@example.com')).resolves.toMatchObject({ created: false, claimed: true });
+    });
+
+    it('creates a missing entry with the audit row and, by default, sends no invitation', async () => {
+      mockPrisma.allowedEmail.findUnique.mockResolvedValue(null);
+      mockPrisma.allowedEmail.create.mockResolvedValue({ ...mockPendingEntry, id: 'entry-new', email: 'new@example.com', notes: null, addedById: 'inviter' });
+      const result = await service.ensureAllowed('New@Example.com', { addedById: 'inviter' });
+      expect(result).toEqual({ id: 'entry-new', email: 'new@example.com', created: true, claimed: false });
+      expect(mockPrisma.allowedEmail.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { email: 'new@example.com', notes: null, addedById: 'inviter' } }),
+      );
+      expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ actorUserId: 'inviter', action: 'allowlist:add', targetType: 'allowed_email', targetId: 'entry-new' }),
+      });
+      expect(mockNotifications.notifyAddress).not.toHaveBeenCalled();
+    });
+
+    it('sends allowlist.invitation for a new entry only when notify is true', async () => {
+      mockPrisma.allowedEmail.findUnique.mockResolvedValue(null);
+      mockPrisma.allowedEmail.create.mockResolvedValue({ ...mockPendingEntry, id: 'entry-new', email: 'new@example.com' });
+      await service.ensureAllowed('new@example.com', { notify: true });
+      expect(mockNotifications.notifyAddress).toHaveBeenCalledTimes(1);
+    });
+
+    it('records a system action (no actor) with a null actor', async () => {
+      mockPrisma.allowedEmail.findUnique.mockResolvedValue(null);
+      mockPrisma.allowedEmail.create.mockResolvedValue({ ...mockPendingEntry, id: 'entry-new', email: 'new@example.com', addedById: null, addedBy: null });
+      await service.ensureAllowed('new@example.com');
+      expect(mockPrisma.allowedEmail.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ addedById: null }) }));
+      expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ actorUserId: null }) });
+    });
+
+    it('treats a lost insert race (P2002) as already allowlisted', async () => {
+      mockPrisma.allowedEmail.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(mockPendingEntry);
+      mockPrisma.allowedEmail.create.mockRejectedValue(Object.assign(new Error('Unique constraint failed'), { code: 'P2002' }));
+      await expect(service.ensureAllowed('pending@example.com')).resolves.toMatchObject({ id: 'entry-1', created: false });
+      expect(mockPrisma.auditEvent.create).not.toHaveBeenCalled();
+    });
+
+    it('rethrows any other insert error', async () => {
+      mockPrisma.allowedEmail.findUnique.mockResolvedValue(null);
+      mockPrisma.allowedEmail.create.mockRejectedValue(new Error('connection lost'));
+      await expect(service.ensureAllowed('new@example.com')).rejects.toThrow('connection lost');
+    });
+
+    it('refuses a malformed address and an over-long note with 400', async () => {
+      await expect(service.ensureAllowed('not-an-address')).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.ensureAllowed('a@example.com', { notes: 'x'.repeat(501) })).rejects.toBeInstanceOf(BadRequestException);
+      expect(mockPrisma.allowedEmail.findUnique).not.toHaveBeenCalled();
+    });
+  });
 });

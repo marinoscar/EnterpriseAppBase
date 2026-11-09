@@ -13,8 +13,11 @@ import {
   Auth,
   AuthService,
   Public,
+  AllowlistService,
+  IDENTITY_ALLOWLIST,
   IDENTITY_OPTIONS,
   IdentityModule,
+  type IdentityAllowlist,
   JwtAuthGuard,
   PrincipalCache,
   TenancyService,
@@ -63,6 +66,13 @@ async function boot(env: Record<string, string | undefined>, options: Parameters
 
 describe('IdentityModule.forRoot', () => {
   beforeEach(() => resetPrismaMock());
+
+  it('provides IDENTITY_ALLOWLIST globally, so an app service injects ensureAllowed (#1138)', async () => {
+    const { moduleRef } = await boot(ENV);
+    const allowlist = moduleRef.get<IdentityAllowlist>(IDENTITY_ALLOWLIST);
+    expect(allowlist).toBe(moduleRef.get(AllowlistService));
+    expect(typeof allowlist.ensureAllowed).toBe('function');
+  });
 
   it('resolves the whole graph against the stub host and provides the options globally', async () => {
     const { moduleRef, host } = await boot(ENV);

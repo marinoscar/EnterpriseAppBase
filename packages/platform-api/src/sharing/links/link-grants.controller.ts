@@ -4,6 +4,7 @@
 //
 //   POST /grants/links                        sharing:write  `share_link` (else `share`) on the record
 //   GET  /grants/links?resourceType&resourceId sharing:read   the same action, else 404
+//   GET  /grants/links?scope=org              sharing:read + sharing:admin (checked by the service, 403)
 //
 // Changing and revoking a link are the generic `PATCH` / `DELETE
 // /api/grants/:id` (grants.controller.ts). This controller is registered
@@ -71,13 +72,17 @@ export function createLinkGrantsController(options: ResolvedSharingModuleOptions
     @Get()
     @READ
     @ApiOperation({
-      summary: "List a record's share links",
+      summary: "List a record's share links, or every link of the organization",
       description:
-        'The links of one record that are not revoked (expired ones included), newest first, each with its URL ' +
-        're-derived from the stored ciphertext (`null` when it cannot be shown). You must be allowed to share the ' +
-        'record by link; anyone else gets 404. Requires `sharing:read`.',
+        'Default (`scope=resource`): the links of one record (`resourceType`, `resourceId`) that are not revoked ' +
+        '(expired ones included), newest first, each with its URL re-derived from the stored ciphertext (`null` when ' +
+        'it cannot be shown). You must be allowed to share the record by link; anyone else gets 404. ' +
+        '`scope=org`: every link grant of your active organization, newest first, revoked and expired ones included ' +
+        'unless `status` (`active`, `expired`, `revoked`) narrows it, filtered by `resourceType` and `grantedById`; ' +
+        'requires `sharing:admin` (403 `MISSING_PERMISSION` otherwise). Requires `sharing:read`.',
     })
     @ApiResponse({ status: 200, type: LinkGrantListResponseDto })
+    @ApiResponse({ status: 403, description: '`scope=org` without `sharing:admin`' })
     @ApiResponse({ status: 404, description: NOT_FOUND })
     list(@CurrentPrincipal() principal: Principal, @Query() query: LinkGrantListQueryDto) {
       return this.links.list(principal, query);

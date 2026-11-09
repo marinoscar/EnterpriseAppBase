@@ -5,12 +5,26 @@ import {
   BadRequestException,
   ConflictException, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { z } from 'zod';
 import { PLATFORM_PRISMA } from '../../core/index';
-import type { IdentityAllowedEmailRow } from '../data/identity-db';
+import { isPrismaErrorCode, type IdentityAllowedEmailRow } from '../data/identity-db';
 import type { IdentityPrisma } from '../ports';
 import { AddEmailDto } from './dto/add-email.dto';
 import { AllowlistQueryDto } from './dto/allowlist-query.dto';
-import { IDENTITY_NOTIFIER, type AllowlistInvitationNotice, type IdentityNotifier } from '../ports';
+import {
+  IDENTITY_NOTIFIER,
+  type AllowlistInvitationNotice,
+  type EnsureAllowedOptions,
+  type EnsureAllowedResult,
+  type IdentityAllowlist,
+  type IdentityNotifier,
+} from '../ports';
+
+/** An address `ensureAllowed` accepts: the admin route's own rule. */
+const ensureEmailSchema = z.string().trim().toLowerCase().pipe(z.email());
+
+/** The notes limit of the admin route. */
+const NOTES_MAX = 500;
 
 /**
  * Exported for the reference app's wiring and tests; not a stable extension point (reach identity through IdentityModule and its documented seams).
@@ -18,7 +32,7 @@ import { IDENTITY_NOTIFIER, type AllowlistInvitationNotice, type IdentityNotifie
  * @internal
  */
 @Injectable()
-export class AllowlistService {
+export class AllowlistService implements IdentityAllowlist {
   private readonly logger = new Logger(AllowlistService.name);
 
   constructor(
@@ -128,6 +142,18 @@ export class AllowlistService {
 
     this.logger.log(`Email ${email} added to allowlist by admin ${adminUserId}`);
 
+    await this.sendInvitation(email, entry.addedBy?.email ?? null);
+
+    return entry;
+  }
+
+  /**
+   * Sends `allowlist.invitation` for a committed entry. Never rejects.
+   *
+   * @param email - the allowlisted address.
+   * @param invitedBy - the address of who added it, or `null`.
+   */
+  private async sendInvitation(email: string, invitedBy: string | null): Promise<void> {
     // -------------------------------------------------------------------------
     // Trigger: `allowlist.invitation` (#128, epic #109)
     // -------------------------------------------------------------------------
@@ -170,7 +196,7 @@ export class AllowlistService {
       // `addedBy` came free with the `include` on the create above — no extra
       // query. Optional because `added_by_id` is nullable (`onDelete:
       // SetNull`), so an entry outlives the admin who created it.
-      ...(entry.addedBy?.email ? { invitedBy: entry.addedBy.email } : {}),
+      ...(invitedBy ? { invitedBy } : {}),
       ...(signInUrl ? { signInUrl } : {}),
     };
 
@@ -181,7 +207,56 @@ export class AllowlistService {
     // can surface it.
     await this.notifications.allowlistInvitation(email, payload);
 
-    return entry;
+  }
+
+  /**
+   * Puts an address on the allowlist when it is absent (#1138); see
+   * {@link IdentityAllowlist.ensureAllowed}. Unlike {@link addEmail} (the
+   * admin route), an existing entry is not an error, and the invitation is
+   * sent only when asked: an app that allowlists an address as part of its
+   * own invitation (a group invite) sends ONE e-mail, its own.
+   *
+   * @param email - the address (trimmed and lower-cased).
+   * @param options - the actor, a note on a new entry, whether to notify.
+   * @returns the entry and whether this call created it.
+   * @throws BadRequestException 400 when `email` is not an e-mail address, or `notes` is longer than 500 characters.
+   */
+  async ensureAllowed(email: string, options: EnsureAllowedOptions = {}): Promise<EnsureAllowedResult> {
+    const parsed = ensureEmailSchema.safeParse(email);
+    if (!parsed.success) throw new BadRequestException('Invalid email format');
+    const address = parsed.data;
+    if (options.notes != null && options.notes.length > NOTES_MAX) {
+      throw new BadRequestException(`Notes must be ${NOTES_MAX} characters or less`);
+    }
+    const view = (row: IdentityAllowedEmailRow, created: boolean): EnsureAllowedResult => ({
+      id: row.id,
+      email: row.email,
+      created,
+      claimed: row.claimedById !== null,
+    });
+
+    const existing = await this.prisma.allowedEmail.findUnique({ where: { email: address } });
+    if (existing) return view(existing, false);
+
+    let entry: IdentityAllowedEmailRow & { addedBy: { id: string; email: string } | null };
+    try {
+      entry = await this.prisma.allowedEmail.create<IdentityAllowedEmailRow & { addedBy: { id: string; email: string } | null }>({
+        data: { email: address, notes: options.notes ?? null, addedById: options.addedById ?? null },
+        include: { addedBy: { select: { id: true, email: true } } },
+      });
+    } catch (error) {
+      // A concurrent call inserted it first (`allowed_emails.email` is unique): no-op.
+      if (isPrismaErrorCode(error, 'P2002')) {
+        const winner = await this.prisma.allowedEmail.findUnique({ where: { email: address } });
+        if (winner) return view(winner, false);
+      }
+      throw error;
+    }
+
+    await this.createAuditEvent(options.addedById ?? null, 'allowlist:add', 'allowed_email', entry.id, { email: address, via: 'ensure' });
+    this.logger.log(`Email ${address} added to allowlist${options.addedById ? ` on behalf of ${options.addedById}` : ''}`);
+    if (options.notify === true) await this.sendInvitation(address, entry.addedBy?.email ?? null);
+    return view(entry, true);
   }
 
   /**
@@ -280,7 +355,7 @@ export class AllowlistService {
    * Create audit event
    */
   private async createAuditEvent(
-    actorUserId: string,
+    actorUserId: string | null,
     action: string,
     targetType: string,
     targetId: string,

@@ -13,12 +13,14 @@
 //                `sharing.groups.orphaned` (`doctor`), the grants prune job
 //                (`retention`) and the one-row lookup of a link token by its
 //                hash (`link-resolution`, #730) and the lookup of the open invites to one
-//                user's own address (`invite-claim`). Allowlisted in
+//                user's own address (`invite-claim`), plus the reason an app
+//                passes to the system listings of groups and members (#1137,
+//                validated by the registry). Allowlisted in
 //                test/tenancy/system-injection-boundary.spec.ts.
 // =============================================================================
 
 import { Injectable } from '@nestjs/common';
-import type { SharingDataPort, SharingSystemReason } from '@marinoscar/platform-api/sharing';
+import type { SharingDataPort, SharingSystemAccessReason } from '@marinoscar/platform-api/sharing';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { PrismaSystemService } from '../../prisma/prisma-system.service';
@@ -34,7 +36,7 @@ export class SharingDataAdapter implements SharingDataPort {
     return this.prisma.runInOrg(scope.orgId, fn, scope.userId === undefined ? {} : { userId: scope.userId });
   }
 
-  runAsSystem<R>(reason: SharingSystemReason, fn: (tx: unknown) => Promise<R>): Promise<R> {
+  runAsSystem<R>(reason: SharingSystemAccessReason, fn: (tx: unknown) => Promise<R>): Promise<R> {
     return this.system.runAsSystem(reason, fn);
   }
 }

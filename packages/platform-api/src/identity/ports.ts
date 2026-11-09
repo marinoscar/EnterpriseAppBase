@@ -468,3 +468,84 @@ export interface IdentityEventBus {
   /** The bus's health. */
   health(): IdentityEventBusHealth;
 }
+
+// ---- the allowlist, as an app reaches it (#1138) --------------------------------------
+
+/**
+ * Injection token of identity's {@link IdentityAllowlist}: PROVIDED by
+ * `IdentityModule.forRoot()` (global), never bound by the app. An app service
+ * injects it to allowlist an address as a side effect of its own action (a
+ * group invitation lets the invitee sign in), without the admin route.
+ *
+ * @example
+ * ```ts
+ * constructor(@Inject(IDENTITY_ALLOWLIST) private readonly allowlist: IdentityAllowlist) {}
+ * await this.allowlist.ensureAllowed(invitee, { addedById: inviterId });
+ * ```
+ *
+ * @stability experimental
+ */
+export const IDENTITY_ALLOWLIST: unique symbol = Symbol.for('@marinoscar/platform/identity/ALLOWLIST');
+
+/**
+ * What {@link IdentityAllowlist.ensureAllowed} accepts besides the address.
+ *
+ * @stability experimental
+ */
+export interface EnsureAllowedOptions {
+  /** The user on whose behalf the address is allowlisted (the audit actor and `added_by_id`), or absent for a system action. */
+  readonly addedById?: string | null;
+  /** An administrator's private note on a NEW entry; never sent to the person. Ignored when the entry exists. */
+  readonly notes?: string | null;
+  /**
+   * Send `allowlist.invitation` when a new entry is created. Never sent for
+   * an address already on the list.
+   *
+   * @defaultValue false
+   */
+  readonly notify?: boolean;
+}
+
+/**
+ * What {@link IdentityAllowlist.ensureAllowed} did.
+ *
+ * @stability experimental
+ */
+export interface EnsureAllowedResult {
+  /** The entry's id. */
+  readonly id: string;
+  /** The address as stored (trimmed, lower-cased). */
+  readonly email: string;
+  /** `true` when this call created the entry; `false` when it already existed. */
+  readonly created: boolean;
+  /** Whether a user has signed in with it. */
+  readonly claimed: boolean;
+}
+
+/**
+ * The e-mail allowlist, as an app service uses it.
+ *
+ * @stability experimental
+ */
+export interface IdentityAllowlist {
+  /**
+   * Puts an address on the allowlist when it is absent; an address already
+   * there is a no-op (never a 409, never a second row). A new entry writes
+   * the `allowlist:add` audit row and, only with `notify: true`, sends
+   * `allowlist.invitation` after the insert. Safe under concurrency: a lost
+   * insert race reads the winner's row.
+   *
+   * @param email - the address (trimmed and lower-cased before use).
+   * @param options - the actor, a note, whether to notify.
+   * @returns the entry and whether this call created it.
+   * @throws BadRequestException 400 when `email` is not an e-mail address.
+   */
+  ensureAllowed(email: string, options?: EnsureAllowedOptions): Promise<EnsureAllowedResult>;
+  /**
+   * Whether an address is on the allowlist.
+   *
+   * @param email - the address (case-insensitive).
+   * @returns `true` when it is.
+   */
+  isEmailAllowed(email: string): Promise<boolean>;
+}

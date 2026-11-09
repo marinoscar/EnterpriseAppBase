@@ -30,6 +30,14 @@ import { SHARING_OPTIONS, type ResolvedSharingModuleOptions } from '../sharing.o
 import { isGroupsAdmin, iso, lockGroup, paged, requireActiveOrg, writeAudit } from './group-common';
 import { GroupMembershipService } from './group-membership.service';
 import { SharingEffects } from './sharing-effects';
+import {
+  SYSTEM_GROUPS_DEFAULT_LIMIT,
+  SYSTEM_GROUPS_MAX_LIMIT,
+  runForSystem,
+  type SystemGroup,
+  type SystemGroupListQuery,
+  type SystemGroupPage,
+} from './system-listing';
 
 /** A group row with its member count and (when asked) the caller's membership. */
 type GroupWithCounts = GroupRow & {
@@ -111,6 +119,67 @@ export class GroupsService {
       const items = rows.map((row) => toGroupDto(row, row._count.members, row.members?.[0]?.role ?? null));
       return paged(items, total, query.page, query.pageSize);
     });
+  }
+
+  /**
+   * Every group of one organization, or of every organization, for a
+   * background sweep (#1137). Pages by group id (`cursor`, `nextCursor`).
+   *
+   * Requires a REGISTERED system access reason (`registerSystemAccessReason`),
+   * recorded on the active span. With `orgId` it runs in that organization's
+   * scope (row-level security on, no user id); without it, on the system
+   * client under `reason`, across organizations (the host's data adapter
+   * must be on the system-injection allowlist, as it already is for the
+   * slice's purge). No user is in the loop, so nothing here is audited.
+   *
+   * @param query - the reason, the organization, and the page.
+   * @returns the groups of the page and the next cursor.
+   * @throws ScopedAccessError when `reason` is not registered.
+   * @throws RangeError when `limit` is outside 1..{@link SYSTEM_GROUPS_MAX_LIMIT}.
+   *
+   * @example
+   * ```ts
+   * registerSystemAccessReason({ id: 'memory-generation', description: 'The memory generation sweep reads every group.' });
+   * let cursor: string | undefined;
+   * do {
+   *   const page = await groups.listForSystem({ reason: 'memory-generation', orgId, cursor });
+   *   for (const group of page.items) await generateFor(group);
+   *   cursor = page.nextCursor ?? undefined;
+   * } while (cursor);
+   * ```
+   */
+  @Trace('sharing.group.list_system')
+  async listForSystem(query: SystemGroupListQuery): Promise<SystemGroupPage> {
+    const limit = query.limit ?? SYSTEM_GROUPS_DEFAULT_LIMIT;
+    if (!Number.isInteger(limit) || limit < 1 || limit > SYSTEM_GROUPS_MAX_LIMIT) {
+      throw new RangeError(`listForSystem: limit must be an integer in 1..${SYSTEM_GROUPS_MAX_LIMIT}`);
+    }
+    const where = {
+      ...(query.orgId !== undefined ? { orgId: query.orgId } : {}),
+      ...(query.cursor !== undefined ? { id: { gt: query.cursor } } : {}),
+    };
+    const rows = await runForSystem(this.data, query.reason, query.orgId, (raw) =>
+      asSharingTx(raw).group.findMany<GroupRow & { _count: { members: number } }>({
+        where,
+        include: { _count: { select: { members: true } } },
+        orderBy: [{ id: 'asc' }],
+        take: limit,
+      }),
+    );
+    const items: SystemGroup[] = rows.map((row) =>
+      Object.freeze({
+        id: row.id,
+        orgId: row.orgId,
+        name: row.name,
+        description: row.description,
+        metadata: (row.metadata as Record<string, unknown> | null) ?? null,
+        createdById: row.createdById,
+        memberCount: row._count.members,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      }),
+    );
+    return { items, nextCursor: rows.length === limit ? rows[rows.length - 1]!.id : null };
   }
 
   /**
