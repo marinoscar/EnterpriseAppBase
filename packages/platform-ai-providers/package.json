@@ -68,8 +68,8 @@
   "peerDependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
     "@google/genai": "^2.24.0",
-    "openai": "^7.23.0",
-    "zod": "^4.4.3"
+    "openai": "^7.53.0",
+    "zod": "^4.6.7"
   },
   "peerDependenciesMeta": {
     "@anthropic-ai/sdk": {
@@ -87,10 +87,10 @@
     "@google/genai": "^2.24.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.15.32",
-    "jest": "^30.4.2",
-    "openai": "^7.23.0",
-    "ts-jest": "^29.4.12",
+    "jest": "^30.5.2",
+    "openai": "^7.53.0",
+    "ts-jest": "^29.4.15",
     "typescript": "^6.0.3",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   }
 }
