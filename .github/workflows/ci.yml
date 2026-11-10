@@ -298,7 +298,13 @@ jobs:
 
   smoke:
     name: Smoke (boot compiled API)
-    runs-on: ubuntu-latest
+    # Pinned, not `ubuntu-latest`: this job restores a pg_dump archive into the
+    # postgres:16 service below with the RUNNER's pg_restore. A newer runner
+    # image ships a newer client that writes settings (`transaction_timeout`,
+    # PostgreSQL 17+) a 16 server rejects, so the restore round-trip spec
+    # failed on every run. 24.04 ships the 16 client that matches the service.
+    # Move this and the service image together.
+    runs-on: ubuntu-24.04
     # No `needs:` — runs concurrently with `build`, like `openapi` does.
     #
     # WHY THIS IS A SEPARATE JOB, given the note at the top of this file
