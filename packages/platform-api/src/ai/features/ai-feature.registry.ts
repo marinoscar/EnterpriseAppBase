@@ -56,6 +56,16 @@ export interface AiFeatureDefinition {
    * only, so a feature that promises "AI keys are per user" simply never sets it.
    */
   readonly systemCalls?: boolean;
+  /**
+   * Opt in to running this feature's jobs on worker nodes when the deployment
+   * delivers provider credentials (#1083, `nodes.credentialDelivery`, default
+   * OFF). An `ai.*` job type may be node-eligible only if it declares
+   * `nodeCredentialPurposes` and EVERY feature it serves sets this; the
+   * `ai-jobs-server-only` suite enforces it. Absent: the feature's jobs stay
+   * server-only. Gated pending the platform rule amendment proposed in
+   * `docs/specs/worker-nodes.md`.
+   */
+  readonly nodeCredentialDelivery?: boolean;
 }
 
 /**
@@ -83,6 +93,9 @@ export const aiFeatureRegistry: Registry<AiFeatureDefinition> = defineRegistry<A
     }
     if (def.systemCalls !== undefined && typeof def.systemCalls !== 'boolean') {
       throw new Error('systemCalls must be a boolean');
+    }
+    if (def.nodeCredentialDelivery !== undefined && typeof def.nodeCredentialDelivery !== 'boolean') {
+      throw new Error('nodeCredentialDelivery must be a boolean');
     }
     if (def.providers !== undefined && def.providers !== null && def.providers.length === 0) {
       throw new Error('providers must be null (any) or name at least one provider');

@@ -94,6 +94,7 @@ export const NODES_APP_METRICS: readonly [
   NodesAppMetricDef<'nodesPowerOnBattery'>,
   NodesAppMetricDef<'nodesPowerBatteryPercent'>,
   NodesAppMetricDef<'nodesEvents'>,
+  NodesAppMetricDef<'nodesCredentialsIssued'>,
 ] = [
   {
     key: 'nodesCount',
@@ -264,5 +265,13 @@ export const NODES_APP_METRICS: readonly [
     unit: '{event}',
     description: 'Node-reported events accepted at heartbeat ingestion, by event type (unknown types fold into other) and severity.',
     attributes: { type: oneOf(...NODE_EVENT_METRIC_TYPES), severity: oneOf(...NODE_EVENT_SEVERITY_VALUES) },
+  },
+  {
+    key: 'nodesCredentialsIssued',
+    name: 'app.nodes.credentials.issued',
+    kind: 'counter',
+    unit: '{credential}',
+    description: 'Provider credentials delivered to worker nodes (#1083), by registered purpose. Never labelled by organization.',
+    attributes: { purpose: free },
   },
 ];

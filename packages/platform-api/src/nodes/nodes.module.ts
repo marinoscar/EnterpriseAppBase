@@ -180,7 +180,11 @@
 
 import { DynamicModule, Module } from '@nestjs/common';
 
+import { NodesCredentialDeliveryDoctorCheck } from './doctor/nodes-credential-delivery.doctor-check';
 import { NodesFleetDoctorCheck } from './doctor/nodes-fleet.doctor-check';
+import { NodeCredentialIssuancesPurgeHandler } from './handlers/node-credential-issuances-purge.handler';
+import { NodeCredentialDeliveryService } from './node-credential-delivery.service';
+import { NodeCredentialIssuancesPurgeTask } from './tasks/node-credential-issuances-purge.task';
 import { NodeEventsPurgeHandler } from './handlers/node-events-purge.handler';
 import { NodeEventsService } from './node-events.service';
 import { NodeFleetPruneHandler } from './handlers/node-fleet-prune.handler';
@@ -266,6 +270,10 @@ export class NodesModule {
         NodeSettlementLedger,
         NodeTelemetryRateLimiter,
         NodesFleetDoctorCheck,
+        NodeCredentialDeliveryService,
+        NodeCredentialIssuancesPurgeHandler,
+        NodeCredentialIssuancesPurgeTask,
+        NodesCredentialDeliveryDoctorCheck,
       ],
       exports: [NODES_OPTIONS],
     };

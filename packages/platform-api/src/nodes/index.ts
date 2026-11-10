@@ -6,7 +6,12 @@
 
 // ---- the modules and options (rung 1) --------------------------------------------------
 export { NodesModule } from './nodes.module';
-export { DEFAULT_NODE_EVENTS_RETENTION_DAYS, NODES_OPTIONS, resolveNodesModuleOptions } from './nodes.options';
+export {
+  DEFAULT_CREDENTIAL_ISSUANCES_RETENTION_DAYS,
+  DEFAULT_NODE_EVENTS_RETENTION_DAYS,
+  NODES_OPTIONS,
+  resolveNodesModuleOptions,
+} from './nodes.options';
 export type { NodesModuleOptions, ResolvedNodesModuleOptions } from './nodes.options';
 export { NODES_SYSTEM_SETTINGS, mergeNodesSettings } from './nodes.system-settings';
 export { NodeCredentialModule } from './node-credential.module';
@@ -36,6 +41,39 @@ export {
 } from './node-span-attribute.registry';
 export type { BuiltinNodeSpanAttribute, NodeSpanAttributeDefinition, RelayedAttribute } from './node-span-attribute.registry';
 export type { BuiltinNodeSpanName, NodeSpanName } from './dto/node-telemetry.dto';
+
+// ---- provider-credential delivery (#1083; rung 2, re-exported from the jobs slice) --------------
+export {
+  DEFAULT_NODE_CREDENTIAL_DELIVERY,
+  nodeCredentialPurposeRegistry,
+  readNodeCredentialDeliveryPolicy,
+  registerNodeCredentialPurpose,
+} from '../jobs/index';
+export type {
+  NodeCredentialDeliveryPolicy,
+  NodeCredentialPurposeDefinition,
+  NodeCredentialPurposeId,
+  NodeCredentialResolveContext,
+  ResolvedNodeCredential,
+} from '../jobs/index';
+export {
+  NODE_CREDENTIAL_ISSUES_PER_MINUTE,
+  NODE_CREDENTIAL_VERSION_KEY_PURPOSE,
+  NodeCredentialDeliveryService,
+  NodeCredentialRateLimiter,
+  nodeCredentialVersion,
+} from './node-credential-delivery.service';
+export {
+  NODE_CREDENTIAL_ISSUANCES_PURGE_TYPE,
+  NodeCredentialIssuancesPurgeHandler,
+} from './handlers/node-credential-issuances-purge.handler';
+export { decideCredentialDelivery } from './doctor/nodes-credential-delivery.doctor-check';
+export type {
+  NodeCredentialDeliveryStateDto,
+  NodeCredentialIssueRequestDto,
+  NodeCredentialIssueResponseDto,
+  NodeCredentialRevokeAllResponseDto,
+} from './dto/node-credential-delivery.dto';
 
 // ---- events (rung 4) -------------------------------------------------------------------------
 export { NODE_OFFLINE_EVENT, NodeOfflineEvent } from './events/node-offline.event';

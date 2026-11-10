@@ -126,6 +126,8 @@ import {
   NodeJobSecretResponseDto,
 } from './dto/node-job-secret.dto';
 import { NodeTelemetryDto, NodeTelemetryResponseDto } from './dto/node-telemetry.dto';
+import { NodeCredentialIssueRequestDto, NodeCredentialIssueResponseDto } from './dto/node-credential-delivery.dto';
+import { NodeCredentialDeliveryService } from './node-credential-delivery.service';
 import { AdminNodeEventListDto, NodeEventListQueryDto } from './dto/node-event.dto';
 import { NodeDataPlaneService } from './node-data-plane.service';
 import { NodeEventsService } from './node-events.service';
@@ -141,7 +143,8 @@ export class NodesController {
     private readonly dataPlane: NodeDataPlaneService,
     private readonly secrets: NodeSecretBrokerService,
     private readonly telemetry: NodeTelemetryService,
-    private readonly events: NodeEventsService
+    private readonly events: NodeEventsService,
+    private readonly delivery: NodeCredentialDeliveryService
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -312,7 +315,9 @@ export class NodesController {
     // `serverFeatures` is added beside the node fields, so a client that reads
     // only the node keeps working; a node that never re-registers learns what
     // this server supports from here.
-    return { ...toWorkerNodeDto(await this.nodes.heartbeat(userId, id, dto)), serverFeatures: [...NODE_SERVER_FEATURES] };
+    const node = toWorkerNodeDto(await this.nodes.heartbeat(userId, id, dto));
+
+    return { ...node, serverFeatures: [...NODE_SERVER_FEATURES], credentialDelivery: await this.delivery.deliveryState() };
   }
 
   // ---------------------------------------------------------------------------
@@ -351,6 +356,7 @@ export class NodesController {
       jobs: jobs.map((job) =>
         toNodeJobAssignment(job, this.nodes.renewIntervalMsFor(job.type))
       ),
+      credentialDelivery: await this.delivery.deliveryState(),
     };
   }
 
@@ -472,6 +478,45 @@ export class NodesController {
     @CurrentUser('id') userId: string
   ): Promise<NodeUploadUrlResponseDto> {
     return this.dataPlane.createUploadTarget(userId, id, jobId, dto);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Provider-credential delivery (#1083): opt-in, OFF by default
+  // ---------------------------------------------------------------------------
+
+  @Post(':id/credentials/:purpose')
+  @Auth({ permissions: [PERMISSIONS.NODES_WRITE] })
+  @HttpCode(HttpStatus.OK)
+  @Header('Cache-Control', 'no-store')
+  @ApiOperation({
+    summary: 'Obtain a provider credential for a held job (opt-in credential delivery)',
+    description:
+      'Returns the ORGANIZATION’s or the DEPLOYMENT’s credential for one registered purpose (`ai:openai`, ' +
+      '`geo:google`) — never a user’s own key — for a job this node holds with a live lease and whose type ' +
+      'declares the purpose. OFF by default: `409` with `details.reason` `CREDENTIAL_DELIVERY_DISABLED` until ' +
+      'an administrator enables `nodes.credentialDelivery`. `404` `UNKNOWN_PURPOSE` when the purpose is not ' +
+      'registered or not allowlisted; `409` when the lease is gone; `403` `PURPOSE_NOT_DECLARED` when the job’s ' +
+      'type does not declare it; `429` `CREDENTIAL_RATE_LIMITED` past 30 requests a minute per node; `424` ' +
+      '`CREDENTIAL_UNAVAILABLE` when nothing is configured (report the job failed; it retries). Pin `material` ' +
+      'in memory for the job; cache it only encrypted, keyed by `(purpose, orgId)`, and delete it at `expiresAt`. ' +
+      'Every issuance is audited by purpose and `version` only.',
+  })
+  @ApiParam({ name: 'id', type: String, format: 'uuid' })
+  @ApiParam({ name: 'purpose', type: String, description: 'A registered purpose id, `<namespace>:<name>`.' })
+  @ApiBody({ type: NodeCredentialIssueRequestDto })
+  @ApiResponse({ status: 200, description: 'The credential, with its version and cache deadline', type: NodeCredentialIssueResponseDto })
+  @ApiResponse({ status: 403, description: 'The job’s type does not declare the purpose, or the node belongs to another user' })
+  @ApiResponse({ status: 404, description: 'Unknown or non-allowlisted purpose, or no such node' })
+  @ApiResponse({ status: 409, description: 'Delivery is disabled, or this node no longer holds the job with a live lease' })
+  @ApiResponse({ status: 424, description: 'No organization or deployment credential is configured for the purpose' })
+  @ApiResponse({ status: 429, description: 'This node exceeded its issuance rate' })
+  async issueCredential(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('purpose') purpose: string,
+    @Body() dto: NodeCredentialIssueRequestDto,
+    @CurrentUser('id') userId: string
+  ): Promise<NodeCredentialIssueResponseDto> {
+    return this.delivery.issue(userId, id, purpose, dto);
   }
 
   // ---------------------------------------------------------------------------

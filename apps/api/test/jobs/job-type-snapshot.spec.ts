@@ -51,6 +51,7 @@ const REGISTERED_JOB_TYPES: Readonly<Record<string, string>> = {
   'nodes.fleet.sweep': 'Fleet sweep',
   'nodes.fleet.prune': 'Fleet prune',
   'nodes.node_events_purge': 'Node events purge',
+  'nodes.credential_issuances_purge': 'Node credential issuances purge',
   'ai.catalog.refresh': 'AI model catalog refresh',
   'ai.keys.recheck': 'AI key recheck',
   'ai.response.run': 'AI background response',

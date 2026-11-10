@@ -21,9 +21,20 @@
 //
 // Moved from the reference app's `apps/api/test/ai/ai-jobs-server-only.spec.ts`
 // with the same four cases; the app now supplies how it boots (the fixture).
+//
+// #1083 AMENDMENT (opt-in provider-credential delivery, gated pending the rule
+// amendment proposed in `docs/specs/worker-nodes.md`): an `ai.*` type MAY carry
+// the two node members only when it declares `nodeCredentialPurposes` (each an
+// `ai:<provider>` purpose) AND names the AI features it serves (`aiFeatures`),
+// every one registered with `nodeCredentialDelivery: true`. Anything else that
+// is node-eligible still fails. And whatever a type declares, with the
+// deployment's defaults (delivery OFF) every `ai.*` type must be in
+// `NodeOffloadService.serverOnlyRightNow()` — the claim-time answer — so no
+// key can reach a node unless an administrator enabled delivery.
 // =============================================================================
 
-import { JobHandlerRegistry } from '../../../jobs/index';
+import { JobHandlerRegistry, NodeOffloadService } from '../../../jobs/index';
+import { getAiFeature } from '../../features/ai-feature.registry';
 import type { ConformanceAppSuite } from '../../../testing/index';
 import type { AiConformanceFixture } from './ai-conformance-fixture';
 
@@ -58,6 +69,36 @@ export interface JobHandlerView {
   nodeResultSchema?: unknown;
   /** Persists a node's result; with `nodeResultSchema`, makes the type node-eligible. */
   persistNodeResult?: unknown;
+  /** The provider-credential purposes the type declares (#1083). */
+  nodeCredentialPurposes?: readonly string[];
+  /** The AI feature ids the type serves (#1083); each must set `nodeCredentialDelivery: true` for a node-eligible type. */
+  aiFeatures?: readonly string[];
+}
+
+/**
+ * Whether a node-eligible `ai.*` handler satisfies the #1083 amendment: it
+ * declares at least one `ai:` purpose, names at least one feature, and every
+ * named feature is registered with `nodeCredentialDelivery: true`.
+ *
+ * @param handler - the handler, or a view of it.
+ * @param isDeliveryFeature - whether a feature id opted in (default: the AI feature registry).
+ * @returns why it does not comply, or `null` when it does.
+ *
+ * @stability experimental
+ */
+export function nodeDeliveryNonCompliance(
+  handler: JobHandlerView,
+  isDeliveryFeature: (id: string) => boolean = (id) => getAiFeature(id)?.nodeCredentialDelivery === true,
+): string | null {
+  const purposes = handler.nodeCredentialPurposes ?? [];
+  if (purposes.length === 0) return 'declares no nodeCredentialPurposes';
+  const notAi = purposes.filter((purpose) => !purpose.startsWith('ai:'));
+  if (notAi.length > 0 && notAi.length === purposes.length) return 'declares no ai:<provider> purpose';
+  const features = handler.aiFeatures ?? [];
+  if (features.length === 0) return 'names no aiFeatures';
+  const missing = features.filter((id) => !isDeliveryFeature(id));
+  if (missing.length > 0) return `serves feature(s) without nodeCredentialDelivery: true (${missing.join(', ')})`;
+  return null;
 }
 
 /**
@@ -95,6 +136,12 @@ export function findNodeEligibleAiJobs(registry: JobRegistryView): string[] {
       continue;
     }
 
+    if (handler.nodeResultSchema === undefined && handler.persistNodeResult === undefined) continue;
+
+    // #1083: a type opted into node credential delivery is allowed the members.
+    const nonCompliance = nodeDeliveryNonCompliance(handler);
+    if (nonCompliance === null) continue;
+
     if (handler.nodeResultSchema !== undefined) {
       offenders.push(`${type}: carries nodeResultSchema — a user's/admin's provider key must never reach a node`);
     }
@@ -118,7 +165,16 @@ export function findNodeEligibleAiJobs(registry: JobRegistryView): string[] {
 export function findAiJobsMissingFromServerOnly(registry: JobRegistryView): string[] {
   const serverOnly = new Set(registry.serverOnlyTypes());
 
-  return registry.types().filter((type) => type.startsWith('ai.') && !serverOnly.has(type));
+  // A compliant node-delivery type (#1083) is structurally node-eligible; the
+  // runtime check (`serverOnlyRightNow`) is what keeps it on the server while
+  // delivery is off.
+  return registry
+    .types()
+    .filter((type) => type.startsWith('ai.') && !serverOnly.has(type))
+    .filter((type) => {
+      const handler = registry.get(type);
+      return handler === undefined || nodeDeliveryNonCompliance(handler) !== null;
+    });
 }
 
 /** Registers the suite's `describe` tree on the runner's globals. */
@@ -154,6 +210,22 @@ function register(options: AiJobsServerOnlyOptions): void {
       });
     });
 
+    it('with the deployment defaults (credential delivery OFF), every ai.* type is server-only at claim time (#1083)', async () => {
+      const offload = context.app.get(NodeOffloadService) as NodeOffloadService;
+      const serverNow = new Set(await offload.serverOnlyRightNow());
+      expect(aiTypes.filter((type) => !serverNow.has(type))).toEqual([]);
+    });
+
+    it('a node-eligible ai.* type is accepted only with ai: purposes and every feature opted in (#1083)', () => {
+      const members = { nodeResultSchema: {}, persistNodeResult: () => undefined };
+      const optedIn = (id: string) => id === 'opted_in';
+      expect(nodeDeliveryNonCompliance({ ...members }, optedIn)).toBe('declares no nodeCredentialPurposes');
+      expect(nodeDeliveryNonCompliance({ ...members, nodeCredentialPurposes: ['geo:google'] }, optedIn)).toBe('declares no ai:<provider> purpose');
+      expect(nodeDeliveryNonCompliance({ ...members, nodeCredentialPurposes: ['ai:openai'] }, optedIn)).toBe('names no aiFeatures');
+      expect(nodeDeliveryNonCompliance({ ...members, nodeCredentialPurposes: ['ai:openai'], aiFeatures: ['opted_in', 'other'] }, optedIn)).toMatch(/other/);
+      expect(nodeDeliveryNonCompliance({ ...members, nodeCredentialPurposes: ['ai:openai'], aiFeatures: ['opted_in'] }, optedIn)).toBeNull();
+    });
+
     it('a handler carrying exactly one of the two members would still be caught (derivation, not a flag)', () => {
       // A structural proof that the check has the same "both or neither" shape
       // `JobHandlerRegistry.serverOnlyTypes()` does: a future ai.* handler that
@@ -185,7 +257,7 @@ export const aiJobsServerOnlySuite: ConformanceAppSuite<AiJobsServerOnlyOptions>
   id: 'ai-jobs-server-only',
   title: 'AI job types are server-only, permanently (#435)',
   description:
-    'Every ai.* job type has neither nodeResultSchema nor persistNodeResult and is in the registry’s server-only derivation (AI rule 3).',
+    'Every ai.* job type has neither nodeResultSchema nor persistNodeResult and is in the registry’s server-only derivation (AI rule 3), unless it opted into node credential delivery (#1083: ai: purposes declared, every feature nodeCredentialDelivery); with the defaults every ai.* type is server-only at claim time.',
   register(_api, _context, options) {
     register(options);
   },

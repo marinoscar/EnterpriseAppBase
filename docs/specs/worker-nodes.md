@@ -184,6 +184,31 @@ A job type whose remote executor needs a credential declares `nodeSecretBroker` 
 
 The node's own `nod_` token is the one credential a node persists; it is an identity, not a job-scoped grant. The mechanism is designed in full against its first consumer in [database-backup.md](database-backup.md); operators audit issued roles with [node-job-secrets.md](../runbooks/node-job-secrets.md).
 
+### Provider credential delivery
+
+> **Status: implemented on the server, OFF by default, gated pending a decision (#1083, `needs-decision`).** It contradicts AI rules 2 and 3 and queue rule 3 as they are written in `AGENTS.md` today; the rules are unchanged until the platform owner accepts the amendment below. Nothing is delivered until an administrator enables `nodes.credentialDelivery`, so kvox, EvoPath and every other deployment behave exactly as before. The node-side cache (encrypted files, pin-at-start, sweeper, single-flight, wipe paths, redaction, node metrics and `node doctor` lines) lands with the CLI change.
+
+A per-job secret is the wrong shape for a provider API key: the key is a long-lived organization or deployment secret, it cannot be revoked by handle at the provider, and one request per job at import scale is the traffic a fleet exists to avoid. Provider credential delivery hands a node the key for a **purpose**, cacheable for a short, server-set TTL.
+
+- **Purposes** are an open registry: `registerNodeCredentialPurpose({ id, label, resolve(ctx), allowUserTier? })` (`@marinoscar/platform-api/jobs`, re-exported by `/nodes`). An id is `<namespace>:<name>` (`ai:openai`, `geo:google`). `resolve` returns `{ material, versionSource? }` from the **organization or deployment tier only**; a user's own (BYOK) key is never delivered (no built-in purpose sets `allowUserTier`). The AI slice registers `ai:<providerId>` per configured provider through `AiKeyResolver.resolveForSystem`; a keyless provider is delivered as `{ keyless: 'true' }`.
+- **Declaration**: a handler lists `nodeCredentialPurposes`. Eligibility stays derived from `nodeResultSchema` + `persistNodeResult`.
+- **Claim gate**: `NodeOffloadService.offeredTypes()` withholds a declaring type unless delivery is enabled and every declared purpose is allowlisted and registered. Server-only is the fallback, never a failure.
+- **Issuance**: `POST /api/nodes/{id}/credentials/{purpose}`, body `{ jobId, claimToken? }`, `Cache-Control: no-store`. Checks in order, each with `details.reason`: node ownership (403/404); delivery enabled (409 `CREDENTIAL_DELIVERY_DISABLED`); purpose registered and allowlisted (404 `UNKNOWN_PURPOSE`); a live lease on the job (409); the type declares the purpose (403 `PURPOSE_NOT_DECLARED`); 30 requests a minute per node, per API process (429 `CREDENTIAL_RATE_LIMITED`); the purpose resolves (424 `CREDENTIAL_UNAVAILABLE`, the node reports the job failed and the normal backoff applies). The response `{ purpose, orgId, material, version, issuedAt, expiresAt, epoch }` is the only place the material exists. `version` is `HMAC-SHA256(deriveSigningKey('node-credential-version'), purpose NUL versionSource-or-canonical-material)` truncated to 16 hex. A node keys its cache by `(purpose, orgId)`: the same purpose resolves to a different key in a different organization.
+- **Audit**: one `node_credential_issuances` row (node, purpose, version, job `SET NULL`, issue and expiry times; no material column) and one `audit_events` row `node_credential:issued` (purpose, version, job id), written in one transaction; if they cannot be written nothing is delivered. Retention 30 days (`nodes.credential_issuances_purge`, nightly, enqueue-only cron).
+- **Invalidation**: heartbeat and claim responses carry `credentialDelivery: { enabled, epoch, ttlMinutes, purposes, versions }`; `versions` are the system-scope (`orgId` null) versions, reused for 30 s. A node wipes everything when `enabled` is false, drops every entry when `epoch` changed, drops an entry whose purpose is gone, and drops a system-scope entry whose version differs; organization-scoped entries are bounded by the TTL, the epoch and the auth-failure re-acquire. `POST /api/admin/nodes/credential-delivery/revoke-all` (`system_settings:write`) advances the epoch and audits `node_credential:revoke_all`. A key already pinned in a running job stays in that process until the job ends; true revocation is rotating the key at the provider.
+- **Never logged**: a resolver's error is logged by name only (an SDK may echo the key); relayed span attributes named like a secret are refused at registration; the issuance route's body is not logged (the API logs no request or response bodies).
+- **Observability**: `app.nodes.credentials.issued{purpose}` (no organization label), span `node.credential.issue` (`purpose`, `node.id`, `version`), Doctor `nodes.credential_delivery`.
+- **Conformance**: `ai-jobs-server-only` accepts a node-eligible `ai.*` type only with `ai:` purposes declared and every feature it names (`aiFeatures`) registered with `nodeCredentialDelivery: true`, and asserts that with the defaults every `ai.*` type is server-only at claim time; `ai-secret-egress` covers the `ai:<provider>` purpose as the single opt-in egress; the new `node-credential-cache` suite (API half) checks the policy, the refusal, the audit without material, rotation and the epoch.
+- **Threat model**: a delivered key is readable by anyone with root (or the node's own user) on the node host. The bound is the TTL (at most 240 minutes) and revoke-all; enable delivery only for nodes you own.
+
+#### Proposed rule amendment (pending decision)
+
+The text below is proposed for `AGENTS.md`, the `CLAUDE.md` pointer table and [ai-platform.md](ai-platform.md). It is **not** in force until the platform owner accepts it.
+
+- **AI rule 2**, add: *"Exception: when a deployment enables `nodes.credentialDelivery` and allowlists a purpose, the org or deployment key for that purpose may be issued to a worker node through `POST /api/nodes/:id/credentials/:purpose` for a job that declares it. A user's BYOK key is never delivered."*
+- **AI rule 3** becomes: *"AI jobs are server-only by default. A type may be node-eligible only if it declares `nodeCredentialPurposes` and all its features set `nodeCredentialDelivery: true`; it still runs server-only unless the deployment enables delivery."*
+- **Queue rule 3**, add: *"Exception: a provider credential delivered through node credential delivery may be cached on the node, AES-256-GCM encrypted, for at most `nodes.credentialDelivery.cacheTtlMinutes` (≤240), and is deleted on expiry, deregister, revocation and epoch advance. Per-job secrets from `nodeSecretBroker` are unchanged: never persisted."*
+
 ### Capability probing
 
 The worst node failure is starting cleanly and then failing every job it claims, charging each an attempt. At startup the CLI probes what the machine can do (`packages/platform-cli/src/engine/node/capabilities.ts`) and compares it with what its eligible types need (`JOB_TYPE_REQUIREMENTS`):
@@ -421,8 +446,12 @@ UPDATE worker_nodes SET status = 'offline'
 | `nodes.offlineStaleMultiplier` | `4` | Stale windows before the sweep marks a node offline (1–100) |
 | `nodes.offlineRetentionDays` | `30` | How long an offline node's row is kept (1–3650) |
 | `nodes.jobSecretBrokerEnabled` | `false` | Whether any per-job credential may be brokered to a node |
+| `nodes.credentialDelivery.enabled` | `false` | Whether provider credentials may be delivered to nodes ([above](#provider-credential-delivery)) |
+| `nodes.credentialDelivery.cacheTtlMinutes` | `60` | Node cache lifetime per entry (5–240) |
+| `nodes.credentialDelivery.purposes` | `[]` | The allowlist of registered purpose ids |
+| `nodes.credentialDelivery.epoch` | `1` | Server-written; advanced by revoke-all; a PATCH cannot set it |
 
-Event retention is a module option, not a setting: `NodesModule.forRoot({ nodeEventsRetentionDays })` (default 30).
+Event retention is a module option, not a setting: `NodesModule.forRoot({ nodeEventsRetentionDays })` (default 30); so is the credential-delivery audit's, `credentialIssuancesRetentionDays` (default 30).
 
 `databaseBackup.nodeOffloadEnabled` (default `false`) additionally gates `db.backup.run`; see [database-backup.md](database-backup.md).
 
@@ -457,6 +486,7 @@ CLI-side settings (`APPCTL_*`, including `APPCTL_HEAP_LIMIT_MB`) are documented 
 | `POST /api/nodes/{id}/jobs/{jobId}/download-url` | Signed GET for the job's input | `nodes:write` |
 | `POST /api/nodes/{id}/jobs/{jobId}/upload-url` | Signed PUT plus the server-chosen key | `nodes:write` |
 | `POST /api/nodes/{id}/jobs/{jobId}/secret` | Issue the job's brokered credential | `nodes:write` |
+| `POST /api/nodes/{id}/credentials/{purpose}` | Deliver a provider credential for a held, declaring job (opt-in, off by default; [Provider credential delivery](#provider-credential-delivery)) | `nodes:write` |
 | `POST /api/nodes/{id}/jobs/{jobId}/result` | Submit a validated result; settles the job | `nodes:write` |
 | `POST /api/nodes/{id}/jobs/{jobId}/failure` | Report failure (`rateLimited` defers) | `nodes:write` |
 | `POST /api/nodes/{id}/telemetry` | Relay job phase spans; `{ accepted, dropped }`, `429` over budget ([Span relay](#span-relay)) | `nodes:write` |
@@ -481,6 +511,7 @@ The listing is `nodes:read`, not a bare `@Auth()` like the PAT listing: it is fl
 | `DELETE /api/admin/nodes/{id}` | Delete the node; its jobs are unclaimed, not deleted | `nodes:write` |
 | `GET /api/admin/nodes/credentials` | Every node credential, with owner | `nodes:read` |
 | `DELETE /api/admin/nodes/credentials/{id}` | Revoke any credential | `nodes:write` |
+| `POST /api/admin/nodes/credential-delivery/revoke-all` | Advance `nodes.credentialDelivery.epoch`; nodes wipe delivered credentials on their next heartbeat | `system_settings:write` |
 
 The `credentials` literals are declared before `:id`; Nest matches in declaration order, and `:id` first would answer `400 "uuid is expected"`. The rule is "every literal above every parameterised route".
 
@@ -594,6 +625,7 @@ End to end, following [Running worker nodes](../runbooks/run-worker-nodes.md):
 - #364: claim token on the node control plane. #477: claim-conditional settle writes.
 - #604: node vitals on the heartbeat (`last_vitals`, `last_vitals_at`).
 - #1045: host vitals, power state and node events (`worker_node_events`, `nodes.node.event`, `nodes.node_events_purge`).
+- #1083 (server half, gated pending a decision): provider credential delivery (`nodes.credentialDelivery`, `node_credential_issuances`, `POST /api/nodes/{id}/credentials/{purpose}`, revoke-all, `nodes.credential_delivery`, `node-credential-cache`).
 - #606: fleet metrics (`app.nodes.*` gauges).
 - #607: `traceparent` on each claim assignment.
 - #608: span relay (`POST /api/nodes/{id}/telemetry`), node phase spans in the CLI.

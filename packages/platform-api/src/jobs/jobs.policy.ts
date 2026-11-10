@@ -51,6 +51,21 @@ export interface NodesPolicy {
   offlineRetentionDays: number;
   /** Whether a node may be handed a short-lived credential for its job. Fail-closed: only `true` enables it. */
   jobSecretBrokerEnabled: boolean;
+  /**
+   * Provider-credential delivery to nodes (#1083). Optional: a row written
+   * before it reads as OFF. Read it through `readNodeCredentialDeliveryPolicy`,
+   * which fails closed.
+   */
+  credentialDelivery?: {
+    /** Master switch. */
+    enabled: boolean;
+    /** Node cache lifetime per entry, in minutes (5 to 240). */
+    cacheTtlMinutes: number;
+    /** The purposes that may be issued. */
+    purposes: string[];
+    /** Server-written invalidation epoch. */
+    epoch?: number;
+  };
 }
 
 /**
@@ -64,7 +79,7 @@ export const DEFAULT_JOBS_POLICY: Readonly<JobsPolicy> = Object.freeze({
 });
 
 /**
- * The shipped `nodes` policy. The broker is OFF: an administrator turns it on
+ * The shipped `nodes` policy. The broker and provider-credential delivery are OFF: an administrator turns it on
  * deliberately, having decided the fleet is inside the trust boundary.
  *
  * @stability stable
@@ -74,4 +89,5 @@ export const DEFAULT_NODES_POLICY: Readonly<NodesPolicy> = Object.freeze({
   offlineStaleMultiplier: 4,
   offlineRetentionDays: 30,
   jobSecretBrokerEnabled: false,
+  credentialDelivery: Object.freeze({ enabled: false, cacheTtlMinutes: 60, purposes: [] as string[], epoch: 1 }),
 });

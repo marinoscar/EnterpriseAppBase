@@ -64,7 +64,8 @@ import {
 } from '@marinoscar/platform-contract/ai';
 
 import { CredentialsService, OrgCredentialsService } from '../../../credentials/index';
-import { JobHandlerRegistry } from '../../../jobs/index';
+import { JobHandlerRegistry, nodeCredentialPurposeRegistry } from '../../../jobs/index';
+import { NodeCredentialDeliveryService } from '../../../nodes/index';
 import type { ConformanceAppSuite } from '../../../testing/index';
 import { AiConfigService } from '../../config/ai-config.service';
 import { AiProviderRegistry } from '../../core/provider-registry';
@@ -1146,6 +1147,57 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
       assertNoLeakOrMarker('ai_runs rows', JSON.stringify(app.harness.runRows));
       assertNoLeakOrMarker('ai_usage_events', JSON.stringify(app.harness.usageEvents));
       assertNoLeakOrMarker('log output', logLines.join('\n'));
+    });
+  });
+
+  // #1083: opt-in provider-credential delivery to worker nodes. The one
+  // deliberate egress of an organization/deployment key is the issuance route
+  // `POST /api/nodes/:id/credentials/:purpose`, whose material comes from the
+  // registered `ai:<provider>` purpose's resolver; that route is OFF by default
+  // (its service refuses with CREDENTIAL_DELIVERY_DISABLED and every `ai.*` type
+  // stays server-only, which `ai-jobs-server-only` asserts). Here: the purpose
+  // resolves the deployment key and nothing but the resolver's caller ever
+  // sees it — no log line — and with nothing configured it resolves nothing.
+  describe('node credential delivery (#1083): the ai:<provider> purpose is the single, opt-in egress', () => {
+    const purposeContext = () => ({
+      orgId: null,
+      job: null,
+      get: <T,>(token: unknown): T => adminCtx.app.get<T>(token),
+    });
+
+    it('resolves the deployment key for ai:openai, and no log line carries it', async () => {
+      storedAdminKey = ADMIN_KEY_SENTINEL;
+      const purpose = nodeCredentialPurposeRegistry.get('ai:openai');
+      expect(purpose).toBeDefined();
+      const resolved = await purpose!.resolve(purposeContext());
+      expect(resolved?.material).toEqual({ apiKey: ADMIN_KEY_SENTINEL });
+      assertNoLeak('log output while resolving ai:openai', logLines.join('\n'));
+    });
+
+    it('resolves nothing when neither the organization nor the deployment has a key', async () => {
+      storedAdminKey = null;
+      const resolved = await nodeCredentialPurposeRegistry.get('ai:openai')!.resolve(purposeContext());
+      expect(resolved).toBeNull();
+      assertNoLeak('log output of an unresolved ai:openai', logLines.join('\n'));
+    });
+
+    it('the issuer refuses with CREDENTIAL_DELIVERY_DISABLED under the defaults, and its refusal carries no sentinel', async () => {
+      storedAdminKey = ADMIN_KEY_SENTINEL;
+      let delivery: NodeCredentialDeliveryService | undefined;
+      try {
+        delivery = adminCtx.app.get<NodeCredentialDeliveryService>(NodeCredentialDeliveryService);
+      } catch {
+        delivery = undefined;
+      }
+      if (delivery === undefined) {
+        // The app under test mounts no nodes slice: there is no issuance route at all.
+        return;
+      }
+      const policy = await delivery.policy();
+      expect(policy.enabled).toBe(false);
+      const state = await delivery.deliveryState();
+      expect(state.enabled).toBe(false);
+      assertNoLeak('delivery state', JSON.stringify(state));
     });
   });
 

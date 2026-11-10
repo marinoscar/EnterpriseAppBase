@@ -104,6 +104,9 @@ export interface RelayedAttribute {
   value: number | string;
 }
 
+/** Attribute keys that look like credentials (`apiKey`, `material`, `authorization`, ...), never relayed (#1083). */
+const SECRET_SHAPED_KEY = /(api[_-]?key|material|authorization|bearer|secret|password|credential)/i;
+
 const BUILTIN: Record<string, BuiltinNodeSpanAttribute> = {
   bytes: { otelName: 'job.phase.bytes', min: 0, max: Number.MAX_SAFE_INTEGER },
   attempt: { otelName: 'job.attempt', min: 0, max: 10_000 },
@@ -131,6 +134,9 @@ export const nodeSpanAttributeRegistry = defineRegistry<NodeSpanAttributeDefinit
   idPattern: NODE_SPAN_ATTRIBUTE_KEY_PATTERN,
   validate: (attribute) => {
     if (attribute.key in BUILTIN) throw new Error(`"${attribute.key}" is one of the platform's own attributes`);
+    // #1083: a relayed attribute may never be named like a secret, so a node
+    // cannot be configured to ship a credential into the server's traces.
+    if (SECRET_SHAPED_KEY.test(attribute.key)) throw new Error(`"${attribute.key}" is named like a secret and may not be relayed`);
     if (attribute.type !== 'int' && attribute.type !== 'string') throw new Error("type must be 'int' or 'string'");
     if (attribute.maxLength !== undefined) {
       if (attribute.type !== 'string') throw new Error('maxLength applies to a string attribute only');

@@ -117,6 +117,7 @@ const BASE_MODEL_OWNERSHIP: readonly ModelOwnershipDef[] = [
   { model: 'WorkerNode', kind: 'system', rationale: 'A deployment-wide worker node.' },
   { model: 'NodeCredential', kind: 'system', rationale: 'A deployment-wide worker-node credential.' },
   { model: 'WorkerNodeEvent', kind: 'system', rationale: 'An event a deployment-wide worker node reported about itself; cascades with the node.' },
+  { model: 'NodeCredentialIssuance', kind: 'system', rationale: 'The audit of a provider credential delivered to a deployment-wide worker node (#1083); no material, cascades with the node.' },
   {
     model: 'AlertRule',
     kind: 'system',

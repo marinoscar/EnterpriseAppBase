@@ -49,6 +49,7 @@ describe('model ownership vs prisma/schema/', () => {
     'WorkerNode',
     'NodeCredential',
     'WorkerNodeEvent',
+    'NodeCredentialIssuance',
     'AlertRule',
     'AlertIncident',
     'JobStatsRollup',

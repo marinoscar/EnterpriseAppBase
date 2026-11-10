@@ -451,7 +451,7 @@ None.
 
 **What it gives you.** The worker-node fleet: node credentials, the control and data planes, per-job brokered secrets and the Worker Nodes admin page.
 
-**What it is** (from its README). The worker-node fleet: the `nod_` credential family, the node control plane (`/api/nodes`: register, heartbeat, claim, renew, result, failure, telemetry), the data plane (signed URLs through `NODE_OBJECT_STORE`), the brokered per-job secret, the fleet admin routes (`/api/admin/nodes`), the fleet sweeps and their crons, and more.
+**What it is** (from its README). The worker-node fleet: the `nod_` credential family, the node control plane (`/api/nodes`: register, heartbeat, claim, renew, result, failure, telemetry), the data plane (signed URLs through `NODE_OBJECT_STORE`), the brokered per-job secret, the fleet admin routes (`/api/admin/nodes`), the fleet sweeps and their crons, the fleet gauges, and more.
 
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|

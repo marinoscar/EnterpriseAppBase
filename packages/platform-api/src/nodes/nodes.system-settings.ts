@@ -18,14 +18,18 @@ import {
   type NodesSettingsPatchInput,
   type SystemNodesValue,
 } from '@marinoscar/platform-contract/nodes';
-import { DEFAULT_NODES_POLICY } from '../jobs/index';
+import { DEFAULT_NODE_CREDENTIAL_DELIVERY, DEFAULT_NODES_POLICY } from '../jobs/index';
 import type { SystemSettingsNamespace } from '../settings/index';
 
 // The shipped values are `DEFAULT_NODES_POLICY` (the jobs slice's), so what
 // `NodeLifecycleService` falls back on and what a fresh row is written with
 // are one definition. The broker stays OFF (#349): an administrator turns it
 // on deliberately, having decided the fleet is inside the trust boundary.
-const NODES_SYSTEM_DEFAULTS: SystemNodesValue = { ...DEFAULT_NODES_POLICY };
+// Provider-credential delivery (#1083) is OFF for the same reason.
+const NODES_SYSTEM_DEFAULTS: SystemNodesValue = {
+  ...DEFAULT_NODES_POLICY,
+  credentialDelivery: { ...DEFAULT_NODE_CREDENTIAL_DELIVERY, purposes: [] },
+};
 
 /**
  * The `nodes` PATCH merge, field by field: a field the patch names replaces
@@ -38,11 +42,40 @@ const NODES_SYSTEM_DEFAULTS: SystemNodesValue = { ...DEFAULT_NODES_POLICY };
  * @stability experimental
  */
 export function mergeNodesSettings(current: SystemNodesValue, patch?: NodesSettingsPatchInput): SystemNodesValue {
-  return {
+  const merged: SystemNodesValue = {
     staleHeartbeatSeconds: patch?.staleHeartbeatSeconds ?? current.staleHeartbeatSeconds,
     offlineStaleMultiplier: patch?.offlineStaleMultiplier ?? current.offlineStaleMultiplier,
     offlineRetentionDays: patch?.offlineRetentionDays ?? current.offlineRetentionDays,
     jobSecretBrokerEnabled: patch?.jobSecretBrokerEnabled ?? current.jobSecretBrokerEnabled,
+  };
+  const delivery = mergeCredentialDelivery(current.credentialDelivery, patch?.credentialDelivery);
+  if (delivery !== undefined) merged.credentialDelivery = delivery;
+  return merged;
+}
+
+/**
+ * The `credentialDelivery` branch's merge (#1083), field by field.
+ *
+ * ⚠ `epoch` IS SERVER-WRITTEN. The HTTP PATCH body cannot carry it (the wire
+ * schema strips it); only server code calling `patchSettings` directly —
+ * `POST /api/admin/nodes/credential-delivery/revoke-all` — passes one, and it
+ * is accepted only when it ADVANCES the stored epoch, so a stale or replayed
+ * write can never move it backwards.
+ */
+function mergeCredentialDelivery(
+  current: SystemNodesValue['credentialDelivery'],
+  patch: (NonNullable<NodesSettingsPatchInput['credentialDelivery']> & { epoch?: number }) | undefined,
+): SystemNodesValue['credentialDelivery'] {
+  if (current === undefined && patch === undefined) return undefined;
+  const base = current ?? { ...DEFAULT_NODE_CREDENTIAL_DELIVERY, purposes: [] };
+  const currentEpoch = base.epoch ?? 1;
+  const epoch =
+    typeof patch?.epoch === 'number' && Number.isInteger(patch.epoch) && patch.epoch > currentEpoch ? patch.epoch : currentEpoch;
+  return {
+    enabled: patch?.enabled ?? base.enabled,
+    cacheTtlMinutes: patch?.cacheTtlMinutes ?? base.cacheTtlMinutes,
+    purposes: [...(patch?.purposes ?? base.purposes)],
+    epoch,
   };
 }
 

@@ -14,7 +14,13 @@
     "staleHeartbeatSeconds": 90,
     "offlineStaleMultiplier": 4,
     "offlineRetentionDays": 30,
-    "jobSecretBrokerEnabled": false
+    "jobSecretBrokerEnabled": false,
+    "credentialDelivery": {
+      "enabled": false,
+      "cacheTtlMinutes": 60,
+      "purposes": [],
+      "epoch": 1
+    }
   },
   "databaseBackup": {
     "enabled": false,

@@ -134,6 +134,23 @@ None. `SECRETS_ENCRYPTION_KEY` is the deployment's existing master key (document
 
 Logs only, through Nest's `Logger` (`CredentialsService`, `UserCredentialsService`, `OrgCredentialsService`): "Stored/Deleted credential `<purpose>/<name>`" (plus the user or organization id for the owner stores) and an error when a stored credential will not decrypt. No log line, span attribute, metric or audit `meta` carries a secret or a hint. No metrics or spans of its own; queries are traced by the app's Prisma instrumentation.
 
+### Delivering a credential to worker nodes (#1083)
+
+A non-AI provider credential (a Google geocoding key) can be made deliverable to worker nodes by registering a node credential purpose that reads the **deployment or organization tier only**:
+
+```ts
+registerNodeCredentialPurpose({
+  id: 'geo:google',
+  label: 'Google reverse geocoding',
+  async resolve(ctx) {
+    const apiKey = await ctx.get<CredentialsService>(CredentialsService).getSecret('geo', 'google');
+    return apiKey ? { material: { apiKey } } : null;
+  },
+});
+```
+
+Never resolve `UserCredentialsService` there. Delivery is OFF by default and gated pending a rule amendment; see the nodes slice README and [docs/specs/worker-nodes.md](../../../../docs/specs/worker-nodes.md#provider-credential-delivery).
+
 ## Security notes
 
 - **No plaintext egress.** `getSecret` is the only method that returns plaintext; call it at the moment of use, server-side. `describe`/`list`/`setSecret` return `CredentialInfo`, `UserCredentialInfo` and `OrgCredentialInfo`, whose compile-time proofs forbid any secret-bearing field; the ciphertext is never even selected for them. Never return a `ResolvedCredential` from a controller.

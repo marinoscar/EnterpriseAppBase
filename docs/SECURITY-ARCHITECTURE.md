@@ -463,6 +463,16 @@ needs a database connection. A node never persists such a secret.
 
 Operator guide: [runbooks/node-job-secrets.md](runbooks/node-job-secrets.md).
 
+### Provider credential delivery to nodes (opt-in, pending decision)
+
+Issue #1083 adds, OFF by default, a way to deliver an organization's or the deployment's **provider** key (not a per-job grant) to a worker node: `POST /api/nodes/:id/credentials/:purpose`. It is gated pending a platform rule amendment (AI rules 2 and 3, queue rule 3); the proposed text is in [worker-nodes.md](specs/worker-nodes.md#provider-credential-delivery).
+
+- Three independent decisions must all say yes: the deployment enabled `nodes.credentialDelivery` and allowlisted the purpose; the purpose is registered; the job type declares it, and the node holds a live lease on the job. Otherwise the type is server-only at claim time.
+- Organization or deployment tier only; a user's BYOK key is never delivered.
+- The material is in exactly one HTTP response (`Cache-Control: no-store`). `node_credential_issuances` and the `node_credential:issued` audit row record the purpose and a non-secret HMAC version, never the material; a resolver error is logged by name only; span attributes named like a secret cannot be registered for relay.
+- Per-node rate limit (30 a minute, per API process). Revoke-all advances an epoch every node checks on heartbeat; a key pinned in a running job lives until the job ends, so true revocation is rotating the key at the provider.
+- Threat model: a delivered key is readable by root (or the node's own user) on the node host; exposure is bounded by the TTL (at most 240 minutes) and revoke-all. The Doctor check `nodes.credential_delivery` warns whenever delivery is on.
+
 ### Node span relay
 
 `POST /api/nodes/{id}/telemetry` writes what a node says into the

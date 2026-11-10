@@ -224,6 +224,7 @@ This is the single home for the list of checks. Thirty-four checks ship. `depend
 | Id | Label | `dependsOn` | What it verifies | Rules |
 |---|---|---|---|---|
 | `nodes.fleet` | Worker node fleet | `db.connection` | Every enrolled, non-disabled node is heartbeating, from the admin view's derived health. Settings page `/admin/settings/workers`. | pass: no nodes enrolled (the API runs every job itself) or every active node healthy. warn: a stale or offline active node (detail names up to five). A disabled node is excluded from the verdict. Never `fail`. |
+| `nodes.credential_delivery` | Worker node credential delivery | `db.connection` | Whether provider credentials are delivered to worker nodes (#1083). Resolves each allowlisted purpose's deployment credential to hash its version; writes nothing, returns no material. Settings page `/admin/settings/workers`. | skip: delivery off (the default). warn: delivery on (a risk posture): lists the purposes, TTL, epoch and online nodes. fail: on, and an allowlisted purpose is unregistered or no deployment credential resolves. |
 
 #### backup
 
@@ -283,7 +284,7 @@ Every check is registered by the package module that owns its capability, never 
 | email | `email.config` |
 | notifications | `push.vapid` |
 | ai | `ai.enabled`, `ai.providers` |
-| jobs, nodes | `jobs.worker`, `jobs.backlog`, `nodes.fleet` |
+| jobs, nodes | `jobs.worker`, `jobs.backlog`, `nodes.fleet`, `nodes.credential_delivery` |
 | db-backup | `backup.schedule`, `backup.pg-client`, `backup.rls-bypass`, `backup.mirrors` |
 | sharing | `sharing.groups.orphaned` |
 | telemetry | the five `telemetry.*` checks |

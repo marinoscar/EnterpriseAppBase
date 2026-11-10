@@ -54,7 +54,12 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { type Job, type WorkerNode } from '../../jobs/index';
 
 import { normalizeTraceparent } from '../../jobs/index';
-import { NODE_SERVER_CAPABILITY_HOST_VITALS } from '@marinoscar/platform-contract/nodes';
+import {
+  NODE_SERVER_CAPABILITY_CREDENTIAL_DELIVERY,
+  NODE_SERVER_CAPABILITY_HOST_VITALS,
+} from '@marinoscar/platform-contract/nodes';
+
+import { NodeCredentialDeliveryStateDto } from './node-credential-delivery.dto';
 
 /**
  * The optional features this server advertises to a node, on the register and
@@ -63,7 +68,10 @@ import { NODE_SERVER_CAPABILITY_HOST_VITALS } from '@marinoscar/platform-contrac
  *
  * @stability experimental
  */
-export const NODE_SERVER_FEATURES: readonly string[] = Object.freeze([NODE_SERVER_CAPABILITY_HOST_VITALS]);
+export const NODE_SERVER_FEATURES: readonly string[] = Object.freeze([
+  NODE_SERVER_CAPABILITY_HOST_VITALS,
+  NODE_SERVER_CAPABILITY_CREDENTIAL_DELIVERY,
+]);
 
 /**
  * One worker node, as the fleet sees it.
@@ -189,6 +197,15 @@ export class HeartbeatNodeResponseDto extends WorkerNodeDto {
     type: [String],
   })
   serverFeatures!: string[];
+
+  /** Provider-credential delivery state (#1083). */
+  @ApiPropertyOptional({
+    description:
+      'Provider-credential delivery state (#1083): how a node keeps its credential cache honest (wipe when ' +
+      '`enabled` is false or `epoch` changed). Present whenever the server implements delivery.',
+    type: NodeCredentialDeliveryStateDto,
+  })
+  credentialDelivery?: NodeCredentialDeliveryStateDto;
 }
 
 /**
@@ -317,6 +334,12 @@ export class ClaimJobsResponseDto {
     type: [NodeJobAssignmentDto],
   })
   jobs!: NodeJobAssignmentDto[];
+  /** Provider-credential delivery state (#1083), as on the heartbeat. */
+  @ApiPropertyOptional({
+    description: 'Provider-credential delivery state (#1083), as on the heartbeat, so a node invalidates before it starts a job.',
+    type: NodeCredentialDeliveryStateDto,
+  })
+  credentialDelivery?: NodeCredentialDeliveryStateDto;
 }
 
 /**

@@ -178,6 +178,7 @@ import type { z } from 'zod';
 
 import type { JobExecutionProfile } from './job-execution-profile';
 import type { JobSecretBroker } from './job-secret-broker';
+import type { NodeCredentialPurposeId } from './node-credential-purpose';
 
 /**
  * DI token for job handlers.
@@ -428,6 +429,31 @@ export interface JobHandler {
    * column that could hold it. See `IssuedJobSecret`.
    */
   readonly nodeSecretBroker?: JobSecretBroker;
+
+  /**
+   * The provider-credential purposes (`ai:openai`, `geo:google`) a REMOTE
+   * executor of this type needs (#1083). OPTIONAL, and its PRESENCE is the
+   * declaration, exactly as `nodeSecretBroker`'s is: there is no
+   * `needsProviderKey` flag.
+   *
+   * ⚠ A DECLARATION IS NOT A PERMISSION. A node may be DELIVERED one of these
+   * credentials (`POST /api/nodes/:id/credentials/:purpose`) only when the
+   * deployment enabled `nodes.credentialDelivery`, allowlisted the purpose,
+   * and the purpose is registered (`registerNodeCredentialPurpose`). Until all
+   * three hold, `NodeOffloadService.offeredTypes()` withholds the type from
+   * the node plane and the server runs it: server-only is the fallback, never
+   * a failure. Node eligibility itself stays derived from `nodeResultSchema` +
+   * `persistNodeResult`.
+   *
+   * Unlike a per-job secret, a delivered credential is a long-lived
+   * organization or deployment key and the node MAY cache it, encrypted, for
+   * at most `nodes.credentialDelivery.cacheTtlMinutes`. A user's own key is
+   * never delivered.
+   *
+   * ⚠ Gated pending the platform rule amendment proposed in
+   * `docs/specs/worker-nodes.md` ("Provider credential delivery").
+   */
+  readonly nodeCredentialPurposes?: readonly NodeCredentialPurposeId[];
 
   /**
    * May an administrator delete THIS job row, right now? (#480)

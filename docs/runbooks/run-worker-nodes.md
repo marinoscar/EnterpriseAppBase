@@ -614,6 +614,16 @@ more than 24 hours ago, and when one node sends more than 60 batches or 1000
 spans a minute. Check the worker's clock (NTP) first. Tracing must also be on at the
 server (`OTEL_ENABLED`); see [telemetry.md](telemetry.md).
 
+### Provider credential delivery (opt-in, #1083)
+
+Off by default and gated pending a platform rule amendment ([worker-nodes.md](../specs/worker-nodes.md#provider-credential-delivery)). To let nodes run a job type that needs a provider key (an `ai:<provider>` or an app purpose such as `geo:google`):
+
+1. Configure the key at the organization or deployment tier (a user's own key is never delivered).
+2. `PATCH /api/system-settings` with `{ "nodes": { "credentialDelivery": { "enabled": true, "purposes": ["ai:openai"], "cacheTtlMinutes": 60 } } }`. The TTL is 5 to 240 minutes; it bounds how long a key rests on a node's disk.
+3. Check the Doctor line `nodes.credential_delivery`: it warns while delivery is on (a key on a node host is readable by root there) and fails when an allowlisted purpose cannot be delivered.
+
+To revoke every cached key: `POST /api/admin/nodes/credential-delivery/revoke-all`; nodes wipe their caches on the next heartbeat. A key already pinned in a running job stays until the job ends, so rotate the key at the provider for real revocation. To turn it off, set `enabled: false`: declaring types fall back to the server immediately. Every delivery is audited (`node_credential_issuances`, `audit_events` `node_credential:issued`) by purpose and version only. The node-side cache ships with the CLI change; until then a node cannot use delivery.
+
 ## 9. Legacy env names
 
 A fleet that predates the platform engine sets its own variable names in compose

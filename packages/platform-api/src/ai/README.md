@@ -737,6 +737,12 @@ None of its own beyond the streaming route: `infra/nginx/nginx.conf` (and the CL
 
 Every provider round-trip is an `ai.request` span (provider, model, operation, `ai.key.source`, `ai.key.tier`, `ai.feature`; never a key, never prompt text) and one `ai_usage_events` row. Through `AI_METRICS` the app records `app.ai.*` metrics with bounded labels (provider, model, operation, status, key source, feature). With `logPromptContent` on, a bounded prompt preview is logged. The Doctor carries the AI checks (`ai-enabled`, `ai-providers`) and the AI hosts in its egress inventory.
 
+### Node credential delivery (#1083, gated pending a decision)
+
+`AiModule.forRoot` registers a node credential purpose `ai:<providerId>` per configured provider (`registerAiNodeCredentialPurposes`, `resolveAiNodeCredential`): it resolves through `AiKeyResolver.resolveForSystem`, the organization's key then the deployment's, **never a user's own key**; a keyless provider is delivered as `{ keyless: 'true' }`. `registerAiFeature({ ..., nodeCredentialDelivery: true })` marks a feature whose jobs may run on worker nodes when a deployment delivers credentials.
+
+⚠ This is gated pending the platform rule amendment proposed in [docs/specs/worker-nodes.md](../../../../docs/specs/worker-nodes.md#provider-credential-delivery): AI rules 2 and 3 are unchanged until it is accepted. With the defaults (`nodes.credentialDelivery.enabled` off) no key leaves the server and every `ai.*` type is server-only. The platform's own `ai.*` handlers declare no purpose and stay server-only regardless; `ai-jobs-server-only` accepts a node-eligible `ai.*` type only with `ai:` purposes declared and every feature it names in `aiFeatures` opted in.
+
 ## Security notes
 
 - **Keys never leave the server.** A key is resolved per call and held only between resolution and the adapter call; no route, log line, span, `AiError`, usage row or `ai_runs.request` row carries one. The one secret returned is a realtime session's ephemeral provider secret (`POST /api/ai/realtime/sessions`), never a key. `ai-secret-egress.integration.spec.ts` sweeps every response for the user, organization and deployment sentinels.

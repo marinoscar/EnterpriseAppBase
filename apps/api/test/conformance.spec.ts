@@ -191,6 +191,10 @@ runPlatformConformance({
     // The reference app mounts none; the walk must still see the packaged routes.
     nodes: { rootModule: AppModule, minPlatformRoutes: 10 },
 
+    // Provider-credential delivery to nodes (#1083), the API half: opt-in and
+    // OFF by default, audited by purpose and version only, invalidatable.
+    nodeCredentialCache: {},
+
     // ---- the AI platform's invariants (CLAUDE.md AI rules 1 to 4) ------------
     // The five that boot the app take the fixture (./conformance/ai-fixture.ts):
     // routes, job types and roles are DISCOVERED from the booted app.

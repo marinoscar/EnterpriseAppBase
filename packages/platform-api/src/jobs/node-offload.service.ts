@@ -62,6 +62,7 @@ import { SystemSettingsService } from '../settings/index';
 import type { JobHandler } from './job-handler.interface';
 import { JobHandlerRegistry } from './job-handler.registry';
 import type { JobSecretBroker } from './job-secret-broker';
+import { readNodeCredentialDeliveryPolicy, undeliverableReason } from './node-credential-purpose';
 
 /**
  * Is a stored `nodes` policy's credential brokering on?
@@ -141,13 +142,25 @@ export class NodeOffloadService {
     const serverOnly = new Set(this.registry.serverOnlyTypes());
     const eligible = this.registry.types().filter((type) => !serverOnly.has(type));
 
-    const brokerEnabled = await this.brokerEnabled();
+    const policy = await this.nodesPolicy();
+    const brokerEnabled = readJobSecretBrokerEnabled(policy as { jobSecretBrokerEnabled?: unknown } | null);
+    const delivery = readNodeCredentialDeliveryPolicy(policy);
     const offered: string[] = [];
 
     for (const type of eligible) {
       const handler = this.registry.get(type);
 
       if (handler === undefined) continue;
+
+      // #1083: a type that needs a provider credential on the node is offered
+      // only while every purpose it declares is deliverable right now. Checked
+      // before the broker gates: it reads nothing beyond the policy above.
+      const undeliverable = undeliverableReason(handler.nodeCredentialPurposes ?? [], delivery);
+      if (undeliverable !== null) {
+        this.logger.debug(`Withholding "${type}" from the node plane: it needs a provider credential and ${undeliverable}.`);
+
+        continue;
+      }
 
       if (handler.nodeSecretBroker !== undefined && !brokerEnabled) {
         this.logger.debug(
@@ -193,23 +206,24 @@ export class NodeOffloadService {
   }
 
   /**
-   * `nodes.jobSecretBrokerEnabled`, or `false` if it cannot be read.
+   * The stored `nodes` policy (broker switch and credential delivery), or `null` if it cannot be read.
    *
    * A failure here means the node plane is offered nothing that needs a
    * credential — and, through the complement, the server claims it. See the
    * file header on why that direction is the safe one.
    */
-  private async brokerEnabled(): Promise<boolean> {
+  private async nodesPolicy(): Promise<unknown> {
     try {
-      return readJobSecretBrokerEnabled((await this.settings.getNodesPolicy()) as { jobSecretBrokerEnabled?: unknown } | null);
+      return await this.settings.getNodesPolicy();
     } catch (error) {
       this.logger.warn(
         `Could not read nodes.jobSecretBrokerEnabled; withholding every type that needs a ` +
-          `per-job credential from the node plane (the in-process worker still claims them): ` +
+          `per-job credential or a delivered provider credential from the node plane (the ` +
+          `in-process worker still claims them): ` +
           `${error instanceof Error ? error.message : String(error)}`
       );
 
-      return false;
+      return null;
     }
   }
 

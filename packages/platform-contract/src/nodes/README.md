@@ -4,7 +4,7 @@ The node routes' request shapes (issue #734, PP-8.2) and the admin fleet's respo
 
 ## Purpose and scope
 
-One definition of what a worker node may send: the control plane (`registerNodeSchema`, `heartbeatNodeSchema` with its closed `nodeVitalsSchema`, `claimJobsSchema`, `renewLeaseSchema`, `nodeJobResultSchema`, `nodeJobFailureSchema`), the data plane's two URL mints (`nodeDownloadUrlSchema`, `nodeUploadUrlSchema`), the per-job secret request (`nodeJobSecretRequestSchema`), the shared `claimTokenField`, and the node credential mint (`createNodeCredentialSchema`). `constants.ts` holds `MAX_NODE_CONCURRENCY`, `MAX_NODE_ELIGIBLE_TYPES` and `MAX_NODE_CREDENTIAL_DAYS`, zod-free.
+One definition of what a worker node may send: the control plane (`registerNodeSchema`, `heartbeatNodeSchema` with its closed `nodeVitalsSchema`, `claimJobsSchema`, `renewLeaseSchema`, `nodeJobResultSchema`, `nodeJobFailureSchema`), the data plane's two URL mints (`nodeDownloadUrlSchema`, `nodeUploadUrlSchema`), the per-job secret request (`nodeJobSecretRequestSchema`), the shared `claimTokenField`, the node credential mint (`createNodeCredentialSchema`), and opt-in provider-credential delivery (`credential-delivery.ts`, #1083: `nodeCredentialIssueRequestSchema`, `nodeCredentialIssueResponseSchema`, `nodeCredentialDeliveryStateSchema` on heartbeat and claim, `nodeCredentialRevokeAllResponseSchema`, the `credentialDelivery` settings branch schemas, `NODE_CREDENTIAL_PURPOSE_ID_PATTERN`, the TTL bounds and `NODE_CREDENTIAL_DELIVERY_REFUSALS`). `constants.ts` holds `MAX_NODE_CONCURRENCY`, `MAX_NODE_ELIGIBLE_TYPES` and `MAX_NODE_CREDENTIAL_DAYS`, zod-free.
 
 The admin responses (`admin-schemas.ts`, #881): `adminNodeSchema` (`GET /api/admin/nodes`), `adminNodeCredentialSchema` (`GET /api/admin/nodes/credentials`), `nodeCredentialListItemSchema` (`GET /api/node-credentials`), `nodeCredentialCreatedSchema` (`POST /api/node-credentials`, the only shape carrying `token`), with `nodeOwnerSchema` and `nodeJobCountsSchema`; the closed sets `NODE_STATUSES` and `NODE_HEALTHS` and `MAX_NODE_CREDENTIAL_NAME_LENGTH` are in `constants.ts`.
 
@@ -79,6 +79,8 @@ New in this version: the request schemas moved here from `@marinoscar/platform-a
 #865: the `nodes` settings namespace's five schemas moved here from the reference app's `common/schemas/` files, unchanged (the app re-exports them under the same names).
 
 `vitals.extra` and the executor span-name shape (PP-14.19) are additive: `nodeVitalsSchema` gains the optional `extra`, and `BUILTIN_NODE_SPAN_NAMES`, `NODE_APP_SPAN_NAME_PATTERN`, `NODE_VITALS_EXTRA_KEY_PATTERN` and the two `MAX_NODE_VITALS_EXTRA_*` bounds are new. A node that sends `extra` to an API that predates it gets a 400 on that heartbeat; the CLI retries without vitals and stops sending them for the rest of the process, so upgrade the API first.
+
+- #1083 (additive): the provider-credential delivery shapes and the optional `credentialDelivery` branch of every `nodes` settings schema (absent reads as off; a PATCH strips `epoch`).
 
 ## Troubleshooting
 

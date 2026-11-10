@@ -28,7 +28,7 @@ const OWNERSHIP: Record<string, string[]> = {
   ],
   credentials: ['Credential', 'UserCredential', 'OrgCredential'],
   notifications: ['Notification', 'NotificationDelivery', 'PushSubscription', 'NotificationBroadcast', 'NotificationDeliveryStatus', 'NotificationBroadcastStatus'],
-  jobs: ['Job', 'JobStatsRollup', 'WorkerNode', 'NodeCredential', 'JobNodeSecret', 'WorkerNodeEvent', 'JobStatus', 'NodeStatus'],
+  jobs: ['Job', 'JobStatsRollup', 'WorkerNode', 'NodeCredential', 'JobNodeSecret', 'WorkerNodeEvent', 'NodeCredentialIssuance', 'JobStatus', 'NodeStatus'],
   'db-backup': ['DatabaseBackupRun', 'DatabaseBackupStatus', 'DatabaseBackupTrigger'],
   ai: ['AiModel', 'UserAiKey', 'AiRun', 'AiUsageEvent'],
   sharing: ['Group', 'GroupMember', 'GroupInvite', 'Grant'],
@@ -55,9 +55,9 @@ describe('the shipped platform fragments', () => {
     expect(declared.sort()).toEqual([...names].sort());
   });
 
-  it('declare 48 models and 16 enums, each once', () => {
+  it('declare 49 models and 16 enums, each once', () => {
     const all = inputs.flatMap((i) => parseBlocks(i.text, i.name).blocks).filter((b) => !b.extend);
-    expect(all.filter((b) => b.kind === 'model')).toHaveLength(48);
+    expect(all.filter((b) => b.kind === 'model')).toHaveLength(49);
     expect(all.filter((b) => b.kind === 'enum')).toHaveLength(16);
     expect(new Set(all.map((b) => b.name)).size).toBe(all.length);
   });
