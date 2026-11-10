@@ -1,0 +1,12 @@
+import { Injectable } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
+
+@Injectable()
+export class CompliantTask {
+  constructor(private readonly jobs: { enqueue(type: string): Promise<void> }) {}
+
+  @Cron('0 3 * * *')
+  async tick(): Promise<void> {
+    await this.jobs.enqueue('housekeeping.compliant');
+  }
+}

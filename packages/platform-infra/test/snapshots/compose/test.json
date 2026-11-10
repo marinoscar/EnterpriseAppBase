@@ -1,0 +1,110 @@
+{
+  "name": "compose",
+  "networks": {
+    "default": {
+      "ipam": {},
+      "name": "compose_default"
+    }
+  },
+  "services": {
+    "db-test": {
+      "command": null,
+      "container_name": "my-app-db-test",
+      "entrypoint": null,
+      "environment": {
+        "APP_DB_PASSWORD": "postgres",
+        "APP_DB_USER": "app",
+        "POSTGRES_DB": "my_app_test",
+        "POSTGRES_PASSWORD": "postgres",
+        "POSTGRES_USER": "postgres"
+      },
+      "healthcheck": {
+        "interval": "5s",
+        "retries": 5,
+        "test": [
+          "CMD-SHELL",
+          "pg_isready -U postgres"
+        ],
+        "timeout": "5s"
+      },
+      "image": "postgres:16-alpine",
+      "networks": {
+        "default": null
+      },
+      "ports": [
+        {
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "5433",
+          "target": 5432
+        }
+      ],
+      "volumes": [
+        {
+          "source": "test-db-data",
+          "target": "/var/lib/postgresql/data",
+          "type": "volume",
+          "volume": {}
+        },
+        {
+          "bind": {},
+          "read_only": true,
+          "source": "<ROOT>/infra/compose/postgres-init",
+          "target": "/docker-entrypoint-initdb.d",
+          "type": "bind"
+        }
+      ]
+    },
+    "greptime-test": {
+      "command": [
+        "standalone",
+        "start",
+        "--http-addr=0.0.0.0:4000",
+        "--rpc-bind-addr=0.0.0.0:4001",
+        "--mysql-addr=0.0.0.0:4002",
+        "--postgres-addr=0.0.0.0:4003",
+        "--user-provider=static_user_provider:cmd:admin=test-admin,writer=test-writer,reader:readonly=test-reader"
+      ],
+      "container_name": "greptime-my-app-db-test",
+      "entrypoint": null,
+      "environment": {
+        "GREPTIMEDB_STANDALONE__ENABLE_TELEMETRY": "false"
+      },
+      "healthcheck": {
+        "interval": "5s",
+        "retries": 12,
+        "start_period": "10s",
+        "test": [
+          "CMD",
+          "curl",
+          "-fsS",
+          "http://localhost:4000/health"
+        ],
+        "timeout": "5s"
+      },
+      "image": "greptime/greptimedb:v1.2.1",
+      "networks": {
+        "default": null
+      },
+      "ports": [
+        {
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "14010",
+          "target": 4000
+        },
+        {
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "14013",
+          "target": 4003
+        }
+      ]
+    }
+  },
+  "volumes": {
+    "test-db-data": {
+      "name": "compose_test-db-data"
+    }
+  }
+}

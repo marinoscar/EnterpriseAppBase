@@ -3,16 +3,34 @@ import { waitFor } from '@testing-library/react';
 import { renderHook, act } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
-import { AuthProvider, useAuth } from '../../contexts/AuthContext';
+import { AuthProvider, useAuth } from '@marinoscar/platform-web/identity/headless';
 import { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
+import { api } from '../../services/api';
 
-// Wrapper for hooks that need AuthProvider
-function createAuthWrapper() {
+// Issue #365: logout drops this device's push subscription from the server
+// before it signs out, so a shared browser stops receiving the previous
+// account's pushes. Mocked here (rather than exercised through its own real
+// `navigator.serviceWorker`/`PushManager` plumbing, which
+// `pushSubscription.test.ts` already owns) so these tests are only about
+// AuthContext's OWN wiring: that it is called, in what order relative to
+// `POST /auth/logout`, and that logout still completes if it rejects.
+vi.mock('@marinoscar/platform-web/notifications/headless', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@marinoscar/platform-web/notifications/headless')>()),
+  removePushSubscription: vi.fn().mockResolvedValue(undefined),
+}));
+
+import { removePushSubscription } from '@marinoscar/platform-web/notifications/headless';
+
+const mockRemovePushSubscription = vi.mocked(removePushSubscription);
+
+// Wrapper for hooks that need AuthProvider: the package's provider, bound to
+// the app's transport and logout clean-up exactly as `App.tsx` binds it (#727).
+function createAuthWrapper(initialEntries?: string[]) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
-      <MemoryRouter>
-        <AuthProvider>{children}</AuthProvider>
+      <MemoryRouter initialEntries={initialEntries}>
+        <AuthProvider client={api} onBeforeLogout={removePushSubscription}>{children}</AuthProvider>
       </MemoryRouter>
     );
   };
@@ -123,6 +141,71 @@ describe('AuthContext', () => {
     });
   });
 
+  describe('Push subscription cleanup on logout (#365)', () => {
+    beforeEach(() => {
+      // `vi.clearAllMocks()` above only clears call history, not a mock's
+      // resolved/rejected implementation - reassert the safe default
+      // explicitly so a previous test's `.mockRejectedValue` cannot bleed in.
+      mockRemovePushSubscription.mockResolvedValue(undefined);
+    });
+
+    it('calls removePushSubscription before POST /auth/logout, in that order', async () => {
+      const callOrder: string[] = [];
+      mockRemovePushSubscription.mockImplementation(async () => {
+        callOrder.push('removePushSubscription');
+      });
+      server.use(
+        http.post('*/api/auth/refresh', () => {
+          return HttpResponse.json({ accessToken: 'test-token', expiresIn: 900 });
+        }),
+        http.post('*/api/auth/logout', () => {
+          callOrder.push('POST /auth/logout');
+          return new HttpResponse(null, { status: 200 });
+        }),
+      );
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: createAuthWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isAuthenticated).toBe(true);
+      });
+
+      await act(async () => {
+        await result.current.logout();
+      });
+
+      expect(callOrder).toEqual(['removePushSubscription', 'POST /auth/logout']);
+      expect(result.current.isAuthenticated).toBe(false);
+    });
+
+    it('still logs the user out even when removePushSubscription rejects', async () => {
+      mockRemovePushSubscription.mockRejectedValue(new Error('serviceWorker.ready never settled'));
+      server.use(
+        http.post('*/api/auth/refresh', () => {
+          return HttpResponse.json({ accessToken: 'test-token', expiresIn: 900 });
+        }),
+      );
+
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: createAuthWrapper(),
+      });
+
+      await waitFor(() => {
+        expect(result.current.isAuthenticated).toBe(true);
+      });
+
+      await act(async () => {
+        await result.current.logout();
+      });
+
+      expect(mockRemovePushSubscription).toHaveBeenCalledTimes(1);
+      expect(result.current.isAuthenticated).toBe(false);
+      expect(result.current.user).toBeNull();
+    });
+  });
+
   describe('Login Flow', () => {
     it('should redirect to OAuth provider on login', async () => {
       // Override to prevent auth from happening during test setup
@@ -195,6 +278,88 @@ describe('AuthContext', () => {
 
       const returnUrl = sessionStorage.getItem('auth_return_url');
       expect(returnUrl).toBe('/');
+    });
+  });
+
+  describe('Login options (#652)', () => {
+    async function renderLoginHook(initialEntries?: string[]) {
+      server.use(
+        http.post('*/api/auth/refresh', () => {
+          return new HttpResponse(null, { status: 401 });
+        }),
+      );
+      const hook = renderHook(() => useAuth(), {
+        wrapper: createAuthWrapper(initialEntries),
+      });
+      await waitFor(() => {
+        expect(hook.result.current.isLoading).toBe(false);
+      });
+
+      const captured = { href: '' };
+      Object.defineProperty(window.location, 'href', {
+        set: (value: string) => {
+          captured.href = value;
+        },
+        get: () => captured.href || 'http://localhost:3000',
+        configurable: true,
+      });
+      return { ...hook, captured };
+    }
+
+    it('does not add a query string when selectAccount is not requested', async () => {
+      const { result, captured } = await renderLoginHook();
+
+      act(() => {
+        result.current.login('google');
+      });
+      expect(captured.href).toBe('/api/auth/google');
+
+      act(() => {
+        result.current.login('google', { selectAccount: false });
+      });
+      expect(captured.href).toBe('/api/auth/google');
+    });
+
+    it('appends select_account=1 when selectAccount is requested', async () => {
+      const { result, captured } = await renderLoginHook();
+
+      act(() => {
+        result.current.login('google', { selectAccount: true });
+      });
+
+      expect(captured.href).toBe('/api/auth/google?select_account=1');
+    });
+
+    it('keeps the stored return URL when retrying from /auth/callback', async () => {
+      sessionStorage.setItem('auth_return_url', '/settings?tab=2');
+      const { result } = await renderLoginHook(['/auth/callback?error=not_allowlisted']);
+
+      act(() => {
+        result.current.login('google', { selectAccount: true });
+      });
+
+      expect(sessionStorage.getItem('auth_return_url')).toBe('/settings?tab=2');
+    });
+
+    it('falls back to / when retrying from /auth/callback with nothing stored', async () => {
+      const { result } = await renderLoginHook(['/auth/callback?error=access_denied']);
+
+      act(() => {
+        result.current.login('google');
+      });
+
+      expect(sessionStorage.getItem('auth_return_url')).toBe('/');
+    });
+
+    it('still overwrites a stale return URL when signing in from another route', async () => {
+      sessionStorage.setItem('auth_return_url', '/stale');
+      const { result } = await renderLoginHook(['/login']);
+
+      act(() => {
+        result.current.login('google');
+      });
+
+      expect(sessionStorage.getItem('auth_return_url')).toBe('/');
     });
   });
 

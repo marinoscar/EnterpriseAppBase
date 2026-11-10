@@ -1,0 +1,18 @@
+{
+  "name": "platform-consumer-smoke-ai-providers",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A plain Node (CommonJS, no TypeScript, no Nest) consumer that installs @marinoscar/platform-ai-providers from a packed tarball with only the openai and Anthropic SDKs and zod (issue #991), installed by ../run.mjs. Never an npm workspace.",
+  "license": "MIT",
+  "type": "commonjs",
+  "scripts": {
+    "build": "node -e \"require.resolve('@marinoscar/platform-ai-providers/package.json')\"",
+    "test": "node --test test/smoke.test.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "@marinoscar/platform-ai-providers": "next",
+    "openai": "^7.23.0",
+    "zod": "^4.4.3"
+  }
+}

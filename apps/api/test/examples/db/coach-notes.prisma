@@ -1,0 +1,43 @@
+// EXAMPLE (PP-14.27): an app table that points at a platform model other than
+// User. It would live in apps/api/prisma/fragments/coach.prisma; the reference
+// app keeps it here so that the table, its migration and its lock entries are
+// exercised without adding a table to every fork.
+//
+// `Notification`, `Grant` and `Organization` are `// @extensible` in the
+// platform, so the BACK-RELATION is declared with an `extend model` block in the
+// same file. An `extend` block holds back-relation fields only.
+//
+// `coach_notes` is organization-owned (row-level security forced, policy
+// `coach_notes_org_isolation`), so its link to a grant is the COMPOSITE key
+// (grant_id, org_id) -> grants (id, org_id): a plain key on id would let a row
+// of one organization point at another's, because a foreign-key check bypasses
+// row-level security. Its link to a notification, a user-owned row with no
+// organization column, is a plain key.
+
+model CoachNote {
+  id             String   @id @default(uuid()) @db.Uuid
+  orgId          String   @map("org_id") @db.Uuid
+  notificationId String?  @map("notification_id") @db.Uuid
+  grantId        String?  @map("grant_id") @db.Uuid
+  body           String   @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  org          Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  notification Notification? @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  grant        Grant?        @relation(fields: [grantId, orgId], references: [id, orgId], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("coach_notes")
+}
+
+extend model Organization {
+  coachNotes CoachNote[]
+}
+
+extend model Notification {
+  coachNotes CoachNote[]
+}
+
+extend model Grant {
+  coachNotes CoachNote[]
+}

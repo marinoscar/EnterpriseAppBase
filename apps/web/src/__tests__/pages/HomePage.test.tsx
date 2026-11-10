@@ -111,7 +111,7 @@ describe('HomePage', () => {
       expect(screen.getByText(/customize your display preferences/i)).toBeInTheDocument();
     });
 
-    it('should not display System Settings for non-admin users', () => {
+    it('should not display the Console shortcut for non-admin users', () => {
       render(<HomePage />, {
         wrapperOptions: {
           authenticated: true,
@@ -119,10 +119,10 @@ describe('HomePage', () => {
         },
       });
 
-      expect(screen.queryByText(/^system settings$/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^console$/i)).not.toBeInTheDocument();
     });
 
-    it('should display System Settings for admin users', () => {
+    it('should display the Console shortcut for admin users', () => {
       render(<HomePage />, {
         wrapperOptions: {
           authenticated: true,
@@ -130,8 +130,8 @@ describe('HomePage', () => {
         },
       });
 
-      expect(screen.getByText(/^system settings$/i)).toBeInTheDocument();
-      expect(screen.getByText(/configure application settings/i)).toBeInTheDocument();
+      expect(screen.getByText(/^console$/i)).toBeInTheDocument();
+      expect(screen.getByText(/manage users and application settings/i)).toBeInTheDocument();
     });
   });
 
@@ -155,7 +155,7 @@ describe('HomePage', () => {
       expect(screen.getByText(/^theme$/i)).toBeInTheDocument();
 
       // Should not see admin actions
-      expect(screen.queryByText(/^system settings$/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^console$/i)).not.toBeInTheDocument();
     });
 
     it('should render correctly for Contributor role', () => {
@@ -178,7 +178,7 @@ describe('HomePage', () => {
       expect(screen.getByText(/^theme$/i)).toBeInTheDocument();
 
       // Should not see admin actions
-      expect(screen.queryByText(/^system settings$/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^console$/i)).not.toBeInTheDocument();
     });
 
     it('should render correctly for Admin role', () => {
@@ -192,7 +192,7 @@ describe('HomePage', () => {
       // Should see all quick actions including admin
       expect(screen.getByText(/^user settings$/i)).toBeInTheDocument();
       expect(screen.getByText(/^theme$/i)).toBeInTheDocument();
-      expect(screen.getByText(/^system settings$/i)).toBeInTheDocument();
+      expect(screen.getByText(/^console$/i)).toBeInTheDocument();
     });
 
     it('should display admin chip for admin users', () => {
@@ -244,7 +244,7 @@ describe('HomePage', () => {
       expect(themeButton).toBeInTheDocument();
     });
 
-    it('should navigate to system settings when clicking System Settings (admin)', async () => {
+    it('should navigate to the Console when clicking it (admin)', async () => {
       const user = userEvent.setup();
 
       render(<HomePage />, {
@@ -254,10 +254,10 @@ describe('HomePage', () => {
         },
       });
 
-      const systemSettingsButton = screen.getByRole('button', { name: /system settings configure application settings/i });
-      await user.click(systemSettingsButton);
+      const consoleButton = screen.getByRole('button', { name: /console manage users and application settings/i });
+      await user.click(consoleButton);
 
-      expect(systemSettingsButton).toBeInTheDocument();
+      expect(consoleButton).toBeInTheDocument();
     });
   });
 
@@ -289,8 +289,11 @@ describe('HomePage', () => {
 
       // Profile card should be xs=12, md=4
       // Quick actions should be xs=12, md=8
-      const gridItems = container.querySelectorAll('.MuiGrid-item');
-      expect(gridItems.length).toBeGreaterThanOrEqual(2);
+      // In MUI 9 Grid v2, items use size-based classes (MuiGrid-grid-xs-12) instead of MuiGrid-item
+      const gridContainer = container.querySelector('.MuiGrid-container');
+      expect(gridContainer).toBeInTheDocument();
+      const gridChildren = gridContainer ? Array.from(gridContainer.children) : [];
+      expect(gridChildren.length).toBeGreaterThanOrEqual(2);
     });
   });
 
@@ -472,7 +475,7 @@ describe('HomePage', () => {
       expect(screen.getByText(/quick actions/i)).toBeInTheDocument();
       expect(screen.getByText(/^user settings$/i)).toBeInTheDocument();
       expect(screen.getByText(/^theme$/i)).toBeInTheDocument();
-      expect(screen.getByText(/^system settings$/i)).toBeInTheDocument();
+      expect(screen.getByText(/^console$/i)).toBeInTheDocument();
     });
 
     it('should maintain consistent layout across different user types', () => {

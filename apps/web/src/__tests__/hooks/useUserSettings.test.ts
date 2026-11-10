@@ -40,8 +40,8 @@ const mockUserSettings: UserSettings = {
   theme: 'system',
   profile: {
     displayName: 'Test User',
-    useProviderImage: true,
-    customImageUrl: null,
+    imageSource: 'provider',
+    imageObjectId: null,
   },
   updatedAt: new Date().toISOString(),
   version: 1,
@@ -273,8 +273,8 @@ describe('useUserSettings', () => {
 
       const newProfile = {
         displayName: 'Updated Name',
-        useProviderImage: false,
-        customImageUrl: 'https://example.com/avatar.jpg',
+        imageSource: 'upload' as const,
+        imageObjectId: 'obj-1',
       };
 
       const updatedSettings: UserSettings = {
@@ -312,8 +312,8 @@ describe('useUserSettings', () => {
 
       const newProfile = {
         displayName: 'New Name',
-        useProviderImage: true,
-        customImageUrl: null,
+        imageSource: 'provider' as const,
+        imageObjectId: null,
       };
 
       const updatedSettings: UserSettings = {
@@ -353,7 +353,7 @@ describe('useUserSettings', () => {
         await act(async () => {
           await result.current.updateProfile({
             displayName: 'New Name',
-            useProviderImage: true,
+            imageSource: 'provider',
           });
         });
       }).rejects.toThrow();
@@ -741,6 +741,72 @@ describe('useUserSettings', () => {
         {
           headers: {
             'If-Match': '3',
+          },
+        },
+      );
+    });
+  });
+
+  /**
+   * #367. `replaceSettings` adopts a settings document an endpoint OTHER than
+   * `PATCH /user-settings` already returned (the profile-image upload/delete
+   * responses) — it is exactly `setSettings`, with no PATCH and no If-Match.
+   */
+  describe('replaceSettings', () => {
+    it('should adopt a settings document without calling the API', async () => {
+      vi.mocked(api.get).mockResolvedValue(mockUserSettings);
+
+      const { result } = renderHook(() => useUserSettings());
+
+      await waitFor(() => {
+        expect(result.current.settings).not.toBeNull();
+      });
+
+      const replacement: UserSettings = {
+        ...mockUserSettings,
+        profile: { imageSource: 'upload', imageObjectId: 'obj-1' },
+        version: 5,
+      };
+
+      act(() => {
+        result.current.replaceSettings(replacement);
+      });
+
+      expect(result.current.settings).toEqual(replacement);
+      expect(api.patch).not.toHaveBeenCalled();
+    });
+
+    it('should make the adopted version the one the next PATCH sends as If-Match', async () => {
+      vi.mocked(api.get).mockResolvedValue(mockUserSettings);
+
+      const { result } = renderHook(() => useUserSettings());
+
+      await waitFor(() => {
+        expect(result.current.settings?.version).toBe(1);
+      });
+
+      const replacement: UserSettings = {
+        ...mockUserSettings,
+        profile: { imageSource: 'upload', imageObjectId: 'obj-1' },
+        version: 5,
+      };
+
+      act(() => {
+        result.current.replaceSettings(replacement);
+      });
+
+      vi.mocked(api.patch).mockResolvedValue({ ...replacement, theme: 'dark', version: 6 });
+
+      await act(async () => {
+        await result.current.updateTheme('dark');
+      });
+
+      expect(api.patch).toHaveBeenCalledWith(
+        '/user-settings',
+        { theme: 'dark' },
+        {
+          headers: {
+            'If-Match': '5',
           },
         },
       );

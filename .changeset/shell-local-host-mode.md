@@ -1,0 +1,5 @@
+---
+"@marinoscar/platform-web": minor
+---
+
+Local host mode for the app shell (#997). `usePermissions` falls back from the `AuthContext` to the `PlatformHostProvider` viewer (and throws a clear error naming both when neither is mounted); `@marinoscar/platform-web/identity/headless` gains `LocalIdentityProvider`, `createLocalAuthContextValue`, `LocalIdentityInput` and `AuthContextValue.mode` (`'server' | 'local'`); `@marinoscar/platform-web/shell/headless` gains `ShellPreferencesPort`, `ShellPreferences`, `ShellPreferencesProvider` and `createLocalStorageShellPreferencesPort`, and `useShellRailPreference` uses the port when a provider is mounted (the `/user-settings` default is unchanged otherwise); `ShellUserMenu` gains `hideSignOut`, `hideOrgSwitcher` (both default on in local mode) and `extraItems` (`ShellUserMenuItem`); a new `@marinoscar/platform-web/shell/testing` entry registers the `shell-local-host` conformance suite. Ordering change: `ShellBottomNav` renders destinations marked `pinned` at the end of the bar and of its More sheet (stable partition, non-pinned first).

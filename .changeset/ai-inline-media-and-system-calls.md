@@ -1,0 +1,5 @@
+---
+"@marinoscar/platform-api": minor
+---
+
+AI: synchronous in-handler media calls and a user-less caller. `AiUserClient.editImageInline` and `transcribeInline` take bytes (or an audio stream) and return the result inline, through the same gate pipeline, key resolution, rate limits and single usage row as the queued `editImage`/`transcribe`, with no run row, second job or storage copy. `AiService.forSystem({ orgId, feature, jobId? })` returns an `AiSystemClient` (`respond`, `respondStructured`, `stream`, `openStream`, `embed`, `editImageInline`, `transcribeInline`) for work with no acting user: the organization's key, else the deployment's, never a user's; only the per-organization limits apply; usage rows carry `userId: null` and the feature. A feature must opt in with `registerAiFeature({ systemCalls: true })`, so an app that keeps "AI keys are per user" gains nothing. `AiTargetContext.userId` is now `string | null` (`null` for a system call). The `ai-key-policy` and `ai-secret-egress` conformance suites gain system-caller and inline-call cases.

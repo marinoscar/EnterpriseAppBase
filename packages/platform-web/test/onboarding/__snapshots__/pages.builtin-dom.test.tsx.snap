@@ -1,0 +1,562 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`GettingStartedPage builtin markup > loaded 1`] = `
+"<div class="MuiContainer-root MuiContainer-maxWidthMd css-u4uvlt-MuiContainer-root">
+<div class="MuiBox-root css-1lkmtz">
+<h1 class="MuiTypography-root MuiTypography-h4 MuiTypography-gutterBottom css-1it4a80-MuiTypography-root">Getting started</h1>
+<p class="MuiTypography-root MuiTypography-body1 css-1xz17g7-MuiTypography-root">Your first steps, checked against what you have already done.</p>
+<div class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-196bwzp-MuiPaper-root-MuiCard-root" aria-busy="false">
+<div class="MuiCardContent-root css-1lt5qva-MuiCardContent-root">
+<div class="MuiBox-root css-0">
+<p class="MuiTypography-root MuiTypography-body2 css-jpkd5o-MuiTypography-root" data-testid="onboarding-progress-text">1 of 2 done</p>
+<span class="MuiLinearProgress-root MuiLinearProgress-colorPrimary MuiLinearProgress-determinate css-1fb17yf-MuiLinearProgress-root" role="progressbar" aria-valuenow="50" aria-valuemin="0" aria-valuemax="100" aria-label="Getting started progress" aria-valuetext="1 of 2 done">
+<span class="MuiLinearProgress-bar MuiLinearProgress-bar1 css-1ueshpl-MuiLinearProgress-bar1" style="transform: translateX(-50%);">
+</span>
+</span>
+<ul class="MuiList-root MuiList-padding css-b7dj7n-MuiList-root" aria-label="Getting started">
+<li data-testid="onboarding-step-user.profile" data-status="done" class="MuiListItem-root MuiListItem-gutters MuiListItem-padding css-cfd5wn-MuiListItem-root">
+<div class="MuiListItemIcon-root css-urhtzi-MuiListItemIcon-root">
+<svg class="MuiSvgIcon-root MuiSvgIcon-colorSuccess MuiSvgIcon-fontSizeMedium css-1ejxkil-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="CheckCircleIcon">
+<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8z">
+</path>
+</svg>
+</div>
+<div class="MuiListItemText-root MuiListItemText-multiline css-14ln1j6-MuiListItemText-root">
+<span class="MuiTypography-root MuiTypography-body1 MuiListItemText-primary css-rizt0-MuiTypography-root">Title user.profile</span>
+<p class="MuiTypography-root MuiTypography-body2 MuiListItemText-secondary css-1a1whku-MuiTypography-root">
+<span class="MuiBox-root css-1cjeru1">Done</span>
+</p>
+</div>
+</li>
+<li data-testid="onboarding-step-user.notifications" data-status="todo" class="MuiListItem-root MuiListItem-gutters css-1pzkvtx-MuiListItem-root">
+<a class="MuiButtonBase-root MuiListItemButton-root MuiListItemButton-gutters css-1klgztw-MuiButtonBase-root-MuiListItemButton-root" tabindex="0" href="/to/user.notifications" data-discover="true">
+<div class="MuiListItemIcon-root css-urhtzi-MuiListItemIcon-root">
+<svg class="MuiSvgIcon-root MuiSvgIcon-colorAction MuiSvgIcon-fontSizeMedium css-1ryok51-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="RadioButtonUncheckedIcon">
+<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8">
+</path>
+</svg>
+</div>
+<div class="MuiListItemText-root MuiListItemText-multiline css-14ln1j6-MuiListItemText-root">
+<span class="MuiTypography-root MuiTypography-body1 MuiListItemText-primary css-rizt0-MuiTypography-root">Title user.notifications</span>
+<p class="MuiTypography-root MuiTypography-body2 MuiListItemText-secondary css-1a1whku-MuiTypography-root">
+<span class="MuiBox-root css-11avyqh">To do</span>
+</p>
+</div>
+<svg class="MuiSvgIcon-root MuiSvgIcon-colorAction MuiSvgIcon-fontSizeMedium css-1ryok51-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ChevronRightIcon">
+<path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z">
+</path>
+</svg>
+</a>
+<div class="MuiListItemSecondaryAction-root MuiListItem-secondaryAction css-ik4sem-MuiListItemSecondaryAction-root-MuiListItem-secondaryAction">
+<button class="MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-sizeSmall MuiButton-colorPrimary css-1pwjrbi-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button">Skip</button>
+</div>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-sizeMedium MuiButton-colorPrimary css-1hfuho5-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button">Show the welcome again</button>
+</div>
+</div>
+<div data-testid="where">/</div>"
+`;
+
+exports[`GettingStartedPage builtin markup > when the state could not be read 1`] = `
+"<div class="MuiContainer-root MuiContainer-maxWidthMd css-u4uvlt-MuiContainer-root">
+<div class="MuiBox-root css-1lkmtz">
+<h1 class="MuiTypography-root MuiTypography-h4 MuiTypography-gutterBottom css-1it4a80-MuiTypography-root">Getting started</h1>
+<p class="MuiTypography-root MuiTypography-body1 css-1xz17g7-MuiTypography-root">Your first steps, checked against what you have already done.</p>
+<div class="MuiPaper-root MuiPaper-elevation MuiPaper-rounded MuiPaper-elevation0 MuiAlert-root MuiAlert-colorError MuiAlert-standard css-6js25r-MuiPaper-root-MuiAlert-root" role="alert" style="--Paper-shadow: none;">
+<div class="MuiAlert-icon css-vab54s-MuiAlert-icon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeInherit css-1ckov0h-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ErrorOutlineIcon">
+<path d="M11 15h2v2h-2zm0-8h2v6h-2zm.99-5C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z">
+</path>
+</svg>
+</div>
+<div class="MuiAlert-message css-zioonp-MuiAlert-message">down</div>
+</div>
+<div class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-196bwzp-MuiPaper-root-MuiCard-root" aria-busy="false">
+<div class="MuiCardContent-root css-1lt5qva-MuiCardContent-root">
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-sizeMedium MuiButton-colorPrimary css-1hfuho5-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button">Show the welcome again</button>
+</div>
+</div>
+<div data-testid="where">/</div>"
+`;
+
+exports[`GettingStartedPage builtin markup > while loading 1`] = `
+"<div class="MuiContainer-root MuiContainer-maxWidthMd css-u4uvlt-MuiContainer-root">
+<div class="MuiBox-root css-1lkmtz">
+<h1 class="MuiTypography-root MuiTypography-h4 MuiTypography-gutterBottom css-1it4a80-MuiTypography-root">Getting started</h1>
+<p class="MuiTypography-root MuiTypography-body1 css-1xz17g7-MuiTypography-root">Your first steps, checked against what you have already done.</p>
+<div class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-196bwzp-MuiPaper-root-MuiCard-root" aria-busy="true">
+<div class="MuiCardContent-root css-1lt5qva-MuiCardContent-root">
+<div class="MuiStack-root css-jfdv4h-MuiStack-root" aria-label="Loading your steps">
+<span class="MuiSkeleton-root MuiSkeleton-rounded MuiSkeleton-pulse css-1q505s5-MuiSkeleton-root" style="height: 48px;">
+</span>
+<span class="MuiSkeleton-root MuiSkeleton-rounded MuiSkeleton-pulse css-1q505s5-MuiSkeleton-root" style="height: 48px;">
+</span>
+<span class="MuiSkeleton-root MuiSkeleton-rounded MuiSkeleton-pulse css-1q505s5-MuiSkeleton-root" style="height: 48px;">
+</span>
+</div>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-sizeMedium MuiButton-colorPrimary css-1hfuho5-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button">Show the welcome again</button>
+</div>
+</div>
+<div data-testid="where">/</div>"
+`;
+
+exports[`GettingStartedPage builtin markup > with nothing to set up 1`] = `
+"<div class="MuiContainer-root MuiContainer-maxWidthMd css-u4uvlt-MuiContainer-root">
+<div class="MuiBox-root css-1lkmtz">
+<h1 class="MuiTypography-root MuiTypography-h4 MuiTypography-gutterBottom css-1it4a80-MuiTypography-root">Getting started</h1>
+<p class="MuiTypography-root MuiTypography-body1 css-1xz17g7-MuiTypography-root">Your first steps, checked against what you have already done.</p>
+<div class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-196bwzp-MuiPaper-root-MuiCard-root" aria-busy="false">
+<div class="MuiCardContent-root css-1lt5qva-MuiCardContent-root">
+<p class="MuiTypography-root MuiTypography-body1 css-rizt0-MuiTypography-root">Nothing to set up right now.</p>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-sizeMedium MuiButton-colorPrimary css-1hfuho5-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button">Show the welcome again</button>
+</div>
+</div>
+<div data-testid="where">/</div>"
+`;
+
+exports[`SetupGuidePage builtin markup > loaded, everything required done 1`] = `
+"<div class="MuiContainer-root MuiContainer-maxWidthMd css-u4uvlt-MuiContainer-root">
+<div class="MuiBox-root css-1lkmtz">
+<h1 class="MuiTypography-root MuiTypography-h4 MuiTypography-gutterBottom css-1it4a80-MuiTypography-root">Setup guide</h1>
+<p class="MuiTypography-root MuiTypography-body1 css-1xz17g7-MuiTypography-root">What must be configured before people can use the app, and the features to turn on next.</p>
+<div class="MuiStack-root css-1js7k0q-MuiStack-root">
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeMedium MuiButton-colorPrimary css-1bmmi1a-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button">
+<span class="MuiButton-icon MuiButton-startIcon css-1lxyhll-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="RefreshIcon">
+<path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z">
+</path>
+</svg>
+</span>Re-check</button>
+<a class="MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-sizeMedium MuiButton-colorPrimary css-oaf1ja-MuiButtonBase-root-MuiButton-root" tabindex="0" href="/admin/settings/doctor" data-discover="true">
+<span class="MuiButton-icon MuiButton-startIcon css-1lxyhll-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="HealthAndSafetyOutlinedIcon">
+<path d="M10.5 13H8v-3h2.5V7.5h3V10H16v3h-2.5v2.5h-3zM12 2 4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5zm6 9.09c0 4-2.55 7.7-6 8.83-3.45-1.13-6-4.82-6-8.83v-4.7l6-2.25 6 2.25z">
+</path>
+</svg>
+</span>Open the Doctor</a>
+</div>
+<div class="MuiPaper-root MuiPaper-elevation MuiPaper-rounded MuiPaper-elevation0 MuiAlert-root MuiAlert-colorSuccess MuiAlert-standard css-cky6f2-MuiPaper-root-MuiAlert-root" role="alert" style="--Paper-shadow: none;">
+<div class="MuiAlert-icon css-vab54s-MuiAlert-icon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeInherit css-1ckov0h-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="SuccessOutlinedIcon">
+<path d="M20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4C12.76,4 13.5,4.11 14.2, 4.31L15.77,2.74C14.61,2.26 13.34,2 12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0, 0 22,12M7.91,10.08L6.5,11.5L11,16L21,6L19.59,4.58L11,13.17L7.91,10.08Z">
+</path>
+</svg>
+</div>
+<div class="MuiAlert-message css-zioonp-MuiAlert-message">Everything required is set up. People can start using Org Kappa.</div>
+</div>
+<div class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-196bwzp-MuiPaper-root-MuiCard-root" aria-busy="false">
+<div class="MuiCardContent-root css-1lt5qva-MuiCardContent-root">
+<div class="MuiBox-root css-0">
+<p class="MuiTypography-root MuiTypography-body2 css-jpkd5o-MuiTypography-root" data-testid="onboarding-progress-text">1 of 3 done</p>
+<span class="MuiLinearProgress-root MuiLinearProgress-colorPrimary MuiLinearProgress-determinate css-1fb17yf-MuiLinearProgress-root" role="progressbar" aria-valuenow="33" aria-valuemin="0" aria-valuemax="100" aria-label="Setup progress" aria-valuetext="1 of 3 done">
+<span class="MuiLinearProgress-bar MuiLinearProgress-bar1 css-1ueshpl-MuiLinearProgress-bar1" style="transform: translateX(-67%);">
+</span>
+</span>
+<ul class="MuiList-root MuiList-padding MuiList-subheader css-1d64vtv-MuiList-root" aria-labelledby="_r_N_-required">
+<div class="MuiListSubheader-root MuiListSubheader-gutters css-1o6dhv-MuiListSubheader-root" id="_r_N_-required">Required</div>
+<li data-testid="onboarding-step-admin.storage" data-status="todo" class="MuiListItem-root MuiListItem-gutters css-19f6boz-MuiListItem-root">
+<a class="MuiButtonBase-root MuiListItemButton-root MuiListItemButton-gutters css-20jd18-MuiButtonBase-root-MuiListItemButton-root" tabindex="0" href="/to/admin.storage" data-discover="true">
+<div class="MuiListItemIcon-root css-urhtzi-MuiListItemIcon-root">
+<svg class="MuiSvgIcon-root MuiSvgIcon-colorAction MuiSvgIcon-fontSizeMedium css-1ryok51-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="RadioButtonUncheckedIcon">
+<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8">
+</path>
+</svg>
+</div>
+<div class="MuiListItemText-root MuiListItemText-multiline css-14ln1j6-MuiListItemText-root">
+<span class="MuiTypography-root MuiTypography-body1 MuiListItemText-primary css-rizt0-MuiTypography-root">Title admin.storage</span>
+<p class="MuiTypography-root MuiTypography-body2 MuiListItemText-secondary css-1a1whku-MuiTypography-root">
+<span class="MuiBox-root css-11avyqh">To do</span>
+<span class="MuiBox-root css-0"> · Configure storage.</span>
+</p>
+</div>
+<svg class="MuiSvgIcon-root MuiSvgIcon-colorAction MuiSvgIcon-fontSizeMedium css-1ryok51-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ChevronRightIcon">
+<path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z">
+</path>
+</svg>
+</a>
+</li>
+<li data-testid="onboarding-step-admin.email" data-status="done" class="MuiListItem-root MuiListItem-gutters MuiListItem-padding css-cfd5wn-MuiListItem-root">
+<div class="MuiListItemIcon-root css-urhtzi-MuiListItemIcon-root">
+<svg class="MuiSvgIcon-root MuiSvgIcon-colorSuccess MuiSvgIcon-fontSizeMedium css-1ejxkil-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="CheckCircleIcon">
+<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8z">
+</path>
+</svg>
+</div>
+<div class="MuiListItemText-root MuiListItemText-multiline css-14ln1j6-MuiListItemText-root">
+<span class="MuiTypography-root MuiTypography-body1 MuiListItemText-primary css-rizt0-MuiTypography-root">Title admin.email</span>
+<p class="MuiTypography-root MuiTypography-body2 MuiListItemText-secondary css-1a1whku-MuiTypography-root">
+<span class="MuiBox-root css-1cjeru1">Done</span>
+</p>
+</div>
+</li>
+</ul>
+<ul class="MuiList-root MuiList-padding MuiList-subheader css-1d64vtv-MuiList-root" aria-labelledby="_r_N_-recommended">
+<div class="MuiListSubheader-root MuiListSubheader-gutters css-1o6dhv-MuiListSubheader-root" id="_r_N_-recommended">Recommended</div>
+<li data-testid="onboarding-step-admin.push" data-status="todo" class="MuiListItem-root MuiListItem-gutters css-19f6boz-MuiListItem-root">
+<a class="MuiButtonBase-root MuiListItemButton-root MuiListItemButton-gutters css-20jd18-MuiButtonBase-root-MuiListItemButton-root" tabindex="0" href="/to/admin.push" data-discover="true">
+<div class="MuiListItemIcon-root css-urhtzi-MuiListItemIcon-root">
+<svg class="MuiSvgIcon-root MuiSvgIcon-colorAction MuiSvgIcon-fontSizeMedium css-1ryok51-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="RadioButtonUncheckedIcon">
+<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8">
+</path>
+</svg>
+</div>
+<div class="MuiListItemText-root MuiListItemText-multiline css-14ln1j6-MuiListItemText-root">
+<span class="MuiTypography-root MuiTypography-body1 MuiListItemText-primary css-rizt0-MuiTypography-root">Title admin.push</span>
+<p class="MuiTypography-root MuiTypography-body2 MuiListItemText-secondary css-1a1whku-MuiTypography-root">
+<span class="MuiBox-root css-11avyqh">To do</span>
+</p>
+</div>
+<svg class="MuiSvgIcon-root MuiSvgIcon-colorAction MuiSvgIcon-fontSizeMedium css-1ryok51-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ChevronRightIcon">
+<path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z">
+</path>
+</svg>
+</a>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<section class="MuiBox-root css-h5fkc8" aria-labelledby="_r_N_">
+<div class="MuiStack-root css-4qd601-MuiStack-root">
+<h2 class="MuiTypography-root MuiTypography-h5 css-16xl4zq-MuiTypography-root" id="_r_N_">Activation</h2>
+<div role="group" class="MuiToggleButtonGroup-root MuiToggleButtonGroup-horizontal css-1qb8o-MuiToggleButtonGroup-root" aria-label="Window">
+<button class="MuiButtonBase-root MuiToggleButtonGroup-grouped MuiToggleButton-root MuiToggleButton-sizeSmall MuiToggleButton-standard MuiToggleButtonGroup-grouped MuiToggleButtonGroup-firstButton css-17dggg4-MuiButtonBase-root-MuiToggleButton-root" tabindex="0" type="button" value="7" aria-pressed="false">7 days</button>
+<button class="MuiButtonBase-root MuiToggleButtonGroup-grouped MuiToggleButton-root Mui-selected MuiToggleButton-sizeSmall MuiToggleButton-standard MuiToggleButtonGroup-grouped MuiToggleButtonGroup-middleButton css-17dggg4-MuiButtonBase-root-MuiToggleButton-root" tabindex="-1" type="button" value="30" aria-pressed="true">30 days</button>
+<button class="MuiButtonBase-root MuiToggleButtonGroup-grouped MuiToggleButton-root MuiToggleButton-sizeSmall MuiToggleButton-standard MuiToggleButtonGroup-grouped MuiToggleButtonGroup-lastButton css-17dggg4-MuiButtonBase-root-MuiToggleButton-root" tabindex="-1" type="button" value="90" aria-pressed="false">90 days</button>
+</div>
+</div>
+<p class="MuiTypography-root MuiTypography-body1 css-rizt0-MuiTypography-root">No new users in this window</p>
+</section>
+</div>
+</div>
+<div data-testid="where">/</div>"
+`;
+
+exports[`SetupGuidePage builtin markup > loaded, with the activation numbers 1`] = `
+"<div class="MuiContainer-root MuiContainer-maxWidthMd css-u4uvlt-MuiContainer-root">
+<div class="MuiBox-root css-1lkmtz">
+<h1 class="MuiTypography-root MuiTypography-h4 MuiTypography-gutterBottom css-1it4a80-MuiTypography-root">Setup guide</h1>
+<p class="MuiTypography-root MuiTypography-body1 css-1xz17g7-MuiTypography-root">What must be configured before people can use the app, and the features to turn on next.</p>
+<div class="MuiStack-root css-1js7k0q-MuiStack-root">
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeMedium MuiButton-colorPrimary css-1bmmi1a-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button">
+<span class="MuiButton-icon MuiButton-startIcon css-1lxyhll-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="RefreshIcon">
+<path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z">
+</path>
+</svg>
+</span>Re-check</button>
+<a class="MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-sizeMedium MuiButton-colorPrimary css-oaf1ja-MuiButtonBase-root-MuiButton-root" tabindex="0" href="/admin/settings/doctor" data-discover="true">
+<span class="MuiButton-icon MuiButton-startIcon css-1lxyhll-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="HealthAndSafetyOutlinedIcon">
+<path d="M10.5 13H8v-3h2.5V7.5h3V10H16v3h-2.5v2.5h-3zM12 2 4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5zm6 9.09c0 4-2.55 7.7-6 8.83-3.45-1.13-6-4.82-6-8.83v-4.7l6-2.25 6 2.25z">
+</path>
+</svg>
+</span>Open the Doctor</a>
+</div>
+<div class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-196bwzp-MuiPaper-root-MuiCard-root" aria-busy="false">
+<div class="MuiCardContent-root css-1lt5qva-MuiCardContent-root">
+<div class="MuiBox-root css-0">
+<p class="MuiTypography-root MuiTypography-body2 css-jpkd5o-MuiTypography-root" data-testid="onboarding-progress-text">1 of 3 done</p>
+<span class="MuiLinearProgress-root MuiLinearProgress-colorPrimary MuiLinearProgress-determinate css-1fb17yf-MuiLinearProgress-root" role="progressbar" aria-valuenow="33" aria-valuemin="0" aria-valuemax="100" aria-label="Setup progress" aria-valuetext="1 of 3 done">
+<span class="MuiLinearProgress-bar MuiLinearProgress-bar1 css-1ueshpl-MuiLinearProgress-bar1" style="transform: translateX(-67%);">
+</span>
+</span>
+<ul class="MuiList-root MuiList-padding MuiList-subheader css-1d64vtv-MuiList-root" aria-labelledby="_r_N_-required">
+<div class="MuiListSubheader-root MuiListSubheader-gutters css-1o6dhv-MuiListSubheader-root" id="_r_N_-required">Required</div>
+<li data-testid="onboarding-step-admin.storage" data-status="todo" class="MuiListItem-root MuiListItem-gutters css-19f6boz-MuiListItem-root">
+<a class="MuiButtonBase-root MuiListItemButton-root MuiListItemButton-gutters css-20jd18-MuiButtonBase-root-MuiListItemButton-root" tabindex="0" href="/to/admin.storage" data-discover="true">
+<div class="MuiListItemIcon-root css-urhtzi-MuiListItemIcon-root">
+<svg class="MuiSvgIcon-root MuiSvgIcon-colorAction MuiSvgIcon-fontSizeMedium css-1ryok51-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="RadioButtonUncheckedIcon">
+<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8">
+</path>
+</svg>
+</div>
+<div class="MuiListItemText-root MuiListItemText-multiline css-14ln1j6-MuiListItemText-root">
+<span class="MuiTypography-root MuiTypography-body1 MuiListItemText-primary css-rizt0-MuiTypography-root">Title admin.storage</span>
+<p class="MuiTypography-root MuiTypography-body2 MuiListItemText-secondary css-1a1whku-MuiTypography-root">
+<span class="MuiBox-root css-11avyqh">To do</span>
+<span class="MuiBox-root css-0"> · Configure storage.</span>
+</p>
+</div>
+<svg class="MuiSvgIcon-root MuiSvgIcon-colorAction MuiSvgIcon-fontSizeMedium css-1ryok51-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ChevronRightIcon">
+<path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z">
+</path>
+</svg>
+</a>
+</li>
+<li data-testid="onboarding-step-admin.email" data-status="done" class="MuiListItem-root MuiListItem-gutters MuiListItem-padding css-cfd5wn-MuiListItem-root">
+<div class="MuiListItemIcon-root css-urhtzi-MuiListItemIcon-root">
+<svg class="MuiSvgIcon-root MuiSvgIcon-colorSuccess MuiSvgIcon-fontSizeMedium css-1ejxkil-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="CheckCircleIcon">
+<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8z">
+</path>
+</svg>
+</div>
+<div class="MuiListItemText-root MuiListItemText-multiline css-14ln1j6-MuiListItemText-root">
+<span class="MuiTypography-root MuiTypography-body1 MuiListItemText-primary css-rizt0-MuiTypography-root">Title admin.email</span>
+<p class="MuiTypography-root MuiTypography-body2 MuiListItemText-secondary css-1a1whku-MuiTypography-root">
+<span class="MuiBox-root css-1cjeru1">Done</span>
+</p>
+</div>
+</li>
+</ul>
+<ul class="MuiList-root MuiList-padding MuiList-subheader css-1d64vtv-MuiList-root" aria-labelledby="_r_N_-recommended">
+<div class="MuiListSubheader-root MuiListSubheader-gutters css-1o6dhv-MuiListSubheader-root" id="_r_N_-recommended">Recommended</div>
+<li data-testid="onboarding-step-admin.push" data-status="todo" class="MuiListItem-root MuiListItem-gutters css-19f6boz-MuiListItem-root">
+<a class="MuiButtonBase-root MuiListItemButton-root MuiListItemButton-gutters css-20jd18-MuiButtonBase-root-MuiListItemButton-root" tabindex="0" href="/to/admin.push" data-discover="true">
+<div class="MuiListItemIcon-root css-urhtzi-MuiListItemIcon-root">
+<svg class="MuiSvgIcon-root MuiSvgIcon-colorAction MuiSvgIcon-fontSizeMedium css-1ryok51-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="RadioButtonUncheckedIcon">
+<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8">
+</path>
+</svg>
+</div>
+<div class="MuiListItemText-root MuiListItemText-multiline css-14ln1j6-MuiListItemText-root">
+<span class="MuiTypography-root MuiTypography-body1 MuiListItemText-primary css-rizt0-MuiTypography-root">Title admin.push</span>
+<p class="MuiTypography-root MuiTypography-body2 MuiListItemText-secondary css-1a1whku-MuiTypography-root">
+<span class="MuiBox-root css-11avyqh">To do</span>
+</p>
+</div>
+<svg class="MuiSvgIcon-root MuiSvgIcon-colorAction MuiSvgIcon-fontSizeMedium css-1ryok51-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ChevronRightIcon">
+<path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z">
+</path>
+</svg>
+</a>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<section class="MuiBox-root css-h5fkc8" aria-labelledby="_r_N_">
+<div class="MuiStack-root css-4qd601-MuiStack-root">
+<h2 class="MuiTypography-root MuiTypography-h5 css-16xl4zq-MuiTypography-root" id="_r_N_">Activation</h2>
+<div role="group" class="MuiToggleButtonGroup-root MuiToggleButtonGroup-horizontal css-1qb8o-MuiToggleButtonGroup-root" aria-label="Window">
+<button class="MuiButtonBase-root MuiToggleButtonGroup-grouped MuiToggleButton-root MuiToggleButton-sizeSmall MuiToggleButton-standard MuiToggleButtonGroup-grouped MuiToggleButtonGroup-firstButton css-17dggg4-MuiButtonBase-root-MuiToggleButton-root" tabindex="0" type="button" value="7" aria-pressed="false">7 days</button>
+<button class="MuiButtonBase-root MuiToggleButtonGroup-grouped MuiToggleButton-root Mui-selected MuiToggleButton-sizeSmall MuiToggleButton-standard MuiToggleButtonGroup-grouped MuiToggleButtonGroup-middleButton css-17dggg4-MuiButtonBase-root-MuiToggleButton-root" tabindex="-1" type="button" value="30" aria-pressed="true">30 days</button>
+<button class="MuiButtonBase-root MuiToggleButtonGroup-grouped MuiToggleButton-root MuiToggleButton-sizeSmall MuiToggleButton-standard MuiToggleButtonGroup-grouped MuiToggleButtonGroup-lastButton css-17dggg4-MuiButtonBase-root-MuiToggleButton-root" tabindex="-1" type="button" value="90" aria-pressed="false">90 days</button>
+</div>
+</div>
+<div class="MuiStack-root css-1omihcd-MuiStack-root">
+<div class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded css-nba9dd-MuiPaper-root">
+<p class="MuiTypography-root MuiTypography-body2 css-7ctihp-MuiTypography-root">New users</p>
+<p class="MuiTypography-root MuiTypography-h5 css-16xl4zq-MuiTypography-root">4</p>
+<p class="MuiTypography-root MuiTypography-body2 css-7ctihp-MuiTypography-root">in the last 30 days</p>
+</div>
+<div class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded css-nba9dd-MuiPaper-root">
+<p class="MuiTypography-root MuiTypography-body2 css-7ctihp-MuiTypography-root">First thing within 7 days</p>
+<p class="MuiTypography-root MuiTypography-h5 css-16xl4zq-MuiTypography-root">25%</p>
+<p class="MuiTypography-root MuiTypography-body2 css-7ctihp-MuiTypography-root">1 of 4 eligible · median 12 h</p>
+</div>
+</div>
+<ul class="MuiBox-root css-11lzi6h" aria-label="Step funnel">
+<li class="MuiBox-root css-1upilqn">
+<p class="MuiTypography-root MuiTypography-body2 css-7ctihp-MuiTypography-root">Complete your profile: 2 of 4, 50%</p>
+<span class="MuiLinearProgress-root MuiLinearProgress-colorPrimary MuiLinearProgress-determinate css-1xpor38-MuiLinearProgress-root" role="progressbar" aria-valuenow="50" aria-valuemin="0" aria-valuemax="100" aria-label="Complete your profile" aria-valuetext="2 of 4, 50%">
+<span class="MuiLinearProgress-bar MuiLinearProgress-bar1 css-1ueshpl-MuiLinearProgress-bar1" style="transform: translateX(-50%);">
+</span>
+</span>
+</li>
+</ul>
+</section>
+</div>
+</div>
+<div data-testid="where">/</div>"
+`;
+
+exports[`SetupGuidePage builtin markup > when the state could not be read 1`] = `
+"<div class="MuiContainer-root MuiContainer-maxWidthMd css-u4uvlt-MuiContainer-root">
+<div class="MuiBox-root css-1lkmtz">
+<h1 class="MuiTypography-root MuiTypography-h4 MuiTypography-gutterBottom css-1it4a80-MuiTypography-root">Setup guide</h1>
+<p class="MuiTypography-root MuiTypography-body1 css-1xz17g7-MuiTypography-root">What must be configured before people can use the app, and the features to turn on next.</p>
+<div class="MuiStack-root css-1js7k0q-MuiStack-root">
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeMedium MuiButton-colorPrimary css-1bmmi1a-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button">
+<span class="MuiButton-icon MuiButton-startIcon css-1lxyhll-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="RefreshIcon">
+<path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z">
+</path>
+</svg>
+</span>Re-check</button>
+<a class="MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-sizeMedium MuiButton-colorPrimary css-oaf1ja-MuiButtonBase-root-MuiButton-root" tabindex="0" href="/admin/settings/doctor" data-discover="true">
+<span class="MuiButton-icon MuiButton-startIcon css-1lxyhll-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="HealthAndSafetyOutlinedIcon">
+<path d="M10.5 13H8v-3h2.5V7.5h3V10H16v3h-2.5v2.5h-3zM12 2 4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5zm6 9.09c0 4-2.55 7.7-6 8.83-3.45-1.13-6-4.82-6-8.83v-4.7l6-2.25 6 2.25z">
+</path>
+</svg>
+</span>Open the Doctor</a>
+</div>
+<div class="MuiPaper-root MuiPaper-elevation MuiPaper-rounded MuiPaper-elevation0 MuiAlert-root MuiAlert-colorError MuiAlert-standard css-6js25r-MuiPaper-root-MuiAlert-root" role="alert" style="--Paper-shadow: none;">
+<div class="MuiAlert-icon css-vab54s-MuiAlert-icon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeInherit css-1ckov0h-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ErrorOutlineIcon">
+<path d="M11 15h2v2h-2zm0-8h2v6h-2zm.99-5C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z">
+</path>
+</svg>
+</div>
+<div class="MuiAlert-message css-zioonp-MuiAlert-message">down</div>
+</div>
+<div class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-196bwzp-MuiPaper-root-MuiCard-root" aria-busy="false">
+<div class="MuiCardContent-root css-1lt5qva-MuiCardContent-root">
+</div>
+</div>
+</div>
+</div>
+<div data-testid="where">/</div>"
+`;
+
+exports[`SetupGuidePage builtin markup > while loading 1`] = `
+"<div class="MuiContainer-root MuiContainer-maxWidthMd css-u4uvlt-MuiContainer-root">
+<div class="MuiBox-root css-1lkmtz">
+<h1 class="MuiTypography-root MuiTypography-h4 MuiTypography-gutterBottom css-1it4a80-MuiTypography-root">Setup guide</h1>
+<p class="MuiTypography-root MuiTypography-body1 css-1xz17g7-MuiTypography-root">What must be configured before people can use the app, and the features to turn on next.</p>
+<div class="MuiStack-root css-1js7k0q-MuiStack-root">
+<button class="MuiButtonBase-root Mui-disabled MuiButton-root MuiButton-contained MuiButton-sizeMedium MuiButton-colorPrimary css-1bmmi1a-MuiButtonBase-root-MuiButton-root" tabindex="-1" type="button" disabled="">
+<span class="MuiButton-icon MuiButton-startIcon css-1lxyhll-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="RefreshIcon">
+<path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z">
+</path>
+</svg>
+</span>Re-check</button>
+<a class="MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-sizeMedium MuiButton-colorPrimary css-oaf1ja-MuiButtonBase-root-MuiButton-root" tabindex="0" href="/admin/settings/doctor" data-discover="true">
+<span class="MuiButton-icon MuiButton-startIcon css-1lxyhll-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="HealthAndSafetyOutlinedIcon">
+<path d="M10.5 13H8v-3h2.5V7.5h3V10H16v3h-2.5v2.5h-3zM12 2 4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5zm6 9.09c0 4-2.55 7.7-6 8.83-3.45-1.13-6-4.82-6-8.83v-4.7l6-2.25 6 2.25z">
+</path>
+</svg>
+</span>Open the Doctor</a>
+</div>
+<div class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-196bwzp-MuiPaper-root-MuiCard-root" aria-busy="true">
+<div class="MuiCardContent-root css-1lt5qva-MuiCardContent-root">
+<div class="MuiStack-root css-jfdv4h-MuiStack-root" data-testid="setup-guide-loading" aria-label="Loading setup steps">
+<span class="MuiSkeleton-root MuiSkeleton-rounded MuiSkeleton-pulse css-1q505s5-MuiSkeleton-root" style="height: 48px;">
+</span>
+<span class="MuiSkeleton-root MuiSkeleton-rounded MuiSkeleton-pulse css-1q505s5-MuiSkeleton-root" style="height: 48px;">
+</span>
+<span class="MuiSkeleton-root MuiSkeleton-rounded MuiSkeleton-pulse css-1q505s5-MuiSkeleton-root" style="height: 48px;">
+</span>
+<span class="MuiSkeleton-root MuiSkeleton-rounded MuiSkeleton-pulse css-1q505s5-MuiSkeleton-root" style="height: 48px;">
+</span>
+</div>
+</div>
+</div>
+<section class="MuiBox-root css-h5fkc8" aria-labelledby="_r_N_">
+<div class="MuiStack-root css-4qd601-MuiStack-root">
+<h2 class="MuiTypography-root MuiTypography-h5 css-16xl4zq-MuiTypography-root" id="_r_N_">Activation</h2>
+<div role="group" class="MuiToggleButtonGroup-root MuiToggleButtonGroup-horizontal css-1qb8o-MuiToggleButtonGroup-root" aria-label="Window">
+<button class="MuiButtonBase-root MuiToggleButtonGroup-grouped MuiToggleButton-root MuiToggleButton-sizeSmall MuiToggleButton-standard MuiToggleButtonGroup-grouped MuiToggleButtonGroup-firstButton css-17dggg4-MuiButtonBase-root-MuiToggleButton-root" tabindex="0" type="button" value="7" aria-pressed="false">7 days</button>
+<button class="MuiButtonBase-root MuiToggleButtonGroup-grouped MuiToggleButton-root Mui-selected MuiToggleButton-sizeSmall MuiToggleButton-standard MuiToggleButtonGroup-grouped MuiToggleButtonGroup-middleButton css-17dggg4-MuiButtonBase-root-MuiToggleButton-root" tabindex="-1" type="button" value="30" aria-pressed="true">30 days</button>
+<button class="MuiButtonBase-root MuiToggleButtonGroup-grouped MuiToggleButton-root MuiToggleButton-sizeSmall MuiToggleButton-standard MuiToggleButtonGroup-grouped MuiToggleButtonGroup-lastButton css-17dggg4-MuiButtonBase-root-MuiToggleButton-root" tabindex="-1" type="button" value="90" aria-pressed="false">90 days</button>
+</div>
+</div>
+<span class="MuiSkeleton-root MuiSkeleton-rounded MuiSkeleton-pulse css-1q505s5-MuiSkeleton-root" data-testid="activation-loading" style="height: 96px;">
+</span>
+</section>
+</div>
+</div>
+<div data-testid="where">/</div>"
+`;
+
+exports[`SetupGuidePage builtin markup > with a footer and no activation section 1`] = `
+"<div class="MuiContainer-root MuiContainer-maxWidthMd css-u4uvlt-MuiContainer-root">
+<div class="MuiBox-root css-1lkmtz">
+<h1 class="MuiTypography-root MuiTypography-h4 MuiTypography-gutterBottom css-1it4a80-MuiTypography-root">Setup guide</h1>
+<p class="MuiTypography-root MuiTypography-body1 css-1xz17g7-MuiTypography-root">What must be configured before people can use the app, and the features to turn on next.</p>
+<div class="MuiStack-root css-1js7k0q-MuiStack-root">
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeMedium MuiButton-colorPrimary css-1bmmi1a-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button">
+<span class="MuiButton-icon MuiButton-startIcon css-1lxyhll-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="RefreshIcon">
+<path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z">
+</path>
+</svg>
+</span>Re-check</button>
+<a class="MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-sizeMedium MuiButton-colorPrimary css-oaf1ja-MuiButtonBase-root-MuiButton-root" tabindex="0" href="/admin/settings/doctor" data-discover="true">
+<span class="MuiButton-icon MuiButton-startIcon css-1lxyhll-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="HealthAndSafetyOutlinedIcon">
+<path d="M10.5 13H8v-3h2.5V7.5h3V10H16v3h-2.5v2.5h-3zM12 2 4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5zm6 9.09c0 4-2.55 7.7-6 8.83-3.45-1.13-6-4.82-6-8.83v-4.7l6-2.25 6 2.25z">
+</path>
+</svg>
+</span>Open the Doctor</a>
+</div>
+<div class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-196bwzp-MuiPaper-root-MuiCard-root" aria-busy="false">
+<div class="MuiCardContent-root css-1lt5qva-MuiCardContent-root">
+<div class="MuiBox-root css-0">
+<p class="MuiTypography-root MuiTypography-body2 css-jpkd5o-MuiTypography-root" data-testid="onboarding-progress-text">1 of 3 done</p>
+<span class="MuiLinearProgress-root MuiLinearProgress-colorPrimary MuiLinearProgress-determinate css-1fb17yf-MuiLinearProgress-root" role="progressbar" aria-valuenow="33" aria-valuemin="0" aria-valuemax="100" aria-label="Setup progress" aria-valuetext="1 of 3 done">
+<span class="MuiLinearProgress-bar MuiLinearProgress-bar1 css-1ueshpl-MuiLinearProgress-bar1" style="transform: translateX(-67%);">
+</span>
+</span>
+<ul class="MuiList-root MuiList-padding MuiList-subheader css-1d64vtv-MuiList-root" aria-labelledby="_r_N_-required">
+<div class="MuiListSubheader-root MuiListSubheader-gutters css-1o6dhv-MuiListSubheader-root" id="_r_N_-required">Required</div>
+<li data-testid="onboarding-step-admin.storage" data-status="todo" class="MuiListItem-root MuiListItem-gutters css-19f6boz-MuiListItem-root">
+<a class="MuiButtonBase-root MuiListItemButton-root MuiListItemButton-gutters css-20jd18-MuiButtonBase-root-MuiListItemButton-root" tabindex="0" href="/to/admin.storage" data-discover="true">
+<div class="MuiListItemIcon-root css-urhtzi-MuiListItemIcon-root">
+<svg class="MuiSvgIcon-root MuiSvgIcon-colorAction MuiSvgIcon-fontSizeMedium css-1ryok51-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="RadioButtonUncheckedIcon">
+<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8">
+</path>
+</svg>
+</div>
+<div class="MuiListItemText-root MuiListItemText-multiline css-14ln1j6-MuiListItemText-root">
+<span class="MuiTypography-root MuiTypography-body1 MuiListItemText-primary css-rizt0-MuiTypography-root">Title admin.storage</span>
+<p class="MuiTypography-root MuiTypography-body2 MuiListItemText-secondary css-1a1whku-MuiTypography-root">
+<span class="MuiBox-root css-11avyqh">To do</span>
+<span class="MuiBox-root css-0"> · Configure storage.</span>
+</p>
+</div>
+<svg class="MuiSvgIcon-root MuiSvgIcon-colorAction MuiSvgIcon-fontSizeMedium css-1ryok51-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ChevronRightIcon">
+<path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z">
+</path>
+</svg>
+</a>
+</li>
+<li data-testid="onboarding-step-admin.email" data-status="done" class="MuiListItem-root MuiListItem-gutters MuiListItem-padding css-cfd5wn-MuiListItem-root">
+<div class="MuiListItemIcon-root css-urhtzi-MuiListItemIcon-root">
+<svg class="MuiSvgIcon-root MuiSvgIcon-colorSuccess MuiSvgIcon-fontSizeMedium css-1ejxkil-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="CheckCircleIcon">
+<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8z">
+</path>
+</svg>
+</div>
+<div class="MuiListItemText-root MuiListItemText-multiline css-14ln1j6-MuiListItemText-root">
+<span class="MuiTypography-root MuiTypography-body1 MuiListItemText-primary css-rizt0-MuiTypography-root">Title admin.email</span>
+<p class="MuiTypography-root MuiTypography-body2 MuiListItemText-secondary css-1a1whku-MuiTypography-root">
+<span class="MuiBox-root css-1cjeru1">Done</span>
+</p>
+</div>
+</li>
+</ul>
+<ul class="MuiList-root MuiList-padding MuiList-subheader css-1d64vtv-MuiList-root" aria-labelledby="_r_N_-recommended">
+<div class="MuiListSubheader-root MuiListSubheader-gutters css-1o6dhv-MuiListSubheader-root" id="_r_N_-recommended">Recommended</div>
+<li data-testid="onboarding-step-admin.push" data-status="todo" class="MuiListItem-root MuiListItem-gutters css-19f6boz-MuiListItem-root">
+<a class="MuiButtonBase-root MuiListItemButton-root MuiListItemButton-gutters css-20jd18-MuiButtonBase-root-MuiListItemButton-root" tabindex="0" href="/to/admin.push" data-discover="true">
+<div class="MuiListItemIcon-root css-urhtzi-MuiListItemIcon-root">
+<svg class="MuiSvgIcon-root MuiSvgIcon-colorAction MuiSvgIcon-fontSizeMedium css-1ryok51-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="RadioButtonUncheckedIcon">
+<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8">
+</path>
+</svg>
+</div>
+<div class="MuiListItemText-root MuiListItemText-multiline css-14ln1j6-MuiListItemText-root">
+<span class="MuiTypography-root MuiTypography-body1 MuiListItemText-primary css-rizt0-MuiTypography-root">Title admin.push</span>
+<p class="MuiTypography-root MuiTypography-body2 MuiListItemText-secondary css-1a1whku-MuiTypography-root">
+<span class="MuiBox-root css-11avyqh">To do</span>
+</p>
+</div>
+<svg class="MuiSvgIcon-root MuiSvgIcon-colorAction MuiSvgIcon-fontSizeMedium css-1ryok51-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ChevronRightIcon">
+<path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z">
+</path>
+</svg>
+</a>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<p>Own section</p>
+</div>
+</div>
+<div data-testid="where">/</div>"
+`;

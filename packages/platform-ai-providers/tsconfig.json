@@ -1,0 +1,22 @@
+{
+  // Typecheck config (`npm run typecheck` = tsc --noEmit), covering src/ and
+  // test/. Mirrors packages/platform-api/tsconfig.json without the decorator
+  // options: this package has no Nest code and no decorators. `removeComments`
+  // is false so TSDoc survives into the published .d.ts files.
+  //
+  // CommonJS: `"type": "commonjs"` plus NodeNext (tsconfig.base.json) emits
+  // require()/exports, the same module format as @marinoscar/platform-api.
+  //
+  // `rootDir: "."` is explicit for ts-jest's transpileModule path (TS5011);
+  // the build narrows it to ./src.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "removeComments": false,
+    "allowSyntheticDefaultImports": true,
+    "rootDir": ".",
+    "noFallthroughCasesInSwitch": true,
+    "types": ["node", "jest"]
+  },
+  "include": ["src/**/*", "test/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

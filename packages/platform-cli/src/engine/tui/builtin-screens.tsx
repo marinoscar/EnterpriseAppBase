@@ -1,0 +1,80 @@
+import {
+  BUILTIN_TUI_SCREENS,
+  listHiddenTuiScreens,
+  listRegisteredTuiScreens,
+  sortTuiScreens,
+  type TuiScreenRegistration,
+} from './screen-registry.js';
+import { DeployScreen } from './screens/deploy.js';
+import { InvokeScreen } from './screens/invoke.js';
+import { JobsScreen } from './screens/jobs.js';
+import { LoginScreen } from './screens/login.js';
+import { LogoutScreen } from './screens/logout.js';
+import { NodeScreen } from './screens/node.js';
+import { StatusScreen } from './screens/status.js';
+
+// =============================================================================
+// The platform's own TUI screens  (issue #145; registered since PP-8.9 #715)
+// =============================================================================
+//
+// Only the ink app imports this module, so the components (and ink with them)
+// load only once the TTY gate has said yes. The ids and orders come from
+// `BUILTIN_TUI_SCREENS`, the list `registerTuiScreen` checks duplicates
+// against.
+// =============================================================================
+
+const COMPONENTS: Record<string, TuiScreenRegistration['component']> = {
+  login: LoginScreen,
+  invoke: InvokeScreen,
+  status: StatusScreen,
+  jobs: JobsScreen,
+  node: NodeScreen,
+  deploy: DeployScreen,
+  logout: LogoutScreen,
+};
+
+const LABELS: Record<string, TuiScreenRegistration['label']> = {
+  login: ({ loggedIn }) => (loggedIn ? 'Login  (replace the stored token)' : 'Login'),
+  // Not removed when logged out: a greyed "(not logged in)" answers why on
+  // the spot, and the screen itself produces the real, specific error.
+  invoke: ({ loggedIn }) => (loggedIn ? 'Call an endpoint' : 'Call an endpoint  (not logged in)'),
+  status: 'Status',
+  // The server decides who may see it (`jobs:read`): a caller without the
+  // permission gets a notice on the screen, not a crash. Hiding the entry for
+  // callers without it waits on the menu tree's visibility rules (G1.1).
+  jobs: ({ loggedIn }) => (loggedIn ? 'Jobs queue  (server)' : 'Jobs queue  (not logged in)'),
+  // Not gated on being logged in either: Enroll is exactly what an
+  // unconfigured machine needs, and hiding the entry would hide the fix.
+  node: 'Worker node  (this machine)',
+  // Not gated on being logged in: deploying acts on THIS SERVER, not on the
+  // API, so a stored token is irrelevant to it.
+  deploy: 'Deploy  (this server)',
+  logout: ({ loggedIn }) => (loggedIn ? 'Logout' : 'Logout  (nothing stored)'),
+};
+
+/** The platform's screens, with their components, in menu order. */
+export function builtinTuiScreens(): TuiScreenRegistration[] {
+  return BUILTIN_TUI_SCREENS.map(({ route, order }) => {
+    const component = COMPONENTS[route];
+    const label = LABELS[route];
+    if (component === undefined || label === undefined) {
+      throw new Error(`The built-in TUI screen "${route}" has no component or label.`);
+    }
+    return { route, order, label, component };
+  });
+}
+
+/**
+ * Every screen the router can open, sorted by order then route id: the
+ * built-ins an app did not replace (`replaceBuiltin`), then the app's. A
+ * screen hidden from the root menu (`hideTuiScreen`, `hidden: true`) is still
+ * here, flagged `hidden`, so an entry or `nav.push` can open it.
+ */
+export function allTuiScreens(): TuiScreenRegistration[] {
+  const registered = listRegisteredTuiScreens();
+  const hidden = listHiddenTuiScreens();
+  const replaced = new Set(registered.filter((screen) => screen.replaceBuiltin === true).map((screen) => screen.route));
+  const flag = (screen: TuiScreenRegistration): TuiScreenRegistration =>
+    screen.hidden !== true && hidden.includes(screen.route) ? { ...screen, hidden: true } : screen;
+  return sortTuiScreens([...builtinTuiScreens().filter((screen) => !replaced.has(screen.route)), ...registered].map(flag));
+}

@@ -1,0 +1,42 @@
+// =============================================================================
+// Fixture app: a domain that points at three platform models
+// =============================================================================
+// This is what an app writes in apps/<app>/prisma/fragments/. The models are
+// the app's own; the three `extend model` blocks at the bottom add the
+// back-relation side to platform models the app does not own (`User`, `Job`
+// and `StorageObject`, all marked `// @extensible` by @marinoscar/platform-db).
+
+model Workout {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  photoId   String?  @map("photo_id") @db.Uuid
+  title     String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  photo StorageObject? @relation(fields: [photoId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@map("workouts")
+}
+
+model WorkoutExport {
+  id    String @id @default(uuid()) @db.Uuid
+  jobId String @unique @map("job_id") @db.Uuid
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@map("workout_exports")
+}
+
+extend model User {
+  workouts Workout[]
+}
+
+extend model StorageObject {
+  workoutPhotos Workout[]
+}
+
+extend model Job {
+  workoutExport WorkoutExport?
+}

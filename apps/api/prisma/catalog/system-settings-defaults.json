@@ -1,0 +1,140 @@
+{
+  "notifications": {
+    "browserEnabled": true,
+    "disabledEvents": []
+  },
+  "jobs": {
+    "history": {
+      "retentionDays": 30,
+      "purgeEnabled": true
+    },
+    "stuckThresholdMinutes": 30
+  },
+  "nodes": {
+    "staleHeartbeatSeconds": 90,
+    "offlineStaleMultiplier": 4,
+    "offlineRetentionDays": 30,
+    "jobSecretBrokerEnabled": false
+  },
+  "databaseBackup": {
+    "enabled": false,
+    "frequency": "daily",
+    "dayOfWeek": 0,
+    "dayOfMonth": 1,
+    "timeOfDay": "02:00",
+    "timezone": "UTC",
+    "retentionCount": 7,
+    "storageProvider": "",
+    "runStaleMinutes": 120,
+    "compressionLevel": 6,
+    "restoreRollbackMode": "retain_database",
+    "oldDatabaseRetentionHours": 48,
+    "nodeOffloadEnabled": false
+  },
+  "maintenance": {
+    "enabled": false,
+    "message": "This service is temporarily unavailable for scheduled maintenance. Please try again shortly.",
+    "allowAdmins": true,
+    "startedAt": null,
+    "startedById": null
+  },
+  "storage": {
+    "provider": "s3",
+    "drivers": {
+      "s3": {
+        "bucket": "",
+        "region": "",
+        "endpoint": "",
+        "accessKeyId": "",
+        "forcePathStyle": null
+      },
+      "r2": {
+        "bucket": "",
+        "accountId": "",
+        "region": "",
+        "endpoint": "",
+        "accessKeyId": "",
+        "forcePathStyle": null
+      },
+      "s3compatible": {
+        "bucket": "",
+        "region": "",
+        "endpoint": "",
+        "accessKeyId": "",
+        "forcePathStyle": null
+      }
+    }
+  },
+  "ai": {
+    "enabled": false,
+    "keyPolicy": "byok",
+    "providers": {
+      "openai": {
+        "enabled": false
+      },
+      "anthropic": {
+        "enabled": false
+      },
+      "gemini": {
+        "enabled": false
+      },
+      "azure-openai": {
+        "enabled": false
+      },
+      "openai-compatible": {
+        "enabled": false
+      }
+    },
+    "defaults": {
+      "allowBackgroundRuns": true,
+      "allowRealtime": false
+    },
+    "logPromptContent": false,
+    "usageRetentionDays": 180,
+    "hostedTools": {
+      "web_search": false,
+      "file_search": false,
+      "code_interpreter": false,
+      "image_generation": false,
+      "mcp": false,
+      "mcpAllowedHosts": []
+    },
+    "limits": {},
+    "deploymentKeyServesOrgs": true
+  },
+  "telemetry": {
+    "enabled": false,
+    "retentionDays": 30,
+    "instanceId": null,
+    "query": {
+      "maxRows": 10000,
+      "timeoutSeconds": 30
+    },
+    "assistant": {
+      "enabled": false,
+      "provider": null,
+      "modelId": null,
+      "shareResults": true,
+      "maxResultRowsToModel": 100,
+      "maxSteps": 15
+    }
+  },
+  "retention": {
+    "notifications": {
+      "enabled": true,
+      "days": 180
+    },
+    "notificationDeliveries": {
+      "enabled": true,
+      "days": 90
+    },
+    "auditEvents": {
+      "enabled": false,
+      "days": 365
+    },
+    "aiRuns": {
+      "enabled": true,
+      "days": 90
+    }
+  }
+}

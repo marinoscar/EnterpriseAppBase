@@ -1,0 +1,17 @@
+{
+  "extends": [
+    "../../typedoc.base.json"
+  ],
+  "tsconfig": "tsconfig.build.json",
+  "entryPoints": [
+    "src/index.ts",
+    "src/openai/index.ts",
+    "src/openai/testing/index.ts",
+    "src/anthropic/index.ts",
+    "src/anthropic/testing/index.ts",
+    "src/gemini/index.ts",
+    "src/gemini/testing/index.ts"
+  ],
+  "out": "docs-api",
+  "json": "docs-api/api.json"
+}

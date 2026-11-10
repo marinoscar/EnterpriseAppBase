@@ -1,0 +1,8 @@
+{
+  // ESM half of the dual build. `"type": "module"` in package.json makes
+  // NodeNext emit ES modules.
+  "extends": "./tsconfig.build.json",
+  "compilerOptions": {
+    "outDir": "./dist/esm"
+  }
+}

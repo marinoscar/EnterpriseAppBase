@@ -1,3 +1,5 @@
+import { Prisma } from '@prisma/client';
+
 import { PrismaService } from '../../src/prisma/prisma.service';
 
 /**
@@ -39,7 +41,7 @@ export async function createBulkUsers(
 export async function createUserWithSettings(
   prisma: PrismaService,
   roleId: string,
-  settings: Record<string, unknown>,
+  settings: Prisma.InputJsonObject,
 ): Promise<string> {
   const user = await prisma.user.create({
     data: {

@@ -1,0 +1,485 @@
+import { NotFoundException } from '@nestjs/common';
+
+import {
+  createMockPrismaService,
+  MockPrismaService,
+} from '../mocks/prisma.mock';
+import { PrismaService } from '../../src/prisma/prisma.service';
+import { NotificationStoreService } from './support/notifications';
+import type { NotificationListQueryDto } from './support/notifications';
+
+// =============================================================================
+// NotificationStoreService — tests (issue #127, epic #109)
+// =============================================================================
+//
+// `createMockPrismaService()` from `test/mocks/prisma.mock` gives a fresh
+// `mockDeep<PrismaClient>()` per test — the model under test is
+// `prisma.notification` (singular), not `prisma.notifications`.
+//
+// THE CENTREPIECE is the 404-indistinguishability suite for `markRead`: an id
+// that does not exist at all, and an id that belongs to a different user,
+// must produce the byte-identical `NotFoundException` — same message, same
+// shape — because that identity is the whole point of the design (see the
+// source file's header).
+// =============================================================================
+
+const USER_ID = 'user-1';
+const OTHER_USER_ID = 'user-2';
+
+function defaultQuery(
+  overrides: Partial<NotificationListQueryDto> = {},
+): NotificationListQueryDto {
+  return {
+    page: 1,
+    pageSize: 20,
+    unreadOnly: false,
+    ...overrides,
+  } as NotificationListQueryDto;
+}
+
+function row(overrides: Partial<{
+  id: string;
+  eventKey: string;
+  title: string;
+  body: string;
+  link: string | null;
+  readAt: Date | null;
+  createdAt: Date;
+  data: unknown;
+  scopeId: string | null;
+  dismissedAt: Date | null;
+  updatedAt: Date;
+}> = {}) {
+  return {
+    id: 'notif-1',
+    eventKey: 'security.role_changed',
+    title: 'Your roles changed',
+    body: 'An administrator changed your roles.',
+    link: '/settings',
+    readAt: null,
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    data: null,
+    scopeId: null,
+    dismissedAt: null,
+    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+describe('NotificationStoreService', () => {
+  let service: NotificationStoreService;
+  let mockPrisma: MockPrismaService;
+
+  /** Asserts the nth raw statement contains each fragment and was bound to each value. */
+  function expectRaw(n: number, fragments: string[], values: unknown[]): void {
+    const [strings, ...bound] = (mockPrisma.$executeRaw as jest.Mock).mock.calls[n] as [TemplateStringsArray, ...unknown[]];
+    const sql = strings.join('?');
+    for (const fragment of fragments) expect(sql).toContain(fragment);
+    expect(bound).toEqual(values);
+  }
+
+  beforeEach(() => {
+    mockPrisma = createMockPrismaService();
+    service = new NotificationStoreService(mockPrisma as unknown as PrismaService);
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  // ==========================================================================
+  // list()
+  // ==========================================================================
+
+  describe('list()', () => {
+    it('always includes userId in the where clause passed to both findMany and count', async () => {
+      mockPrisma.$transaction.mockImplementation((ops: any) => Promise.all(ops) as never);
+      mockPrisma.notification.findMany.mockResolvedValue([] as never);
+      mockPrisma.notification.count.mockResolvedValue(0 as never);
+
+      await service.list(USER_ID, defaultQuery());
+
+      expect(mockPrisma.notification.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ userId: USER_ID }) }),
+      );
+      expect(mockPrisma.notification.count).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ userId: USER_ID }) }),
+      );
+    });
+
+    it('adds readAt: null to where when unreadOnly is true', async () => {
+      mockPrisma.$transaction.mockImplementation((ops: any) => Promise.all(ops) as never);
+      mockPrisma.notification.findMany.mockResolvedValue([] as never);
+      mockPrisma.notification.count.mockResolvedValue(0 as never);
+
+      await service.list(USER_ID, defaultQuery({ unreadOnly: true }));
+
+      expect(mockPrisma.notification.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ userId: USER_ID, readAt: null }),
+        }),
+      );
+      expect(mockPrisma.notification.count).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ userId: USER_ID, readAt: null }),
+        }),
+      );
+    });
+
+    it('does not add readAt to where when unreadOnly is absent/false', async () => {
+      mockPrisma.$transaction.mockImplementation((ops: any) => Promise.all(ops) as never);
+      mockPrisma.notification.findMany.mockResolvedValue([] as never);
+      mockPrisma.notification.count.mockResolvedValue(0 as never);
+
+      await service.list(USER_ID, defaultQuery({ unreadOnly: false }));
+
+      const [[findManyArgs]] = mockPrisma.notification.findMany.mock.calls as unknown as [
+        [{ where: Record<string, unknown> }],
+      ];
+      expect(findManyArgs.where).not.toHaveProperty('readAt');
+    });
+
+    it('computes skip/take/totalPages from page and pageSize', async () => {
+      mockPrisma.$transaction.mockImplementation((ops: any) => Promise.all(ops) as never);
+      mockPrisma.notification.findMany.mockResolvedValue([] as never);
+      mockPrisma.notification.count.mockResolvedValue(45 as never);
+
+      const result = await service.list(USER_ID, defaultQuery({ page: 3, pageSize: 10 }));
+
+      expect(mockPrisma.notification.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 20, take: 10 }),
+      );
+      expect(result).toMatchObject({
+        total: 45,
+        page: 3,
+        pageSize: 10,
+        totalPages: 5, // Math.ceil(45 / 10)
+      });
+    });
+
+    it('serialises readAt and createdAt to ISO strings in the response', async () => {
+      const createdAt = new Date('2026-02-15T10:30:00.000Z');
+      const readAt = new Date('2026-02-16T09:00:00.000Z');
+
+      mockPrisma.$transaction.mockImplementation((ops: any) => Promise.all(ops) as never);
+      mockPrisma.notification.findMany.mockResolvedValue([
+        row({ createdAt, readAt }),
+      ] as never);
+      mockPrisma.notification.count.mockResolvedValue(1 as never);
+
+      const result = await service.list(USER_ID, defaultQuery());
+
+      expect(result.items[0].createdAt).toBe('2026-02-15T10:30:00.000Z');
+      expect(result.items[0].readAt).toBe('2026-02-16T09:00:00.000Z');
+    });
+
+    it('serialises a null readAt to null (unread)', async () => {
+      mockPrisma.$transaction.mockImplementation((ops: any) => Promise.all(ops) as never);
+      mockPrisma.notification.findMany.mockResolvedValue([row({ readAt: null })] as never);
+      mockPrisma.notification.count.mockResolvedValue(1 as never);
+
+      const result = await service.list(USER_ID, defaultQuery());
+
+      expect(result.items[0].readAt).toBeNull();
+    });
+
+    it('orders by createdAt desc', async () => {
+      mockPrisma.$transaction.mockImplementation((ops: any) => Promise.all(ops) as never);
+      mockPrisma.notification.findMany.mockResolvedValue([] as never);
+      mockPrisma.notification.count.mockResolvedValue(0 as never);
+
+      await service.list(USER_ID, defaultQuery());
+
+      expect(mockPrisma.notification.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: { createdAt: 'desc' } }),
+      );
+    });
+
+    it('uses $transaction to run findMany and count together', async () => {
+      mockPrisma.$transaction.mockImplementation((ops: any) => Promise.all(ops) as never);
+      mockPrisma.notification.findMany.mockResolvedValue([] as never);
+      mockPrisma.notification.count.mockResolvedValue(0 as never);
+
+      await service.list(USER_ID, defaultQuery());
+
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ==========================================================================
+  // unreadCount()
+  // ==========================================================================
+
+  describe('unreadCount()', () => {
+    it('scopes the count by userId and readAt: null', async () => {
+      mockPrisma.notification.count.mockResolvedValue(7 as never);
+
+      const result = await service.unreadCount(USER_ID);
+
+      expect(result).toBe(7);
+      expect(mockPrisma.notification.count).toHaveBeenCalledWith({
+        where: { userId: USER_ID, readAt: null, dismissedAt: null },
+      });
+    });
+  });
+
+  // ==========================================================================
+  // markRead()
+  // ==========================================================================
+
+  describe('markRead()', () => {
+    it('happy path: updateMany count 1 returns the fresh unreadCount', async () => {
+      (mockPrisma.$executeRaw as jest.Mock).mockResolvedValue(1);
+      mockPrisma.notification.count.mockResolvedValue(2 as never);
+
+      const result = await service.markRead(USER_ID, 'notif-1');
+
+      expect(result).toBe(2);
+      expectRaw(0, ['UPDATE notifications', 'read_at IS NULL', 'countAtRead'], ['notif-1', USER_ID]);
+      // Existence probe was not needed on the happy path.
+      expect(mockPrisma.notification.count).toHaveBeenCalledTimes(1);
+    });
+
+    it('idempotent re-mark: updateMany count 0 but existence count 1 still succeeds, no exception', async () => {
+      (mockPrisma.$executeRaw as jest.Mock).mockResolvedValue(0);
+      mockPrisma.notification.count
+        .mockResolvedValueOnce(1 as never) // existence probe: it IS this user's row
+        .mockResolvedValueOnce(3 as never); // unreadCount
+
+      const result = await service.markRead(USER_ID, 'notif-1');
+
+      expect(result).toBe(3);
+      expect(mockPrisma.notification.count).toHaveBeenNthCalledWith(1, {
+        where: { id: 'notif-1', userId: USER_ID },
+      });
+    });
+
+    describe('THE 404-INDISTINGUISHABILITY CENTREPIECE: a nonexistent id and another user’s id throw the identical NotFoundException', () => {
+      const NOT_FOUND_MESSAGE = 'Notification not found';
+
+      it.each([
+        ['an id that truly does not exist for anybody', 'ghost-id'],
+        ['an id that exists but belongs to a different user', 'other-users-notif'],
+      ])('%s -> NotFoundException("Notification not found")', async (_label, id) => {
+        // Both scenarios produce the SAME mock shape from this user's point of
+        // view: updateMany matches nothing (wrong id, or wrong userId), and the
+        // existence probe — itself scoped to userId — also matches nothing.
+        (mockPrisma.$executeRaw as jest.Mock).mockResolvedValue(0);
+        mockPrisma.notification.count.mockResolvedValue(0 as never);
+
+        await expect(service.markRead(USER_ID, id)).rejects.toThrow(NotFoundException);
+        await expect(service.markRead(USER_ID, id)).rejects.toThrow(NOT_FOUND_MESSAGE);
+      });
+
+      it('produces byte-identical error shape for both scenarios, proving the caller cannot distinguish them', async () => {
+        async function attempt(id: string) {
+          (mockPrisma.$executeRaw as jest.Mock).mockResolvedValue(0);
+          mockPrisma.notification.count.mockResolvedValue(0 as never);
+          try {
+            await service.markRead(USER_ID, id);
+            throw new Error('expected markRead to throw');
+          } catch (err) {
+            return err;
+          }
+        }
+
+        const notFoundError = await attempt('ghost-id');
+        const otherUsersError = await attempt('other-users-notif');
+
+        expect(notFoundError).toBeInstanceOf(NotFoundException);
+        expect(otherUsersError).toBeInstanceOf(NotFoundException);
+        expect((notFoundError as NotFoundException).getStatus()).toBe(
+          (otherUsersError as NotFoundException).getStatus(),
+        );
+        expect((notFoundError as NotFoundException).message).toBe(
+          (otherUsersError as NotFoundException).message,
+        );
+        expect((notFoundError as NotFoundException).getResponse()).toEqual(
+          (otherUsersError as NotFoundException).getResponse(),
+        );
+      });
+
+      it('the existence probe is itself scoped to userId, for both scenarios', async () => {
+        (mockPrisma.$executeRaw as jest.Mock).mockResolvedValue(0);
+        mockPrisma.notification.count.mockResolvedValue(0 as never);
+
+        await expect(service.markRead(USER_ID, 'other-users-notif')).rejects.toThrow(
+          NotFoundException,
+        );
+
+        expect(mockPrisma.notification.count).toHaveBeenCalledWith({
+          where: { id: 'other-users-notif', userId: USER_ID },
+        });
+      });
+    });
+  });
+
+  // ==========================================================================
+  // markAllRead()
+  // ==========================================================================
+
+  describe('markAllRead()', () => {
+    it('scopes the raw update by userId and unread rows', async () => {
+      (mockPrisma.$executeRaw as jest.Mock).mockResolvedValue(3);
+      mockPrisma.notification.count.mockResolvedValue(0 as never);
+
+      await service.markAllRead(USER_ID);
+
+      expectRaw(0, ['UPDATE notifications', 'read_at IS NULL', 'dismissed_at IS NULL', 'countAtRead'], [USER_ID]);
+    });
+
+    it('returns a fresh unreadCount taken AFTER the update — not a hardcoded 0', async () => {
+      (mockPrisma.$executeRaw as jest.Mock).mockResolvedValue(5);
+      // Simulate a race: a new notification landed between the UPDATE and the
+      // COUNT, so the "fresh" count is nonzero even though everything that
+      // existed at update-time was just marked read.
+      mockPrisma.notification.count.mockResolvedValue(1 as never);
+
+      const result = await service.markAllRead(USER_ID);
+
+      expect(result).toBe(1);
+      expect(mockPrisma.notification.count).toHaveBeenCalledWith({
+        where: { userId: USER_ID, readAt: null, dismissedAt: null },
+      });
+    });
+
+    it('calls updateMany before count (the count reflects post-update state)', async () => {
+      const callOrder: string[] = [];
+      (mockPrisma.$executeRaw as jest.Mock).mockImplementation((async () => {
+        callOrder.push('updateMany');
+        return 2;
+      }) as never);
+      mockPrisma.notification.count.mockImplementation((async () => {
+        callOrder.push('count');
+        return 0;
+      }) as never);
+
+      await service.markAllRead(USER_ID);
+
+      expect(callOrder).toEqual(['updateMany', 'count']);
+    });
+  });
+
+  // ==========================================================================
+  // STATE and COUNTED rows, dismissal (issue #1077)
+  // ==========================================================================
+
+  describe('dismissed rows and counts', () => {
+    it('never lists a dismissed row', async () => {
+      mockPrisma.$transaction.mockImplementation((ops: any) => Promise.all(ops) as never);
+      mockPrisma.notification.findMany.mockResolvedValue([] as never);
+      mockPrisma.notification.count.mockResolvedValue(0 as never);
+
+      await service.list(USER_ID, defaultQuery());
+
+      expect(mockPrisma.notification.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ userId: USER_ID, dismissedAt: null }) }),
+      );
+    });
+
+    it('serialises count, scope, dismissal and refresh time; a plain row has a null count', async () => {
+      mockPrisma.$transaction.mockImplementation((ops: any) => Promise.all(ops) as never);
+      mockPrisma.notification.findMany.mockResolvedValue([
+        row({ data: { count: 12, countAtRead: 3 }, scopeId: 'scope-1', updatedAt: new Date('2026-02-01T00:00:00.000Z') }),
+        row({ id: 'notif-2' }),
+      ] as never);
+      mockPrisma.notification.count.mockResolvedValue(2 as never);
+
+      const out = await service.list(USER_ID, defaultQuery());
+
+      expect(out.items[0]).toMatchObject({
+        count: 12,
+        scopeId: 'scope-1',
+        dismissedAt: null,
+        updatedAt: '2026-02-01T00:00:00.000Z',
+      });
+      expect(out.items[1]!.count).toBeNull();
+    });
+  });
+
+  describe('dismiss()', () => {
+    it('sets dismissed_at, implies read, scopes by id and user, and returns the badge', async () => {
+      (mockPrisma.$executeRaw as jest.Mock).mockResolvedValue(1);
+      mockPrisma.notification.count.mockResolvedValue(4 as never);
+
+      expect(await service.dismiss(USER_ID, 'notif-1')).toBe(4);
+
+      expectRaw(0, ['dismissed_at = now()', 'COALESCE(read_at, now())', 'dismissed_at IS NULL'], ['notif-1', USER_ID]);
+    });
+
+    it('is idempotent for an already-dismissed row', async () => {
+      (mockPrisma.$executeRaw as jest.Mock).mockResolvedValue(0);
+      mockPrisma.notification.count.mockResolvedValueOnce(1 as never).mockResolvedValueOnce(0 as never);
+
+      await expect(service.dismiss(USER_ID, 'notif-1')).resolves.toBe(0);
+    });
+
+    it('answers 404 for another user’s id exactly like a missing one', async () => {
+      (mockPrisma.$executeRaw as jest.Mock).mockResolvedValue(0);
+      mockPrisma.notification.count.mockResolvedValue(0 as never);
+
+      await expect(service.dismiss(USER_ID, 'other-users-notif')).rejects.toThrow(NotFoundException);
+      expect(mockPrisma.notification.count).toHaveBeenCalledWith({ where: { id: 'other-users-notif', userId: USER_ID } });
+    });
+  });
+
+  // ==========================================================================
+  // status filter and dismiss-all (issue #1090)
+  // ==========================================================================
+
+  describe('list() status filter', () => {
+    async function whereFor(query: Partial<NotificationListQueryDto>) {
+      mockPrisma.$transaction.mockImplementation((ops: any) => Promise.all(ops) as never);
+      mockPrisma.notification.findMany.mockResolvedValue([] as never);
+      mockPrisma.notification.count.mockResolvedValue(0 as never);
+      await service.list(USER_ID, defaultQuery(query));
+      return (mockPrisma.notification.findMany.mock.calls[0]![0] as { where: Record<string, unknown> }).where;
+    }
+
+    it('status=dismissed lists only dismissed rows, still scoped to the user', async () => {
+      expect(await whereFor({ status: 'dismissed' })).toEqual({ userId: USER_ID, dismissedAt: { not: null } });
+    });
+
+    it('status=read lists live read rows', async () => {
+      expect(await whereFor({ status: 'read' })).toEqual({ userId: USER_ID, dismissedAt: null, readAt: { not: null } });
+    });
+
+    it('status=unread lists live unread rows', async () => {
+      expect(await whereFor({ status: 'unread' })).toEqual({ userId: USER_ID, dismissedAt: null, readAt: null });
+    });
+
+    it('status=all (and the default) lists every live row and never a dismissed one', async () => {
+      expect(await whereFor({ status: 'all' })).toEqual({ userId: USER_ID, dismissedAt: null });
+      mockPrisma.notification.findMany.mockClear();
+      expect(await whereFor({})).toEqual({ userId: USER_ID, dismissedAt: null });
+    });
+
+    it('status wins over the older unreadOnly flag', async () => {
+      expect(await whereFor({ status: 'read', unreadOnly: true })).toEqual({
+        userId: USER_ID,
+        dismissedAt: null,
+        readAt: { not: null },
+      });
+    });
+  });
+
+  describe('dismissAll()', () => {
+    it('dismisses every live row of the user, implies read, sets updated_at, and reports the count and badge', async () => {
+      (mockPrisma.$executeRaw as jest.Mock).mockResolvedValue(7);
+      mockPrisma.notification.count.mockResolvedValue(0 as never);
+
+      expect(await service.dismissAll(USER_ID)).toEqual({ dismissed: 7, unreadCount: 0 });
+
+      expectRaw(0, ['dismissed_at = now()', 'COALESCE(read_at, now())', 'updated_at = now()', 'dismissed_at IS NULL'], [USER_ID]);
+    });
+
+    it('narrows to one scope when given', async () => {
+      (mockPrisma.$executeRaw as jest.Mock).mockResolvedValue(2);
+      mockPrisma.notification.count.mockResolvedValue(1 as never);
+
+      expect(await service.dismissAll(USER_ID, 'scope-1')).toEqual({ dismissed: 2, unreadCount: 1 });
+
+      expectRaw(0, ['scope_id =', 'dismissed_at IS NULL'], [USER_ID, 'scope-1']);
+    });
+  });
+});
