@@ -57,6 +57,7 @@
     "cli-infra-extension-points",
     "cli-stack-ports-free",
     "cli-tui-component-kit",
+    "cli-tui-install-app-dir-template",
     "cli-tui-seam-1115",
     "cli-update-notice",
     "cli-update-retry-after-failure",
