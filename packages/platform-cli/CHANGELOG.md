@@ -1,5 +1,13 @@
 # @marinoscar/platform-cli
 
+## 0.1.0-next.30
+
+### Patch Changes
+
+- 7af6ffe: `deploy update` no longer stops at "Look for a new revision" when the app repository moves a tag. The deployment clone now fetches with `git fetch --tags --force --prune`, so a moved tag (a `stable` or `latest` marker) is updated in place instead of failing with "would clobber existing tag" (#1151).
+  - @marinoscar/platform-contract@0.1.0-next.30
+  - @marinoscar/platform-infra@0.1.0-next.30
+
 ## 0.1.0-next.29
 
 ### Patch Changes
