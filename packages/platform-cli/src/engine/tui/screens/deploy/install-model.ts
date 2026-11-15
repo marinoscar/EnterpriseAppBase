@@ -46,6 +46,8 @@
  * 4. RESUME ONLY WHEN THE ANSWERS STILL MATCH THE FILE. See `decideResume`.
  * =============================================================================
  */
+import { join } from 'node:path';
+
 import { UsageError } from '../../../errors.js';
 import { isDeployment, resolveEnvPath } from '../../../deploy/deployment-evidence.js';
 import { readEnvFile } from '../../../deploy/env-file.js';
@@ -389,4 +391,29 @@ export function validateAppName(value: string): string | undefined {
 export function assertAppName(value: string): void {
   const message = validateAppName(value);
   if (message !== undefined) throw new UsageError(`App name ${message}.`);
+}
+
+/**
+ * Where the install screen looks for the template its questions come from,
+ * in order (#1163).
+ *
+ * 1. The deployment's own checkout: `<deployRoot>/repo/<appDir>/infra/compose`,
+ *    the same directory the pipeline's environment step reads (`composeDirFor`).
+ * 2. The checkout this CLI is running in (`gitRoot`), under the same `appDir`;
+ *    a first install has no checkout at the deploy root yet (#586).
+ *
+ * ⚠ `appDir` IS LOAD-BEARING. An app composed with `deploy.appDir` keeps its
+ * template under that directory. Reading `<repo>/infra/compose` instead found
+ * nothing, so the screen asked no questions and the non-interactive pipeline
+ * then refused every essential key as missing. `''` (the repository root)
+ * gives the paths this function always produced.
+ */
+export function templateCandidates(deployRoot: string, gitRoot: string | undefined, appDir: string): string[] {
+  const appSegments = appDir === '' ? [] : appDir.split('/');
+  const template = ['infra', 'compose', '.env.example'];
+  const candidates = [join(deployRoot, 'repo', ...appSegments, ...template)];
+  if (gitRoot !== undefined) {
+    candidates.push(join(gitRoot, ...appSegments, ...template));
+  }
+  return candidates;
 }

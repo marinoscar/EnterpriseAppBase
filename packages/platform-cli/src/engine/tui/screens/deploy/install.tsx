@@ -1,5 +1,4 @@
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { useState, type ReactNode } from 'react';
 
 import { listEnvGroups } from '../../../../core/index.js';
@@ -9,6 +8,7 @@ import { parseEnvExample, type EnvVarSpec } from '../../../deploy/env-spec.js';
 import { runCommand, withSignal } from '../../../deploy/executor.js';
 import type { DeployHooks } from '../../../deploy/hooks.js';
 import { runInstall } from '../../../deploy/install.js';
+import { appDir } from '../../../deploy/app-dir.js';
 import { DEFAULT_APPS_ROOT, deployRootFor } from '../../../deploy/layout.js';
 import { findGitRoot } from '../../../deploy/repo.js';
 import { readState, type DeployState } from '../../../deploy/state.js';
@@ -39,6 +39,7 @@ import {
   installFields,
   reconcileSeed,
   seedAt,
+  templateCandidates,
   EMPTY_SEED,
   type AppName,
   type ResumeDecision,
@@ -329,7 +330,7 @@ function installRerun(
  * one exist.
  */
 function loadSpecs(deployRoot: string): EnvVarSpec[] {
-  for (const path of templateCandidates(deployRoot)) {
+  for (const path of templateCandidates(deployRoot, findGitRoot(process.cwd()), appDir())) {
     try {
       return parseEnvExample(readFileSync(path, 'utf8'));
     } catch {
@@ -337,15 +338,6 @@ function loadSpecs(deployRoot: string): EnvVarSpec[] {
     }
   }
   return [];
-}
-
-function templateCandidates(deployRoot: string): string[] {
-  const candidates = [join(deployRoot, 'repo', 'infra', 'compose', '.env.example')];
-  const gitRoot = findGitRoot(process.cwd());
-  if (gitRoot !== undefined) {
-    candidates.push(join(gitRoot, 'infra', 'compose', '.env.example'));
-  }
-  return candidates;
 }
 
 /** The state recorded for a deployment, or undefined when there is none to read. */
