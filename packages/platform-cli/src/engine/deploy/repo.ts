@@ -288,7 +288,12 @@ export async function ensureCheckout(
     ]);
   } else {
     options.hooks?.onProgress?.('Fetching');
-    await runGit(options, path, ['fetch', '--tags', '--prune', 'origin']);
+    // ⚠ `--force`: without it git refuses to update a tag that already exists
+    // locally ("would clobber existing tag"), so an app that MOVES a tag (a
+    // `stable` or `latest` marker) wedges every later update at this fetch
+    // (#1151). The clone is a deployment mirror and nothing on the server
+    // creates tags in it, so mirroring the origin's tags loses nothing.
+    await runGit(options, path, ['fetch', '--tags', '--force', '--prune', 'origin']);
   }
 
   const previousSha = exists ? await git(scoped, ['rev-parse', 'HEAD']) : undefined;

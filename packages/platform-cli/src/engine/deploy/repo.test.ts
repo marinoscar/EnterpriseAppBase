@@ -261,6 +261,25 @@ describe('ensureCheckout', () => {
     expect(second.sha).not.toBe(first.sha);
   });
 
+  it('follows a tag the origin moved, instead of refusing to clobber it (#1151)', async () => {
+    const origin = makeOrigin();
+    const root = deployRoot();
+    const target = { url: origin, ref: 'develop', source: 'flag' as const };
+    git(origin, 'tag', 'stable', 'HEAD~1');
+
+    const first = await ensureCheckout(target, { deployRoot: root, runCommand });
+    expect(git(first.path, 'rev-parse', 'stable^{commit}')).toBe(git(origin, 'rev-parse', 'HEAD~1'));
+
+    writeFileSync(join(origin, 'README.md'), 'three\n');
+    git(origin, 'commit', '--quiet', '-am', 'third');
+    git(origin, 'tag', '--force', 'stable', 'HEAD');
+
+    const second = await ensureCheckout(target, { deployRoot: root, runCommand });
+
+    expect(second.changed).toBe(true);
+    expect(git(second.path, 'rev-parse', 'stable^{commit}')).toBe(git(origin, 'rev-parse', 'HEAD'));
+  });
+
   it('checks out a tag', async () => {
     const origin = makeOrigin();
     const root = deployRoot();
