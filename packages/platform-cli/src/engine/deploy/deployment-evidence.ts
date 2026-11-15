@@ -28,6 +28,8 @@
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { composeDirFor } from './app-dir.js';
+
 /** Where a deployment's configuration lives under the current layout. */
 export function envPathFor(deployRoot: string): string {
   return join(deployRoot, '.env');
@@ -43,7 +45,7 @@ export function envPathFor(deployRoot: string): string {
  * exists to remove, on every server already running.
  */
 export function legacyEnvPathFor(deployRoot: string): string {
-  return join(deployRoot, 'repo', 'infra', 'compose', '.env');
+  return join(composeDirFor(deployRoot), '.env');
 }
 
 /** A git checkout, by the one marker that does not require running git. */

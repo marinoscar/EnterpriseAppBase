@@ -1,5 +1,4 @@
-import { join } from 'node:path';
-
+import { composeDirFor } from './app-dir.js';
 import { composeFileArgs } from './compose-files.js';
 
 // =============================================================================
@@ -21,7 +20,7 @@ import { composeFileArgs } from './compose-files.js';
 export function composeCwd(deployRoot: string): string {
   // The relative build contexts in base.compose.yml (`../..`, `../nginx`)
   // resolve against the COMPOSE FILE's directory, so this is not incidental.
-  return join(deployRoot, 'repo', 'infra', 'compose');
+  return composeDirFor(deployRoot);
 }
 
 /**

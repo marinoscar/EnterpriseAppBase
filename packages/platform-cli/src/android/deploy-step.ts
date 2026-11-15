@@ -12,6 +12,7 @@ import {
   type PublishedApk,
   type VersionBump,
 } from './operations.js';
+import { appCheckoutPath } from '../engine/index.js';
 import { ANDROID_APP_DIR, findRepoRoot } from './paths.js';
 import { commitVersionFile, runRelease, ReleaseStepError } from './release.js';
 import {
@@ -166,8 +167,8 @@ export function androidBuildSource(
   findOwn: () => string | undefined,
   bump: BumpPart | undefined = undefined,
 ): AndroidBuildSource | undefined {
-  // The deploy's own checkout (the engine's layout: `<deployRoot>/repo`).
-  const deployCheckout = join(deployRoot, 'repo');
+  // The app directory of the deploy's checkout (`<deployRoot>/repo[/<appDir>]`).
+  const deployCheckout = appCheckoutPath(deployRoot);
   const deployHasAndroid = existsSync(join(deployCheckout, ANDROID_APP_DIR));
   if (bump === undefined && deployHasAndroid) return { repoRoot: deployCheckout, kind: 'deployment' };
   const own = findOwn();

@@ -231,6 +231,7 @@ export type {
   HostFacts,
 } from './deploy/state.js';
 
+export { appCheckoutPath } from './deploy/app-dir.js';
 export { collectHostFacts } from './deploy/host-facts.js';
 export type { CollectHostFactsOptions, OsProbe } from './deploy/host-facts.js';
 

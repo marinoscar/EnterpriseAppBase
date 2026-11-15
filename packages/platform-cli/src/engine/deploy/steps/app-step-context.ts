@@ -1,5 +1,5 @@
 import type { runCommand as defaultRunCommand } from '../executor.js';
-import { checkoutPathFor } from '../version-step.js';
+import { appCheckoutPath } from '../app-dir.js';
 
 import type { StepContext } from './pipeline.js';
 import type { DeployPipeline, DeployStepContext } from './registry.js';
@@ -32,7 +32,7 @@ export function appStepContext(
     deployRoot,
     env: redactedValues(envSource ?? (() => context.env)),
     answers: redactedValues(() => context.options.answers),
-    checkoutPath: checkoutPathFor(deployRoot),
+    checkoutPath: appCheckoutPath(deployRoot),
     commitSha: context.commitSha,
     hooks: context.hooks,
     log(line) {
@@ -45,7 +45,7 @@ export function appStepContext(
     },
     async exec(argv, options) {
       const result = await context.runCommand(argv, {
-        cwd: options?.cwd ?? checkoutPathFor(deployRoot),
+        cwd: options?.cwd ?? appCheckoutPath(deployRoot),
         ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
         ...(options?.allowExitCodes === undefined ? {} : { allowExitCodes: options.allowExitCodes }),
         redact: context.journal.redact,

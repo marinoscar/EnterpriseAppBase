@@ -1,5 +1,7 @@
 import { join } from 'node:path';
 
+import { composeDirFor } from './app-dir.js';
+
 import { composeFileArgs } from './compose-files.js';
 import { explainComposeFailure } from './compose-hints.js';
 import type { runCommand } from './executor.js';
@@ -124,9 +126,9 @@ function composeArgs(
 ): string[] {
   return [
     ...(options.composeProject === undefined ? [] : ['-p', options.composeProject]),
-    ...composeFileArgs(options.groups, join(options.deployRoot, 'repo', 'infra', 'compose')),
+    ...composeFileArgs(options.groups, composeDirFor(options.deployRoot)),
     '--project-directory',
-    join(options.deployRoot, 'repo', 'infra', 'compose'),
+    composeDirFor(options.deployRoot),
   ];
 }
 
@@ -134,7 +136,7 @@ function composeCwd(deployRoot: string): string {
   // The relative build contexts in base.compose.yml (`../..`, `../nginx`)
   // resolve against the COMPOSE FILE's directory, so the working directory is
   // not incidental here.
-  return join(deployRoot, 'repo', 'infra', 'compose');
+  return composeDirFor(deployRoot);
 }
 
 /** One HTTP probe, with its own timeout and a readable failure. */

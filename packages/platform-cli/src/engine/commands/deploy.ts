@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 
+import { composeDirFor } from '../deploy/app-dir.js';
+
 import type { Command } from 'commander';
 
 import { cliName, envVar } from '../identity.js';
@@ -773,7 +775,7 @@ export async function runCertsCommand(
 
 /** The registration address a renewal should use, from the deployment's own env. */
 function emailFor(deployRoot: string): string {
-  const path = join(deployRoot, 'repo', 'infra', 'compose', '.env');
+  const path = join(composeDirFor(deployRoot), '.env');
   try {
     const email = parseEnvFile(readFileSync(path, 'utf8')).get('INITIAL_ADMIN_EMAIL');
     if (email !== undefined && email !== '') return email;
@@ -984,7 +986,7 @@ function readRecordSafely(deployRoot: string): ReturnType<typeof readState> {
 function readEnvironment(deployRoot: string): { env: Map<string, string> } | undefined {
   try {
     const contents = readFileSync(
-      join(deployRoot, 'repo', 'infra', 'compose', '.env'),
+      join(composeDirFor(deployRoot), '.env'),
       'utf8',
     );
     return { env: parseEnvFile(contents) };

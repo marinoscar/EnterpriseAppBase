@@ -46,6 +46,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { UsageError } from '../errors.js';
+import { appDir } from './app-dir.js';
 
 /**
  * The manifests the version step reads and writes when an app does not choose:
@@ -153,14 +154,19 @@ export function resetVersionedManifestsForTests(): void {
 
 /**
  * The manifests in force: the app's `deploy.versionedManifests`, else the
- * default four. THE FIRST ENTRY IS THE VERSION SOURCE: {@link currentVersion}
+ * default four (prefixed with `deploy.appDir` when one is set; an explicit
+ * list is always relative to the repository root). THE FIRST ENTRY IS THE VERSION SOURCE: {@link currentVersion}
  * reads the release version from it (falling through to later entries only
  * when it is absent or carries no version).
  *
  * @internal
  */
 export function versionedManifests(): readonly string[] {
-  return configuredManifests ?? VERSIONED_MANIFESTS;
+  if (configuredManifests !== undefined) return configuredManifests;
+  // The default four are paths inside the APP; with an app directory
+  // (`deploy.appDir`) they sit under it, so a subdirectory app needs no list.
+  const dir = appDir();
+  return dir === '' ? VERSIONED_MANIFESTS : VERSIONED_MANIFESTS.map((manifest) => `${dir}/${manifest}`);
 }
 
 /** An explicit list (validated) or the one in force. */
@@ -367,19 +373,38 @@ export function writeVersion(
     changed.push(relative);
   }
 
-  const lockPath = join(checkoutPath, 'package-lock.json');
+  // The lockfile lives in the app directory (the repository root by default).
+  const lockRelative = lockfileRelativePath();
+  const lockPath = join(checkoutPath, lockRelative);
   try {
     const raw = readFileSync(lockPath, 'utf8');
     const updated = updateLockfile(raw, version, listed);
     if (updated !== raw) {
       writeFileSync(lockPath, updated);
-      changed.push('package-lock.json');
+      changed.push(lockRelative);
     }
   } catch {
-    absent.push('package-lock.json');
+    absent.push(lockRelative);
   }
 
   return { changed, absent };
+}
+
+/** The lockfile's path from the checkout root: `package-lock.json`, under `deploy.appDir` when set. */
+function lockfileRelativePath(): string {
+  const dir = appDir();
+  return dir === '' ? 'package-lock.json' : `${dir}/package-lock.json`;
+}
+
+/**
+ * The lockfile key of a listed manifest: its directory, relative to the
+ * lockfile (so the `deploy.appDir` prefix of a root-relative manifest path is
+ * dropped).
+ */
+function lockfileWorkspaceKey(manifest: string): string {
+  const directory = manifest.replace(/\/package\.json$/, '');
+  const dir = appDir();
+  return dir !== '' && directory.startsWith(`${dir}/`) ? directory.slice(dir.length + 1) : directory;
 }
 
 /**
@@ -395,7 +420,7 @@ export function updateLockfile(raw: string, version: string, manifests?: readonl
   let out = raw;
 
   for (const relative of resolveManifests(manifests)) {
-    const workspace = escapeRegExp(relative.replace(/\/package\.json$/, ''));
+    const workspace = escapeRegExp(lockfileWorkspaceKey(relative));
     // The entry opens with its path key; the `version` field follows within a
     // few lines. Bounded so a malformed lockfile cannot make this run away.
     const pattern = new RegExp(

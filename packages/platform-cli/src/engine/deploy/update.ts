@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
+import { appCheckoutPath } from './app-dir.js';
+
 import { cliName, cliVersion } from '../identity.js';
 import { PreconditionError, UsageError } from '../errors.js';
 import {
@@ -1294,7 +1296,7 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
       async run(context) {
         const project = composeProjectFor(context.state);
         await reconcileEdgeConfig({
-          checkoutPath: checkoutPathFor(context.options.deployRoot),
+          checkoutPath: appCheckoutPath(context.options.deployRoot),
           readRunning: () => readRunningEdgeConfig(context),
           recreate: async () => {
             await compose(context, [...RECREATE_NGINX], { timeoutMs: 5 * 60_000 });

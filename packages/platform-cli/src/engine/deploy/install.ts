@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
+import { composeDirFor } from './app-dir.js';
+
 import { cliName, cliVersion } from '../identity.js';
 import { PreconditionError, UsageError } from '../errors.js';
 import {
@@ -761,13 +763,7 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
       id: 'environment',
       title: 'Configure the environment',
       async run(context) {
-        const templatePath = join(
-          context.options.deployRoot,
-          'repo',
-          'infra',
-          'compose',
-          '.env.example',
-        );
+        const templatePath = join(composeDirFor(context.options.deployRoot), '.env.example');
         const specs = parseEnvExample(readFileSync(templatePath, 'utf8'));
 
         const path = envFilePath(context.options.deployRoot);

@@ -120,7 +120,7 @@ export interface DeployStepContext {
   readonly pipeline: DeployPipeline;
   /** The deployment root, e.g. `/opt/infra/apps/<app>`. */
   readonly deployRoot: string;
-  /** The app's checkout, `<deployRoot>/repo` (present from `checkout` / `fetch` on). */
+  /** The app's directory in the checkout: `<deployRoot>/repo`, or `<deployRoot>/repo/<appDir>` with `createCli({ deploy: { appDir } })` (present from `checkout` / `fetch` on). */
   readonly checkoutPath: string;
   /** The commit being deployed, once the pipeline knows it. */
   readonly commitSha: string | undefined;
