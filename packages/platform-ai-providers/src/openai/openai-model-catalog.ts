@@ -213,9 +213,11 @@ export const OPENAI_CLASSIFIER_RULES: readonly OpenAiClassifierRule[] = [
   { match: /^computer-use/, capabilities: null },
   { match: /^gpt-3\.5-turbo-instruct/, capabilities: null },
 
-  // ---- GPT-5 family: reasoning, except the `-chat` variants.
-  { match: /^gpt-5(?:\.\d+)?-chat/, capabilities: CHAT_MULTIMODAL },
-  { match: /^gpt-5(?:[.-]|$)/, capabilities: reasoningMultimodal(GPT5_EFFORTS) },
+  // ---- GPT-5 and every later GPT generation (gpt-6, gpt-6.1, gpt-7, ...): reasoning, except the `-chat`
+  // variants. A new generation keeps the GPT-5 shape until a rule says otherwise, so its models arrive
+  // classified (and can be enabled) instead of `unclassified` with no capability at all.
+  { match: /^gpt-(?:[5-9]|[1-9]\d)(?:\.\d+)?-chat/, capabilities: CHAT_MULTIMODAL },
+  { match: /^gpt-(?:[5-9]|[1-9]\d)(?:[.-]|$)/, capabilities: reasoningMultimodal(GPT5_EFFORTS) },
 
   // ---- o-series reasoning.
   { match: /^o[13]-mini(?:-|$)/, capabilities: REASONING_TEXT },
