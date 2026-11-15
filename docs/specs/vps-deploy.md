@@ -280,8 +280,8 @@ an API running as one isolates no organization from another.
   statements so a provider that refuses one is reported for what it is and
   accepted only with `--allow-reduced-role`. The name passes the same
   conservative grammar as a database name and is double-quoted.
-- **The password** is `randomBytes(32)` base64url, generated, never prompted,
-  and reaches the server as a SCRAM-SHA-256 verifier on `psql -f -`'s stdin
+- **The password** is `randomBytes(32)` base64url unless the operator typed one
+  (at least 12 characters; never a flag), and reaches the server as a SCRAM-SHA-256 verifier on `psql -f -`'s stdin
   (`runPsqlScript`; `runCommand` gained `input`), so it is in neither argv nor
   the server's statement log. A test pins the verifier against the RFC 7677
   example. `.env` (0600) is the only place the password is stored.
