@@ -1342,6 +1342,7 @@ function appRoleOptions(
     ...(appDbUser === undefined ? {} : { appDbUser }),
     ...(adminUser === undefined ? {} : { adminUser }),
     ...(fromAnswers.adminPassword === undefined ? {} : { adminPassword: fromAnswers.adminPassword }),
+    ...(fromAnswers.appDbPassword === undefined ? {} : { appDbPassword: fromAnswers.appDbPassword }),
     ...(options.skipRoleProvisioning === true ? { skipRoleProvisioning: true } : {}),
     ...(options.allowSuperuser === true ? { allowSuperuser: true } : {}),
     ...(options.rotateAppPassword === true ? { rotateAppPassword: true } : {}),

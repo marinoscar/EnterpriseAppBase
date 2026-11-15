@@ -56,6 +56,7 @@ import { shouldAsk } from '../../../deploy/env-wizard.js';
 import type { EnvVarSpec } from '../../../deploy/env-spec.js';
 import { deployRootFor } from '../../../deploy/layout.js';
 import type { DeployState } from '../../../deploy/state.js';
+import { MIN_APP_PASSWORD_LENGTH } from '../../../deploy/app-role.js';
 import { isScreenField, type FieldSpec } from './model.js';
 
 /** The app name, as two variables. See rule 3 in the header. */
@@ -416,4 +417,67 @@ export function templateCandidates(deployRoot: string, gitRoot: string | undefin
     candidates.push(join(gitRoot, ...appSegments, ...template));
   }
   return candidates;
+}
+
+/**
+ * The two optional questions about the app's own database user (#1166).
+ *
+ * The screen cannot ask mid-run (readline cannot share stdin with ink), and it
+ * cannot know before the run whether the login entered above is a superuser.
+ * So it asks up front, optionally: both are used ONLY when that login turns out
+ * to be an administrator, and blank means "the default name" and "generate a
+ * strong password".
+ */
+export function appRoleFields(): FieldSpec[] {
+  return [
+    {
+      key: '__app_db_user',
+      label: 'app database user',
+      help:
+        'If the database login above is an administrator, the installer creates this ordinary user for the app. Empty uses <app>_app.',
+      placeholder: '',
+      secret: false,
+      prefilled: false,
+      validate: (value) =>
+        value === '' || /^[a-z_][a-z0-9_]{0,62}$/.test(value)
+          ? undefined
+          : 'lowercase letters, digits and _, starting with a letter or _',
+    },
+    {
+      key: '__app_db_password',
+      label: 'app database password',
+      help: 'Password for that user. Empty generates a strong one (saved to .env only).',
+      placeholder: '',
+      secret: true,
+      prefilled: false,
+      validate: (value) =>
+        value === '' || value.length >= MIN_APP_PASSWORD_LENGTH
+          ? undefined
+          : `at least ${MIN_APP_PASSWORD_LENGTH} characters, or empty to generate one`,
+    },
+  ];
+}
+
+/**
+ * What the screen passes `runInstall` about the app's database user.
+ *
+ * ⚠ CREATING IT IS THE DEFAULT. The screen runs non-interactively, so the
+ * pipeline's "create a dedicated user?" question cannot be asked; without
+ * consent in advance an administrator login stopped the install. Provisioning
+ * only ever acts on a superuser/BYPASSRLS login (an ordinary one is used as it
+ * is), so consenting by default is the safe choice. "Create no role" and "Run
+ * as a superuser anyway" are the operator's explicit way out.
+ */
+export function appRoleChoice(
+  answers: ReadonlyMap<string, string>,
+  chosen: ReadonlySet<string>,
+): { appDbUser?: string; appDbPassword?: string; provisionAppRole?: true } {
+  const user = answers.get('__app_db_user') ?? '';
+  const password = answers.get('__app_db_password') ?? '';
+  const optedOut = chosen.has('--skip-role-provisioning') || chosen.has('--allow-superuser');
+  return {
+    ...(user === '' ? {} : { appDbUser: user }),
+    ...(password === '' ? {} : { appDbPassword: password }),
+    ...(optedOut ? {} : { provisionAppRole: true }),
+  };
 }

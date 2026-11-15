@@ -337,6 +337,8 @@ export const VALUE_FLAGS: Readonly<Record<RunnableAction, readonly ValueFlag[]>>
     REF,
     { flag: '--email', field: '__email' },
     { flag: '--group', field: '__group' },
+    // The role's PASSWORD is deliberately not here: it is never a flag (argv).
+    { flag: '--app-db-user', field: '__app_db_user' },
   ],
   update: [ROOT, REF, PROXY_CONTAINER, PROXY_MODE, { flag: '--app-version', field: '__app_version' }],
 });

@@ -11,7 +11,7 @@ import {
   type DatabaseSettings,
   type RoleAttributes,
 } from './checks/index.js';
-import { canPrompt, promptSecret, type PromptContext } from '../prompt.js';
+import { canPrompt, prompt, promptSecret, type PromptContext } from '../prompt.js';
 import { consented, obtainConsent, type ConsentOptions } from './consent.js';
 import { metadataFor, type EnvVarMetadata } from './env-metadata.js';
 import type { SecretEntry } from './journal.js';
@@ -303,6 +303,12 @@ export function plannedRoleName(input: {
 export interface AppRoleOptions {
   /** `--app-db-user`. */
   appDbUser?: string | undefined;
+  /**
+   * The application role's password, when the operator chooses it: the TUI's
+   * field or `APP_DB_PASSWORD` in the answers file. Never a flag (argv).
+   * Absent: a strong one is generated.
+   */
+  appDbPassword?: string | undefined;
   /** `--admin-user`; the password is never a flag (see `resolveAdminLogin`). */
   adminUser?: string | undefined;
   /** From the answers file (`DB_ADMIN_PASSWORD`) or the environment; never argv. */
@@ -324,7 +330,7 @@ export interface AppRoleOptions {
 }
 
 /** The answers-file keys that feed `AppRoleOptions`; none of them ever reaches `.env`. */
-export const APP_ROLE_ANSWER_KEYS = ['DB_ADMIN_USER', 'DB_ADMIN_PASSWORD', 'APP_DB_USER'] as const;
+export const APP_ROLE_ANSWER_KEYS = ['DB_ADMIN_USER', 'DB_ADMIN_PASSWORD', 'APP_DB_USER', 'APP_DB_PASSWORD'] as const;
 
 /**
  * Splits the role keys out of an answers map. They are INPUT to provisioning,
@@ -333,7 +339,7 @@ export const APP_ROLE_ANSWER_KEYS = ['DB_ADMIN_USER', 'DB_ADMIN_PASSWORD', 'APP_
  */
 export function extractRoleAnswers(answers: ReadonlyMap<string, string> | undefined): {
   answers: Map<string, string> | undefined;
-  role: Pick<AppRoleOptions, 'adminUser' | 'adminPassword' | 'appDbUser'>;
+  role: Pick<AppRoleOptions, 'adminUser' | 'adminPassword' | 'appDbUser' | 'appDbPassword'>;
 } {
   if (answers === undefined) return { answers: undefined, role: {} };
   const rest = new Map(answers);
@@ -345,12 +351,14 @@ export function extractRoleAnswers(answers: ReadonlyMap<string, string> | undefi
   const adminUser = take('DB_ADMIN_USER');
   const adminPassword = take('DB_ADMIN_PASSWORD');
   const appDbUser = take('APP_DB_USER');
+  const appDbPassword = take('APP_DB_PASSWORD');
   return {
     answers: rest.size === 0 ? undefined : rest,
     role: {
       ...(adminUser === undefined ? {} : { adminUser }),
       ...(adminPassword === undefined ? {} : { adminPassword }),
       ...(appDbUser === undefined ? {} : { appDbUser }),
+      ...(appDbPassword === undefined ? {} : { appDbPassword }),
     },
   };
 }
@@ -414,6 +422,27 @@ export function loginHelpMetadata(key: string): EnvVarMetadata {
   };
 }
 
+/** The shortest application-role password an operator may choose. */
+export const MIN_APP_PASSWORD_LENGTH = 12;
+
+/** Refuses a chosen application-role password that is too weak to protect a database. */
+export function assertAppPassword(password: string): void {
+  if (password.length < MIN_APP_PASSWORD_LENGTH) {
+    throw new UsageError(
+      `The application database password must be at least ${MIN_APP_PASSWORD_LENGTH} characters. Leave it empty to have a strong one generated.`,
+    );
+  }
+}
+
+function assertUsableRoleName(roleName: string, adminName: string): void {
+  assertCreatableRoleName(roleName);
+  if (roleName === adminName) {
+    throw new UsageError(
+      `The application role cannot be the administrative login "${adminName}". Choose a different name (--app-db-user).`,
+    );
+  }
+}
+
 /** The options `ensureApplicationRole` takes from the shared flags. */
 export function roleOptionsFrom(
   options: AppRoleOptions & Omit<ConsentOptions, 'flag'>,
@@ -422,6 +451,7 @@ export function roleOptionsFrom(
   EnsureApplicationRoleOptions,
   | 'admin'
   | 'roleName'
+  | 'password'
   | 'skip'
   | 'allowSuperuser'
   | 'rotate'
@@ -435,6 +465,7 @@ export function roleOptionsFrom(
   return {
     admin,
     roleName: options.appDbUser,
+    password: options.appDbPassword,
     skip: options.skipRoleProvisioning,
     allowSuperuser: options.allowSuperuser,
     rotate: options.rotateAppPassword,
@@ -469,6 +500,18 @@ export interface EnsureApplicationRoleOptions extends Omit<ConsentOptions, 'flag
   admin?: AdminLogin | undefined;
   /** `--app-db-user`: the role to provision. Default `<app>_app`. */
   roleName?: string | undefined;
+  /**
+   * The password the operator chose for the role (the TUI field, or
+   * `APP_DB_PASSWORD` in the answers file). Absent: generated. For a role that
+   * already exists it is tried first, and set only with the same consent a
+   * generated one needs.
+   */
+  password?: string | undefined;
+  /**
+   * Replaces the terminal's free-text questions (the role's name and
+   * password, asked after an interactive yes); the test seam.
+   */
+  askText?: ((question: string, secret: boolean) => Promise<string>) | undefined;
   /** `--skip-role-provisioning`: the operator supplies an ordinary role. */
   skip?: boolean | undefined;
   /** `--allow-superuser`: run as a privileged login knowingly. */
@@ -715,19 +758,17 @@ async function provision(
 
   // 2. The role this will provision.
   const recorded = options.recordedEnv;
-  const roleName = plannedRoleName({
+  let roleName = plannedRoleName({
     flag: options.roleName,
     recordedUser: recorded?.get('POSTGRES_USER'),
     adminUser: adminName,
   });
-  assertCreatableRoleName(roleName);
-  if (roleName === adminName) {
-    throw new UsageError(
-      `The application role cannot be the administrative login "${adminName}". Pass a different --app-db-user.`,
-    );
+  assertUsableRoleName(roleName, adminName);
+  let chosenPassword = options.password === undefined || options.password === '' ? undefined : options.password;
+  if (chosenPassword !== undefined) {
+    assertAppPassword(chosenPassword);
+    options.onSecrets?.([{ key: 'POSTGRES_PASSWORD', value: chosenPassword }]);
   }
-  const existingPassword =
-    recorded?.get('POSTGRES_USER') === roleName ? recorded.get('POSTGRES_PASSWORD') : undefined;
 
   const notConsented = (reason: string): ApplicationRoleResult => {
     if (options.whenNotConsented === 'warn') {
@@ -742,12 +783,15 @@ async function provision(
   if (!explicit) {
     const consent = await obtainConsent(
       `"${adminName}" is ${privilegeWords(attributes)}, so row-level security would be inert and every organization could read every other's data. ` +
-        `Create a dedicated ordinary role "${roleName}" now, using "${adminName}" once (its password is held in memory and not saved)?`,
+        `Create a dedicated ordinary database user for the app ("${roleName}" unless you name another), using "${adminName}" once (its password is held in memory and not saved)?`,
       {
         flag: options.provisionConsent,
         nonInteractive: options.nonInteractive,
         promptContext: options.promptContext,
         ask: options.ask,
+        // The safe answer: the app gets its own ordinary login. Saying no
+        // still stops the install with the alternatives spelled out.
+        defaultValue: true,
       },
     );
     if (!consented(consent)) {
@@ -759,7 +803,38 @@ async function provision(
           'pass --skip-role-provisioning with an ordinary POSTGRES_USER, or --allow-superuser to run as this login knowingly.',
       );
     }
+    // A yes typed at the terminal: ask what the role is called and its
+    // password, both optional (Enter keeps the planned name and generates a
+    // strong password). A consent given in advance (--provision-app-role)
+    // asks nothing more, so an unattended run stays unattended.
+    if (consent === 'granted' && (options.askText !== undefined || canPrompt(options.promptContext))) {
+      const ask =
+        options.askText ??
+        ((question: string, secret: boolean): Promise<string> =>
+          secret ? promptSecret(question, options.promptContext) : prompt(question, options.promptContext));
+      if (options.roleName === undefined) {
+        const answer = (await ask(`App database user [${roleName}]: `, false)).trim();
+        if (answer !== '') {
+          roleName = answer;
+          assertUsableRoleName(roleName, adminName);
+        }
+      }
+      if (chosenPassword === undefined) {
+        const answer = await ask(`Password for "${roleName}" (Enter generates a strong one): `, true);
+        if (answer !== '') {
+          assertAppPassword(answer);
+          chosenPassword = answer;
+          options.onSecrets?.([{ key: 'POSTGRES_PASSWORD', value: chosenPassword }]);
+        }
+      }
+    }
   }
+
+  // What a previous run recorded for this role, or the password the operator
+  // chose: either is tried before anything is reset (step 6).
+  const recordedPassword =
+    recorded?.get('POSTGRES_USER') === roleName ? recorded.get('POSTGRES_PASSWORD') : undefined;
+  const existingPassword = chosenPassword ?? recordedPassword;
 
   const maintenance: DatabaseSettings = { ...connection, database: MAINTENANCE_DATABASE };
 
@@ -890,7 +965,7 @@ async function provision(
     }
   }
   const generate = options.generatePassword ?? generateAppPassword;
-  const password = reuse ? (existingPassword as string) : generate();
+  const password = reuse ? (existingPassword as string) : (chosenPassword ?? generate());
   const verifier = reuse ? '' : scramSha256Verifier(password);
   // Before any statement carries them.
   if (!reuse) {

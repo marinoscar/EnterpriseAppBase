@@ -41,6 +41,8 @@ import {
   seedAt,
   templateCandidates,
   EMPTY_SEED,
+  appRoleChoice,
+  appRoleFields,
   type AppName,
   type ResumeDecision,
   type Seed,
@@ -398,6 +400,7 @@ function installFlagFields(state: DeployState | undefined, seed: Seed): FieldSpe
       validate: (value) =>
         value === '' || value.includes('@') ? undefined : 'must be an email address',
     },
+    ...appRoleFields(),
     {
       key: '__group',
       label: 'group',
@@ -484,6 +487,9 @@ async function performInstall(
   const ref = answers.get('__ref') ?? '';
   const email = answers.get('__email') ?? '';
   const groups = selectedGroups(answers.get('__group') ?? '');
+  // The app's own database user: created when the login is an administrator
+  // (see `appRoleChoice`), with the name and password entered here, if any.
+  const role = appRoleChoice(answers, chosen);
 
   // ⚠ `--all` is dropped before it reaches the pipeline; see the comment at
   // its call site below for why.
@@ -540,6 +546,7 @@ async function performInstall(
     // decide how many questions to ask. What the operator answered is carried
     // in `answers`; there is nothing left for `--all` to do downstream.
     ...pipelineToggles,
+    ...role,
     hooks,
   });
 

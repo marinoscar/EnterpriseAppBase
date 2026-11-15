@@ -45,14 +45,19 @@ export function labelFor(key: string): string {
     : key;
 }
 
+/** The screen fields that carry a secret (#1166): the app database user's password. */
+export const SECRET_SCREEN_FIELDS: ReadonlySet<string> = new Set(['__app_db_password']);
+
 /**
  * Whether a value must never be shown.
  *
- * ⚠ Screen fields are never secret: they are paths, ports and hostnames the
- * operator just typed. Masking them would hide the very facts the confirmation
- * screen exists to let someone check.
+ * ⚠ Screen fields are otherwise never secret: they are paths, ports and
+ * hostnames the operator just typed. Masking them would hide the very facts the
+ * confirmation screen exists to let someone check. The one exception is listed
+ * in `SECRET_SCREEN_FIELDS`.
  */
 export function shouldMask(key: string): boolean {
+  if (SECRET_SCREEN_FIELDS.has(key)) return true;
   if (isScreenField(key)) return false;
   return metadataFor(key).secret === true;
 }
