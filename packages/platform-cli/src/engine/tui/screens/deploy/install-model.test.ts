@@ -1,10 +1,11 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
 import { parseEnvExample, type EnvVarSpec } from '../../../deploy/env-spec.js';
+import { composeDirFor, resetAppDirForTests, setAppDir } from '../../../deploy/app-dir.js';
 import { deployRootFor } from '../../../deploy/layout.js';
 import { DEPLOY_STATE_VERSION, type DeployState } from '../../../deploy/state.js';
 import {
@@ -16,6 +17,7 @@ import {
   installFields,
   reconcileSeed,
   seedFor,
+  templateCandidates,
   validateAppName,
   validatePort,
   type Seed,
@@ -759,5 +761,50 @@ describe('validateAppName: refuses anything that would escape the apps root', ()
 
   it('rejects an empty name', () => {
     expect(validateAppName('')).toBeDefined();
+  });
+});
+
+describe('templateCandidates: the questions come from the app directory (#1163)', () => {
+  const deployRoot = join('/srv', 'apps', 'demo');
+  const gitRoot = join('/home', 'person-a', 'checkout');
+
+  it('reads <repo>/infra/compose when the app is the whole repository', () => {
+    expect(templateCandidates(deployRoot, gitRoot, '')).toEqual([
+      join(deployRoot, 'repo', 'infra', 'compose', '.env.example'),
+      join(gitRoot, 'infra', 'compose', '.env.example'),
+    ]);
+  });
+
+  it('reads <repo>/<appDir>/infra/compose for a subdirectory app, in both checkouts', () => {
+    expect(templateCandidates(deployRoot, gitRoot, 'console')).toEqual([
+      join(deployRoot, 'repo', 'console', 'infra', 'compose', '.env.example'),
+      join(gitRoot, 'console', 'infra', 'compose', '.env.example'),
+    ]);
+  });
+
+  it('splits a nested appDir into path segments', () => {
+    expect(templateCandidates(deployRoot, undefined, 'apps/console')).toEqual([
+      join(deployRoot, 'repo', 'apps', 'console', 'infra', 'compose', '.env.example'),
+    ]);
+  });
+
+  it('puts first exactly the template the pipeline environment step reads', () => {
+    try {
+      for (const dir of ['', 'console', 'apps/console']) {
+        setAppDir(dir);
+        expect(templateCandidates(deployRoot, undefined, dir)[0]).toBe(join(composeDirFor(deployRoot), '.env.example'));
+      }
+    } finally {
+      resetAppDirForTests();
+    }
+  });
+
+  it('finds a real subdirectory template that the old root-only path missed', () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-template-'));
+    const composeDir = join(root, 'repo', 'console', 'infra', 'compose');
+    mkdirSync(composeDir, { recursive: true });
+    writeFileSync(join(composeDir, '.env.example'), 'POSTGRES_HOST=localhost\n');
+    const [first] = templateCandidates(root, undefined, 'console');
+    expect(parseEnvExample(readFileSync(first!, 'utf8')).map((spec) => spec.key)).toEqual(['POSTGRES_HOST']);
   });
 });
