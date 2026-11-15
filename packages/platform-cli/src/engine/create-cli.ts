@@ -14,6 +14,7 @@ import {
 } from '../core/index.js';
 
 import { ensurePlatformRegistrations } from './builtin-registrations.js';
+import { setAppDir } from './deploy/app-dir.js';
 import { setVersionedManifests } from './deploy/app-version.js';
 import { registerEdgeConfigFile, type EdgeConfigFile } from './deploy/edge-config.js';
 import { registerDeployCheck, type DeployCheck } from './deploy/checks/registry.js';
@@ -97,6 +98,36 @@ export interface CreateCliDeployOptions {
    * ```
    */
   versionedManifests?: readonly string[] | undefined;
+
+  /**
+   * Where the app lives inside its repository, as a plain relative POSIX path
+   * (`'console'`, `'apps/x'`; one trailing slash is dropped). Default `''`: the
+   * app is the whole repository, and every path is byte-for-byte what it was
+   * before this option existed.
+   *
+   * The deployment keeps one git checkout at `<deployRoot>/repo`. With
+   * `appDir` set, everything the app owns resolves under
+   * `<deployRoot>/repo/<appDir>`: the compose directory (`infra/compose`),
+   * its `.env` and `.env.example`, the edge config files, the `package-lock.json`
+   * the version step edits, the Android project the `android` deploy step
+   * builds, and the `checkoutPath` / default `exec` directory an app deploy
+   * step sees. Git operations (clone, fetch, checkout, the version commit and
+   * push, removing the checkout on uninstall) stay at the repository root.
+   *
+   * `versionedManifests` stay relative to the repository ROOT, so an app in a
+   * subdirectory lists `console/apps/api/package.json`. When it sets none, the
+   * default four are prefixed with `appDir` (`console/apps/api/package.json`,
+   * ...), so a subdirectory app needs no list.
+   *
+   * Validated at `createCli`: no leading `/` or drive letter, no backslash, no
+   * `..` or `.` segment, no empty segment (`a//b`).
+   *
+   * @example
+   * ```ts
+   * createCli({ ...APP_CLI_OPTIONS, deploy: { appDir: 'console' } });
+   * ```
+   */
+  appDir?: string | undefined;
 }
 
 /**
@@ -177,7 +208,8 @@ export interface CreateCliOptions {
   proxy?: CreateCliProxyOptions | undefined;
   /**
    * What `deploy install` / `deploy update` need to know about the app that
-   * the registries do not carry. `versionedManifests` chooses the manifests
+   * the registries do not carry. `appDir` says where the app lives in its
+   * repository; `versionedManifests` chooses the manifests
    * the version step writes.
    */
   deploy?: CreateCliDeployOptions | undefined;
@@ -211,7 +243,8 @@ export interface CliInstance {
  * @param options - The identity, the app version and the app's additions.
  * @returns The program and its `run`.
  * @throws Error when the identity is invalid or a different one is already
- *   set, when `deploy.versionedManifests` is empty, not a list of relative
+ *   set, when `deploy.appDir` is not a plain relative path inside the
+ *   repository, when `deploy.versionedManifests` is empty, not a list of relative
  *   `package.json` paths, or has a duplicate, when `updateNotice` has no
  *   `latestVersion` function, an empty or multi-line `upgradeHint`, or a bad
  *   `intervalMs` / `timeoutMs`, when an app command's name, TUI route, deploy step id or executor
@@ -224,6 +257,7 @@ export function createCli(options: CreateCliOptions): CliInstance {
   setCliIdentity(options.identity, options.version);
   // Validated first of the additions: a bad list throws here, before anything
   // is registered, and the default is restored when the app sets none.
+  setAppDir(options.deploy?.appDir);
   setVersionedManifests(options.deploy?.versionedManifests);
   setUpdateNotice(options.updateNotice);
   ensurePlatformRegistrations();

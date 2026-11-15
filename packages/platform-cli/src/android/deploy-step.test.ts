@@ -2,14 +2,15 @@ import { mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { BuildResult } from './build.js';
 import type { AndroidDoctorReport } from './doctor.js';
 import type { PublishedApk, VersionBump } from './operations.js';
 import type { ReleaseStatus } from './release-status.js';
-import { UsageError } from '../engine/index.js';
+import { createCli, resetCliForTests, TEST_CLI_IDENTITY, UsageError } from '../engine/index.js';
 import {
+  androidBuildSource,
   androidOptionsFromFlags,
   androidReportLines,
   publicUrlFor,
@@ -313,5 +314,35 @@ describe('flag parsing', () => {
     expect(publicUrlFor('https://app.example.com/')).toBe(URL);
     expect(publicUrlFor(undefined)).toBeUndefined();
     expect(publicUrlFor(' ')).toBeUndefined();
+  });
+});
+
+describe('androidBuildSource with createCli deploy.appDir (#1159)', () => {
+  afterEach(() => {
+    resetCliForTests();
+  });
+
+  function checkout(appSubdir: string): string {
+    const root = mkdtempSync(join(tmpdir(), 'app-dir-android-'));
+    mkdirSync(join(root, 'repo', ...appSubdir.split('/').filter(Boolean), 'apps', 'android'), { recursive: true });
+    return root;
+  }
+  const withAppDir = (appDir: string) => createCli({ identity: TEST_CLI_IDENTITY, version: '2.3.4', deploy: { appDir } });
+
+  it('finds apps/android at the repository root by default', () => {
+    const root = checkout('');
+    expect(androidBuildSource(root, () => undefined)).toEqual({ repoRoot: join(root, 'repo'), kind: 'deployment' });
+  });
+
+  it('finds apps/android under the app directory', () => {
+    const root = checkout('console');
+    withAppDir('console');
+    expect(androidBuildSource(root, () => undefined)).toEqual({ repoRoot: join(root, 'repo', 'console'), kind: 'deployment' });
+  });
+
+  it('does not look at the repository root when an app directory is set', () => {
+    const root = checkout('');
+    withAppDir('console');
+    expect(androidBuildSource(root, () => undefined)).toBeUndefined();
   });
 });

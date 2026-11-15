@@ -9,6 +9,7 @@ import {
 } from '../core/index.js';
 
 import { resetPlatformRegistrationsForTests } from './builtin-registrations.js';
+import { resetAppDirForTests } from './deploy/app-dir.js';
 import { resetVersionedManifestsForTests } from './deploy/app-version.js';
 import { freezeDeployCheckRegistry, resetDeployCheckRegistryForTests } from './deploy/checks/registry.js';
 import { freezeEdgeConfigRegistry, resetEdgeConfigRegistryForTests } from './deploy/edge-config.js';
@@ -75,5 +76,6 @@ export function resetCliRegistriesForTests(): void {
   resetDeployCheckRegistryForTests();
   resetEdgeConfigRegistryForTests();
   resetVersionedManifestsForTests();
+  resetAppDirForTests();
   resetUpdateNoticeForTests();
 }
