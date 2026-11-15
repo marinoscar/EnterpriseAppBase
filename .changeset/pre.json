@@ -137,6 +137,7 @@
     "otel-core-slice",
     "personal-access-token-extensible",
     "platform-api-core-slice",
+    "platform-cli-deploy-app-dir",
     "platform-db-baseline",
     "platform-db-cipher-comments",
     "platform-db-migration-sync",
