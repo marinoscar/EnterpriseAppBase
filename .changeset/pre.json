@@ -51,6 +51,7 @@
     "cli-check-test-timeout",
     "cli-compose-project-port-holder",
     "cli-core-create-cli",
+    "cli-deploy-app-db-user",
     "cli-deploy-application-role",
     "cli-derive-compose-project",
     "cli-free-ports",
