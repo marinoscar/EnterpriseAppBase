@@ -81,6 +81,15 @@ describe('obtainConsent', () => {
     expect(confirm).toHaveBeenCalledWith(QUESTION, { defaultValue: false }, ctx);
   });
 
+  it('passes defaultValue: true through, so Enter answers yes', async () => {
+    vi.mocked(confirm).mockResolvedValueOnce(true);
+    const ctx = { input: { isTTY: true } as NodeJS.ReadStream };
+
+    await obtainConsent(QUESTION, { promptContext: ctx, defaultValue: true });
+
+    expect(confirm).toHaveBeenLastCalledWith(QUESTION, { defaultValue: true }, ctx);
+  });
+
   it('a "no" answer on a TTY is "declined"', async () => {
     vi.mocked(confirm).mockResolvedValueOnce(false);
     const outcome = await obtainConsent(QUESTION, {

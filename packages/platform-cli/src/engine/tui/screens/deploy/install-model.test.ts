@@ -10,6 +10,8 @@ import { deployRootFor } from '../../../deploy/layout.js';
 import { DEPLOY_STATE_VERSION, type DeployState } from '../../../deploy/state.js';
 import {
   appName,
+  appRoleChoice,
+  appRoleFields,
   decideResume,
   EMPTY_SEED,
   envAnswers,
@@ -806,5 +808,49 @@ describe('templateCandidates: the questions come from the app directory (#1163)'
     writeFileSync(join(composeDir, '.env.example'), 'POSTGRES_HOST=localhost\n');
     const [first] = templateCandidates(root, undefined, 'console');
     expect(parseEnvExample(readFileSync(first!, 'utf8')).map((spec) => spec.key)).toEqual(['POSTGRES_HOST']);
+  });
+});
+
+describe('appRoleFields (the app database user and password questions)', () => {
+  const [user, password] = appRoleFields();
+
+  it('asks for the user and a masked password, both optional with empty placeholders', () => {
+    expect(user?.key).toBe('__app_db_user');
+    expect(password?.key).toBe('__app_db_password');
+    expect(password?.secret).toBe(true);
+    expect(user?.secret).toBe(false);
+    expect(user?.placeholder).toBe('');
+    expect(password?.placeholder).toBe('');
+  });
+
+  it('accepts empty, and refuses a bad name or a short password', () => {
+    expect(user?.validate?.('')).toBeUndefined();
+    expect(password?.validate?.('')).toBeUndefined();
+    expect(user?.validate?.('shop_app')).toBeUndefined();
+    expect(user?.validate?.('Bad-Name')).toBeDefined();
+    expect(user?.validate?.('1app')).toBeDefined();
+    expect(password?.validate?.('short')).toBeDefined();
+    expect(password?.validate?.('long-enough-0123')).toBeUndefined();
+  });
+});
+
+describe('appRoleChoice', () => {
+  const none = new Set<string>();
+
+  it('provisions by default', () => {
+    expect(appRoleChoice(new Map(), none)).toEqual({ provisionAppRole: true });
+  });
+
+  it.each(['--skip-role-provisioning', '--allow-superuser'])('does not provision with %s', (flag) => {
+    expect(appRoleChoice(new Map(), new Set([flag]))).toEqual({});
+  });
+
+  it('carries non-empty answers and omits empty ones', () => {
+    expect(
+      appRoleChoice(new Map([['__app_db_user', 'shop_app'], ['__app_db_password', 'long-enough-0123']]), none),
+    ).toEqual({ appDbUser: 'shop_app', appDbPassword: 'long-enough-0123', provisionAppRole: true });
+    expect(appRoleChoice(new Map([['__app_db_user', ''], ['__app_db_password', '']]), none)).toEqual({
+      provisionAppRole: true,
+    });
   });
 });
