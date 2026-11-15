@@ -77,6 +77,7 @@ describe('classifyOpenAiModel', () => {
     'llama-3-70b',
     'gpt-6o',
     'gpt-60x',
+    'gpt-35-turbo',
     'some-future-model',
     '',
   ])('%s is unclassified (null)', (id) => {
