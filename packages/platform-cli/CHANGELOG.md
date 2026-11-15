@@ -1,5 +1,12 @@
 # @marinoscar/platform-cli
 
+## 0.1.0-next.31
+
+### Patch Changes
+
+- @marinoscar/platform-contract@0.1.0-next.31
+- @marinoscar/platform-infra@0.1.0-next.31
+
 ## 0.1.0-next.30
 
 ### Patch Changes
