@@ -111,6 +111,7 @@
     "extension-test-kits",
     "fastify-optional-peer",
     "fix-ai-refresh-disabled",
+    "gpt6-classifier-starter-forOrg",
     "host-about-web-slice",
     "host-extension-points",
     "host-generic-doctor-checks",
