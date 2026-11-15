@@ -257,8 +257,14 @@ as, rather than copying into `.env` whatever login you typed:
    the answers file. **There is no flag for the password**; a flag is
    argv. Then `POSTGRES_USER` / `POSTGRES_PASSWORD` need not be answered.)
 2. If that login is a superuser or `BYPASSRLS`, `install` says so and asks
-   whether to create a dedicated role (`--provision-app-role` answers yes).
-   Nothing is changed before every consent has been given.
+   whether to create a dedicated role (Enter answers yes; `--provision-app-role`
+   answers in advance and asks nothing more). At the terminal it then asks for
+   the role's name (Enter keeps `<app>_app`) and its password (Enter generates a
+   strong one; a typed one needs at least 12 characters). The TUI Install screen
+   has the same two optional fields, "app database user" and "app database
+   password" (masked), and creates the role by default; "Create no role" and
+   "Run as a superuser anyway" opt out. Nothing is changed before every consent
+   has been given.
 3. It creates the role — named `<app>_app` from the product identity, or
    `--app-db-user <name>` — as `LOGIN NOSUPERUSER NOBYPASSRLS CREATEDB
    CREATEROLE`, with `createrole_self_grant = 'inherit, set'` (PostgreSQL
@@ -307,6 +313,11 @@ If the server then refuses the password, `.env` is put back byte for byte; if
 the role cannot log in afterwards, `.env` goes back to the previous login when
 that was a different one (the administrator still works) and keeps the new
 password when the previous one was this very role (its old password is gone).
+A resumed install (`--resume`, or the TUI's resume) that names any role choice
+reruns `environment`, `validate-environment` and `ensure-database`, so the new
+choice takes effect. With `--create-database`, a missing database is not listed
+as a blocker beside another validation failure; the error says it will be created.
+
 A role that was created in a run that then failed has no password; re-run with
 `--rotate-app-password`. On an unchanged-revision `update` that moves the
 login, an api that does not become healthy gets `.env` reverted to the previous
@@ -314,9 +325,9 @@ login if it still works, or the error names the login `.env` now holds.
 
 | Flag | What it does |
 |---|---|
-| `--app-db-user <name>` | The role to provision (default `<app>_app`; letters, digits, `_`, `$`; not `postgres` or `pg_*`). Answers key `APP_DB_USER`. |
+| `--app-db-user <name>` | The role to provision (default `<app>_app`; letters, digits, `_`, `$`; not `postgres` or `pg_*`). Answers key `APP_DB_USER`; the optional password is the answers key `APP_DB_PASSWORD` (never a flag). |
 | `--admin-user <name>` | The administrative login that provisions it, instead of the one entered at the prompt. Answers key `DB_ADMIN_USER`; password in `APPCTL_DB_ADMIN_PASSWORD` or the answers key `DB_ADMIN_PASSWORD`. These keys are removed from the answers and never reach `.env`. |
-| `--provision-app-role` | Consent in advance to create the role when the login is privileged (a non-interactive run is otherwise refused). |
+| `--provision-app-role` | Consent in advance to create the role when the login is privileged (a non-interactive run is otherwise refused); the prompt for it is skipped. |
 | `--transfer-ownership` | Consent in advance to change the owner of an existing, non-empty database's objects. |
 | `--allow-reduced-role` | Consent in advance to a role the server would not give `CREATEROLE` / `createrole_self_grant` (below). |
 | `--skip-role-provisioning` | Create nothing: `POSTGRES_USER` must already be an ordinary role you made, which `database-role-ordinary` then verifies. |

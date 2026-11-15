@@ -264,10 +264,17 @@ an API running as one isolates no organization from another.
   the operator entered at the `POSTGRES_USER` prompt when that login is
   privileged, or `--admin-user` with its password from
   `<PREFIX>DB_ADMIN_PASSWORD` or the answers key `DB_ADMIN_PASSWORD` (never a
-  flag). The answers keys `DB_ADMIN_USER`, `DB_ADMIN_PASSWORD` and `APP_DB_USER`
-  are removed from the answers before the environment is built, so none can
+  flag). The answers keys `DB_ADMIN_USER`, `DB_ADMIN_PASSWORD`, `APP_DB_USER` and
+  `APP_DB_PASSWORD` are removed from the answers before the environment is built, so none can
   reach `.env`; the journal's redactor learns the administrator's password
   before any line is written.
+- **Consent and naming.** At the terminal a privileged login is asked "Create a
+  dedicated ordinary database user for the app?" (Enter = yes), then the name
+  (default `<app>_app`) and a password (Enter generates one; a typed one needs
+  at least 12 characters). The TUI offers both as optional fields and provisions
+  by default; `--skip-role-provisioning` and `--allow-superuser` opt out. A
+  resumed install that names a role choice reruns `environment`,
+  `validate-environment` and `ensure-database`.
 - **The role** is `LOGIN NOSUPERUSER NOBYPASSRLS CREATEDB`, then `CREATEROLE`
   and `ALTER ROLE ... SET createrole_self_grant = 'inherit, set'`, as separate
   statements so a provider that refuses one is reported for what it is and
