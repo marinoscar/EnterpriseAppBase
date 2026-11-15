@@ -1,5 +1,16 @@
 # @marinoscar/platform-cli
 
+## 0.1.0-next.32
+
+### Minor Changes
+
+- dfda084: platform-cli: `createCli({ deploy: { appDir } })` deploys an app that lives in a subdirectory of its repository (#1159).
+
+### Patch Changes
+
+- @marinoscar/platform-contract@0.1.0-next.32
+- @marinoscar/platform-infra@0.1.0-next.32
+
 ## 0.1.0-next.31
 
 ### Patch Changes

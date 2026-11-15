@@ -1,5 +1,7 @@
 # @marinoscar/platform-ai-providers
 
+## 0.1.0-next.32
+
 ## 0.1.0-next.31
 
 ### Patch Changes
