@@ -1832,11 +1832,15 @@ the job roles it creates).
 - **CI** (`smoke`, `deploy-e2e`): a step runs the same script against the
   service container.
 - **Production** (`appctl deploy install`, #980): the CLI provisions the role
-  itself rather than copying the operator's login into `.env`. An
+  itself rather than copying the operator's login into `.env`. When the install
+  login is a superuser or `BYPASSRLS`, the terminal asks whether to create the
+  role (the TUI Install screen does it by default); the operator may choose its
+  name and password (a typed password needs at least 12 characters, a blank one
+  is generated), and a chosen password is never a flag. An
   administrative login (a superuser, a provider's master user) is used **once,
   in memory** to create the role (`LOGIN NOSUPERUSER NOBYPASSRLS CREATEDB
   CREATEROLE`, `createrole_self_grant = 'inherit, set'`), with a generated
-  password (32 random bytes, sent as a SCRAM-SHA-256 verifier on `psql`'s stdin,
+  or operator-chosen password (generated: 32 random bytes; sent as a SCRAM-SHA-256 verifier on `psql`'s stdin,
   never in argv or the statement log); the database, schema `public` and every
   table, sequence and enum type in it are re-owned to it with `ALTER ... OWNER
   TO` (never `REASSIGN OWNED BY`; consent and a backup recommendation for a

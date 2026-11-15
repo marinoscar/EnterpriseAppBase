@@ -38,7 +38,7 @@ import {
   superuserRecord,
   type AppRoleOptions,
 } from './app-role.js';
-import { ensureDatabase, onlyDatabaseMissing, unattendedDatabaseRefusal } from './database.js';
+import { ensureDatabase, isMissingDatabase, onlyDatabaseMissing, unattendedDatabaseRefusal } from './database.js';
 import { waitForHealthy, collectHealth, isHealthy, type FetchLike, type OAuthSmoke } from './health.js';
 import { runOAuthCheck } from './oauth-check.js';
 import {
@@ -957,12 +957,18 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           context.database = 'missing';
           context.journal.line('The database does not exist yet; ensure-database decides what to do about it.');
         } else {
+          // A missing database is not a blocker when --create-database will
+          // create it: listing it beside the real failure sent operators who
+          // HAD asked for it chasing the wrong problem.
+          const creating = context.options.createDatabase === true;
+          const blocking = results.filter(
+            (result) => result.status === 'fail' && !(creating && isMissingDatabase(result)),
+          );
+          const deferred = creating && results.some((result) => result.status === 'fail' && isMissingDatabase(result));
           throw new PreconditionError(
             `The database is not usable with these settings:\n` +
-              results
-                .filter((result) => result.status === 'fail')
-                .map((result) => `  - ${result.detail}\n    ${result.remedy ?? ''}`)
-                .join('\n'),
+              blocking.map((result) => `  - ${result.detail}\n    ${result.remedy ?? ''}`).join('\n') +
+              (deferred ? '\n  (The database itself does not exist yet; --create-database creates it once the above is fixed.)' : ''),
           );
         }
 
@@ -1670,7 +1676,16 @@ export async function runInstall(requested: InstallOptions): Promise<InstallResu
     completed:
       options.resume === true && existingState !== undefined
         ? // The port gate is asked on every run: a port can be taken between a failed run and its resume.
-          new Set((existingState.completedSteps ?? []).filter((id) => id !== STACK_PORTS_STEP_ID))
+          // A run that names a database-role choice redoes the environment
+          // (where the role is provisioned) and everything that verified it:
+          // resuming past it would silently ignore the new choice.
+          new Set(
+            (existingState.completedSteps ?? []).filter(
+              (id) =>
+                id !== STACK_PORTS_STEP_ID &&
+                !(namesRoleChoice(options) && ROLE_DEPENDENT_STEPS.has(id)),
+            ),
+          )
         : new Set<string>(),
     // Appended by `runPipeline` as each step finishes; read by `deploy-info`.
     progress: [],
@@ -1876,4 +1891,22 @@ function previousDeployedCommit(existing: DeployState | undefined): string | nul
 export function defaultRootFor(repoUrl: string, base: string): string {
   const name = basename(repoUrl).replace(/\.git$/, '') || 'app';
   return join(base, name.toLowerCase());
+}
+
+/** The steps a database-role choice invalidates: where the role is made, and what verified it. */
+const ROLE_DEPENDENT_STEPS: ReadonlySet<string> = new Set(['environment', 'validate-environment', 'ensure-database']);
+
+/** Whether this run names any database-role choice (a flag, or a name/password for the role). */
+export function namesRoleChoice(options: AppRoleOptions): boolean {
+  return (
+    options.appDbUser !== undefined ||
+    options.appDbPassword !== undefined ||
+    options.adminUser !== undefined ||
+    options.skipRoleProvisioning === true ||
+    options.allowSuperuser === true ||
+    options.provisionAppRole === true ||
+    options.transferOwnership === true ||
+    options.allowReducedRole === true ||
+    options.rotateAppPassword === true
+  );
 }

@@ -120,3 +120,11 @@ describe('isScreenField / labelFor', () => {
     expect(labelFor('JWT_SECRET')).toBe('JWT_SECRET');
   });
 });
+
+describe('shouldMask: the app database password screen field', () => {
+  it('masks __app_db_password, and leaves other screen fields visible', () => {
+    expect(shouldMask('__app_db_password')).toBe(true);
+    expect(shouldMask('__app_db_user')).toBe(false);
+    expect(shouldMask('__domain')).toBe(false);
+  });
+});

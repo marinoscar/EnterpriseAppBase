@@ -257,16 +257,22 @@ as, rather than copying into `.env` whatever login you typed:
    the answers file. **There is no flag for the password**; a flag is
    argv. Then `POSTGRES_USER` / `POSTGRES_PASSWORD` need not be answered.)
 2. If that login is a superuser or `BYPASSRLS`, `install` says so and asks
-   whether to create a dedicated role (`--provision-app-role` answers yes).
-   Nothing is changed before every consent has been given.
+   whether to create a dedicated role (Enter answers yes; `--provision-app-role`
+   answers in advance and asks nothing more). At the terminal it then asks for
+   the role's name (Enter keeps `<app>_app`) and its password (Enter generates a
+   strong one; a typed one needs at least 12 characters). The TUI Install screen
+   has the same two optional fields, "app database user" and "app database
+   password" (masked), and creates the role by default; "Create no role" and
+   "Run as a superuser anyway" opt out. Nothing is changed before every consent
+   has been given.
 3. It creates the role — named `<app>_app` from the product identity, or
    `--app-db-user <name>` — as `LOGIN NOSUPERUSER NOBYPASSRLS CREATEDB
    CREATEROLE`, with `createrole_self_grant = 'inherit, set'` (PostgreSQL
    16), exactly the role `postgres-init/10-application-role.sh` creates for
    a development volume. `CREATEDB` and `CREATEROLE` are what database
    restore and the worker-node offload broker need.
-4. The role's password is **generated** (32 random bytes, URL-safe), never
-   prompted, and sent to the server as a SCRAM-SHA-256 verifier on `psql`'s
+4. The role's password is **generated** (32 random bytes, URL-safe) unless you
+   typed one (at least 12 characters; never a flag), and is sent to the server as a SCRAM-SHA-256 verifier on `psql`'s
    stdin — never in argv, and never as plaintext in the server's statement
    log. **`.env` (mode `0600`) is the only place it is stored.** It is not
    printed, journaled or recorded in the state file; `--show-credentials`
@@ -307,6 +313,11 @@ If the server then refuses the password, `.env` is put back byte for byte; if
 the role cannot log in afterwards, `.env` goes back to the previous login when
 that was a different one (the administrator still works) and keeps the new
 password when the previous one was this very role (its old password is gone).
+A resumed install (`--resume`, or the TUI's resume) that names any role choice
+reruns `environment`, `validate-environment` and `ensure-database`, so the new
+choice takes effect. With `--create-database`, a missing database is not listed
+as a blocker beside another validation failure; the error says it will be created.
+
 A role that was created in a run that then failed has no password; re-run with
 `--rotate-app-password`. On an unchanged-revision `update` that moves the
 login, an api that does not become healthy gets `.env` reverted to the previous
@@ -314,9 +325,9 @@ login if it still works, or the error names the login `.env` now holds.
 
 | Flag | What it does |
 |---|---|
-| `--app-db-user <name>` | The role to provision (default `<app>_app`; letters, digits, `_`, `$`; not `postgres` or `pg_*`). Answers key `APP_DB_USER`. |
+| `--app-db-user <name>` | The role to provision (default `<app>_app`; letters, digits, `_`, `$`; not `postgres` or `pg_*`). Answers key `APP_DB_USER`; the optional password is the answers key `APP_DB_PASSWORD` (never a flag). |
 | `--admin-user <name>` | The administrative login that provisions it, instead of the one entered at the prompt. Answers key `DB_ADMIN_USER`; password in `APPCTL_DB_ADMIN_PASSWORD` or the answers key `DB_ADMIN_PASSWORD`. These keys are removed from the answers and never reach `.env`. |
-| `--provision-app-role` | Consent in advance to create the role when the login is privileged (a non-interactive run is otherwise refused). |
+| `--provision-app-role` | Consent in advance to create the role when the login is privileged (a non-interactive run is otherwise refused); the prompt for it is skipped. |
 | `--transfer-ownership` | Consent in advance to change the owner of an existing, non-empty database's objects. |
 | `--allow-reduced-role` | Consent in advance to a role the server would not give `CREATEROLE` / `createrole_self_grant` (below). |
 | `--skip-role-provisioning` | Create nothing: `POSTGRES_USER` must already be an ordinary role you made, which `database-role-ordinary` then verifies. |
@@ -1179,7 +1190,8 @@ the first thing to check — `deploy status`'s container list will show it.
 |---|---|---|
 | Certificate issuance fails during `install` | The domain's DNS doesn't actually point at this server. | `doctor --domain <domain>` runs `dns-resolves` and `dns-points-here` specifically for this — the failure names both addresses (what the domain resolves to, and what this server's own address is) so a CDN or a stale record is obvious at a glance. |
 | Login redirects loop, or Google rejects the callback | `GOOGLE_CALLBACK_URL` disagrees with the domain you're actually serving. | `GOOGLE_CALLBACK_URL` is **derived automatically** from the domain you gave during install (`https://<domain>/api/auth/google/callback`) unless you deliberately overrode it in the wizard's `--all` review. If you're seeing this, something overrode the derived value — check the deployed `.env` and either fix it there or re-run the wizard for that key. |
-| `database-role-ordinary` fails, or the Doctor reports `db.rls_role` | `POSTGRES_USER` is a superuser or has `BYPASSRLS`, so row-level security is inert. | `appctl deploy update --provision-app-role --transfer-ownership` (back up first); see section 2.1. |
+| `database-role-ordinary` fails, or the Doctor reports `db.rls_role` | `POSTGRES_USER` is a superuser or has `BYPASSRLS`, so row-level security is inert. | During `install`: answer yes to "Create a dedicated ordinary database user for the app?" (the TUI Install screen does this by default), or re-run `appctl deploy install --provision-app-role --create-database`; `--resume` is fine, because a role choice reruns the environment, validate-environment and ensure-database steps. On an existing deployment: `appctl deploy update --provision-app-role --transfer-ownership` (back up first). See section 2.1. |
+| Validate the environment fails: `<login>` is a superuser and BYPASSRLS | The database login you entered can bypass row-level security, and no role choice was made. | Answer yes to the dedicated-user prompt (or pass `--provision-app-role`), or opt out with `--skip-role-provisioning` (you supply an ordinary role) or `--allow-superuser` (tenant isolation off). See section 2.1. |
 | Migration step succeeds, but the app can't connect to the database afterward | `POSTGRES_PASSWORD` contains a URL-reserved character (`@`, `:`, `/`, `#`). | The API and the `prisma:*` scripts percent-encode the password when they build the database URL, so this points at a hand-built connection string or an out-of-date checkout. Update the checkout (`appctl deploy update`), or choose a password without those characters. |
 | `install`/`doctor` reports the loopback port is already in use, by something that isn't this deployment | Another app on the same VPS is already bound to that port. A fresh install without `--port` picks a free port by itself (section 9.2), so this appears when `--port` named the taken port, or for a deployment that already has an `APP_BIND_PORT`. | Pick a different port for this app with `--port` during install (`--reinstall` for an existing deployment), or stop whatever's holding the port. `doctor`'s `bind-port-free` check is written to *not* flag this app's own already-running nginx as a conflict: it recognises the owner by the deployment's recorded compose project, falling back to the folder name only when none is known. A failure here means it's genuinely something else. |
 | `doctor`/`update` refuses the port, naming the deployment's own `<app>-nginx-1` | The deployment was installed by an older CLI under an app-named compose project and recorded none, so the check looked for `compose-nginx-1`. | Current CLIs ask Docker which project the containers run under and record it (previous state kept as `.appctl-deploy.json.bak`) before `update`, `status` and `doctor`; run one of them. If the engine warns that the answer is ambiguous, or on an older CLI, read the label with `docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' <app>-nginx-1` and set `composeProject` to it in `<deploy-root>/.appctl-deploy.json`. |
@@ -1203,7 +1215,7 @@ the first thing to check — `deploy status`'s container list will show it.
 - [ ] On a host with more than one application, an explicit `--root` passed to every command except `deploy list`
 - [ ] Google OAuth redirect URI matches `https://<domain>/api/auth/google/callback` exactly, and the live credentials probe (or `--skip-oauth-check`) passes
 - [ ] External PostgreSQL reachable, with credentials `doctor`/`install`'s environment validation accepts — the database itself may not exist yet, `install` will offer to create it
-- [ ] An administrative login for that PostgreSQL to hand — `install` uses it once to create the dedicated role the API runs as (or supply your own ordinary role with `--skip-role-provisioning`)
+- [ ] An administrative login for that PostgreSQL to hand — `install` uses it once to create the dedicated role the API runs as (its name and password are optional: asked at the terminal or in the TUI fields, generated if blank; or supply your own ordinary role with `--skip-role-provisioning`)
 - [ ] First install run with `--staging` if this is a new domain or a first attempt on this server
 - [ ] `appctl deploy install --domain <domain>` completed, including the external HTTPS verification step
 - [ ] Logged in at `https://<domain>` as `INITIAL_ADMIN_EMAIL` — this, not the seed, is what creates the admin account

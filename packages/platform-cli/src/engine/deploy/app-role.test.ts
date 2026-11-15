@@ -1170,3 +1170,159 @@ describe('the temporary membership of a non-superuser administrator', () => {
     expect(fake.seen.some((call) => /ALTER DATABASE/.test(call.sql))).toBe(false);
   });
 });
+
+describe('a password and a name the operator chooses', () => {
+  const CHOSEN = 'chosen-password-0123456789';
+  const NO_TTY = { input: { isTTY: false } as NodeJS.ReadStream };
+  /** Interactive: the consent comes from `ask`, the free text from `askText`. */
+  function interactive(
+    fake: FakePostgres,
+    answers: { name?: string; password?: string },
+    extra: Partial<EnsureApplicationRoleOptions> = {},
+  ) {
+    const texts: { question: string; secret: boolean }[] = [];
+    const o = options(fake, {
+      provisionConsent: undefined,
+      nonInteractive: undefined,
+      promptContext: NO_TTY,
+      ask: async () => true,
+      askText: async (question, secret) => {
+        texts.push({ question, secret });
+        return (secret ? answers.password : answers.name) ?? '';
+      },
+      ...extra,
+    });
+    return { o, texts };
+  }
+
+  it('creates a new role with THAT password, and tells onSecrets before any statement carries it', async () => {
+    const fake = server();
+    const writes: string[] = [];
+    let mutationsAtSecrets = -1;
+    const o = options(fake, {
+      password: CHOSEN,
+      onSecrets: (secrets) => {
+        if (secrets.some((entry) => entry.value === CHOSEN) && mutationsAtSecrets < 0) {
+          mutationsAtSecrets = fake.mutations().length;
+        }
+      },
+      store: {
+        write: (credentials) => void writes.push(`${credentials.user}:${credentials.password}`),
+        restore: () => undefined,
+      },
+    });
+    const result = await ensureApplicationRole(o);
+
+    expect(result.credentials).toEqual({ user: ROLE, password: CHOSEN });
+    expect(writes).toEqual([`${ROLE}:${CHOSEN}`]);
+    expect(verifierMatches(CHOSEN, fake.state.roles.get(ROLE)?.verifier ?? '')).toBe(true);
+    expect(verifierMatches(FIXED_PASSWORD, fake.state.roles.get(ROLE)?.verifier ?? '')).toBe(false);
+    expect(mutationsAtSecrets).toBe(0);
+  });
+
+  it('refuses a password shorter than 12 characters before any server change', async () => {
+    const fake = server();
+    const error = await ensureApplicationRole(options(fake, { password: 'short-11-ch' })).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(UsageError);
+    expect((error as Error).message).toContain('12 characters');
+    expect(fake.mutations()).toHaveLength(0);
+  });
+
+  it('asks the name and the password after an interactive yes; an answered name replaces the default', async () => {
+    const fake = server();
+    const { o, texts } = interactive(fake, { name: 'shop_app', password: CHOSEN });
+    const result = await ensureApplicationRole(o);
+
+    expect(texts[0]?.question).toContain(ROLE);
+    expect(texts[0]?.secret).toBe(false);
+    expect(texts[1]?.secret).toBe(true);
+    expect(result.roleName).toBe('shop_app');
+    expect(fake.state.roles.has('shop_app')).toBe(true);
+    expect(fake.state.roles.has(ROLE)).toBe(false);
+    expect(verifierMatches(CHOSEN, fake.state.roles.get('shop_app')?.verifier ?? '')).toBe(true);
+  });
+
+  it('keeps the default name on a blank name, and generates a password on a blank one', async () => {
+    const fake = server();
+    const { o } = interactive(fake, {});
+    const result = await ensureApplicationRole(o);
+    expect(result.roleName).toBe(ROLE);
+    expect(result.credentials?.password).toBe(FIXED_PASSWORD);
+    expect(verifierMatches(FIXED_PASSWORD, fake.state.roles.get(ROLE)?.verifier ?? '')).toBe(true);
+  });
+
+  it('refuses a typed password that is too short', async () => {
+    const fake = server();
+    const { o } = interactive(fake, { password: 'tiny' });
+    await expect(ensureApplicationRole(o)).rejects.toThrow(/12 characters/);
+    expect(fake.mutations()).toHaveLength(0);
+  });
+
+  it('asks no text when consent came from the flag', async () => {
+    const fake = server();
+    const { o, texts } = interactive(fake, { name: 'shop_app', password: CHOSEN }, { provisionConsent: true });
+    const result = await ensureApplicationRole(o);
+    expect(texts).toHaveLength(0);
+    expect(result.roleName).toBe(ROLE);
+  });
+
+  it('asks no text, and does not throw, with the ask seam but no askText and no TTY', async () => {
+    const fake = server();
+    const o = options(fake, {
+      provisionConsent: undefined,
+      nonInteractive: undefined,
+      promptContext: NO_TTY,
+      ask: async () => true,
+    });
+    const result = await ensureApplicationRole(o);
+    expect(result.credentials?.password).toBe(FIXED_PASSWORD);
+  });
+
+  it('reuses a supplied password that opens an existing role: no ALTER ROLE ... PASSWORD', async () => {
+    const fake = server({
+      roles: { admin: superRole({ password: ADMIN_SECRET }), [ROLE]: ordinaryRole({ password: CHOSEN }) },
+    });
+    const result = await ensureApplicationRole(options(fake, { password: CHOSEN }));
+    expect(result.credentials?.password).toBe(CHOSEN);
+    expect(fake.seen.some((call) => /ALTER ROLE "[^"]+" PASSWORD/.test(call.sql))).toBe(false);
+  });
+
+  it('sets the SUPPLIED password on an existing role, once the reset is consented to', async () => {
+    const fake = server({
+      roles: { admin: superRole({ password: ADMIN_SECRET }), [ROLE]: ordinaryRole({ password: 'another-password-0123456789' }) },
+    });
+    const questions: string[] = [];
+    const result = await ensureApplicationRole(
+      options(fake, {
+        password: CHOSEN,
+        provisionConsent: undefined,
+        nonInteractive: undefined,
+        ask: async (q) => (questions.push(q), true),
+      }),
+    );
+    expect(questions.some((q) => q.includes('NEW password'))).toBe(true);
+    expect(result.credentials?.password).toBe(CHOSEN);
+    expect(verifierMatches(CHOSEN, fake.state.roles.get(ROLE)?.verifier ?? '')).toBe(true);
+  });
+
+  it('refuses to reset an existing role when the supplied password is rejected and nobody consents', async () => {
+    const fake = server({
+      roles: { admin: superRole({ password: ADMIN_SECRET }), [ROLE]: ordinaryRole({ password: 'another-password-0123456789' }) },
+    });
+    await expect(ensureApplicationRole(options(fake, { password: CHOSEN }))).rejects.toThrow(PreconditionError);
+    expect(fake.mutations()).toHaveLength(0);
+  });
+
+  it('takes APP_DB_PASSWORD out of the answers, so it never reaches .env', () => {
+    const { answers, role } = extractRoleAnswers(
+      new Map([
+        ['APP_DB_PASSWORD', CHOSEN],
+        ['APP_DB_USER', 'shop_app'],
+        ['POSTGRES_DB', 'appdb'],
+      ]),
+    );
+    expect(role).toEqual({ appDbUser: 'shop_app', appDbPassword: CHOSEN });
+    expect(answers?.has('APP_DB_PASSWORD')).toBe(false);
+    expect([...(answers ?? [])]).toEqual([['POSTGRES_DB', 'appdb']]);
+  });
+});

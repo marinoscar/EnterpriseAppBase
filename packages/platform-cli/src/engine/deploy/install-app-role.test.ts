@@ -4,8 +4,8 @@ import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { parseEnvExample, parseEnvFile } from './env-spec.js';
-import { runInstall, type InstallOptions } from './install.js';
-import { deployStatePath, readState } from './state.js';
+import { namesRoleChoice, runInstall, type InstallOptions } from './install.js';
+import { deployStatePath, readState, writeState, type DeployState } from './state.js';
 import { verifierMatches, createFakePostgres, ordinaryRole, postgresRoute, superRole } from './testing/fake-postgres.js';
 import {
   createFakeVps,
@@ -445,5 +445,86 @@ describe('install keeps .env and the server in agreement (#980)', () => {
     expect(existsSync(envPath(vps))).toBe(false);
     expect(postgres.mutations()).toHaveLength(0);
     expect(postgres.state.roles.get(ROLE)?.password).toBe('another-deployments-password-0123');
+  });
+});
+
+describe('namesRoleChoice', () => {
+  it.each([
+    { appDbUser: 'shop_app' },
+    { appDbPassword: 'long-enough-0123' },
+    { adminUser: 'admin' },
+    { skipRoleProvisioning: true },
+    { allowSuperuser: true },
+    { provisionAppRole: true },
+    { transferOwnership: true },
+    { allowReducedRole: true },
+    { rotateAppPassword: true },
+  ])('is true for %j', (option) => {
+    expect(namesRoleChoice(option)).toBe(true);
+  });
+
+  it('is false for no choice at all', () => {
+    expect(namesRoleChoice({})).toBe(false);
+  });
+});
+
+describe('resuming a run that finished the environment', () => {
+  const finished = ['preflight', 'checkout', 'environment', 'validate-environment', 'ensure-database'];
+
+  /** A real install, then the state of a run that died right after `ensure-database`. */
+  async function failedAfterEnvironment() {
+    const { vps, postgres } = setup();
+    await install(vps, { provisionAppRole: true, transferOwnership: true });
+    const state = readState(vps.deployRoot) as DeployState;
+    writeState({ ...state, completedSteps: finished, lastFailedStep: 'version' } as DeployState);
+    const adminCalls = () => postgres.seen.filter((call) => call.user === 'admin').length;
+    return { vps, postgres, adminCalls };
+  }
+
+  it('reruns environment (and what verified it) when the resume names a role choice', async () => {
+    const { vps, adminCalls } = await failedAfterEnvironment();
+    const before = adminCalls();
+
+    await install(vps, { resume: true, reinstall: false, provisionAppRole: true, transferOwnership: true });
+
+    // The environment step provisioned again: the administrator was used.
+    expect(adminCalls()).toBeGreaterThan(before);
+  });
+
+  it('still skips environment when the resume names none', async () => {
+    const { vps, postgres, adminCalls } = await failedAfterEnvironment();
+    const before = adminCalls();
+    const seen = postgres.seen.length;
+
+    await install(vps, { resume: true, reinstall: false });
+
+    expect(adminCalls()).toBe(before);
+    expect(postgres.seen).toHaveLength(seen);
+  });
+});
+
+describe('validate-environment with --create-database', () => {
+  const missing = () =>
+    setup(createFakePostgres({ roles: { admin: superRole({ password: ADMIN_SECRET }) }, databases: [] }));
+
+  it('names the real failure and does not list the missing database as a blocker', async () => {
+    const { vps } = missing();
+    const error = await install(vps, { skipRoleProvisioning: true, createDatabase: true }).catch((e: unknown) => e);
+
+    const message = (error as Error).message;
+    expect(message).toContain('row-level security is INERT');
+    expect(message).not.toMatch(/^ {2}- .*does not exist/m);
+    expect(message).toContain('--create-database creates it');
+    expect(readState(vps.deployRoot)?.lastFailedStep).toBe('validate-environment');
+  });
+
+  it('without --create-database the missing database is still listed', async () => {
+    const { vps } = missing();
+    const error = await install(vps, { skipRoleProvisioning: true }).catch((e: unknown) => e);
+
+    const message = (error as Error).message;
+    expect(message).toContain('row-level security is INERT');
+    expect(message).toMatch(/^ {2}- .*does not exist/m);
+    expect(message).not.toContain('--create-database creates it');
   });
 });

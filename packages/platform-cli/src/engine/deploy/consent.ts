@@ -36,6 +36,12 @@ export interface ConsentOptions {
   promptContext?: PromptContext | undefined;
   /** Replaces the terminal question; the test seam. */
   ask?: ((question: string) => Promise<boolean>) | undefined;
+  /**
+   * What Enter alone answers at the terminal. Defaults to NO, because most
+   * actions this gates are hard to take back; a gate whose yes is the safe
+   * path (creating the app's own ordinary database user) passes true.
+   */
+  defaultValue?: boolean | undefined;
 }
 
 export function consented(outcome: ConsentOutcome): boolean {
@@ -56,8 +62,8 @@ export async function obtainConsent(
 
   if (!canPrompt(options.promptContext)) return 'unavailable';
 
-  // Defaults to NO: both actions this gates are hard to take back.
-  const yes = await confirm(question, { defaultValue: false }, options.promptContext);
+  // Defaults to NO unless the gate says otherwise: see `defaultValue`.
+  const yes = await confirm(question, { defaultValue: options.defaultValue ?? false }, options.promptContext);
   return yes ? 'granted' : 'declined';
 }
 

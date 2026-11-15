@@ -451,7 +451,10 @@ enter is one, `install` asks whether to create a dedicated `<app>_app` role
 (`LOGIN NOSUPERUSER NOBYPASSRLS CREATEDB CREATEROLE`) with a generated
 password, uses your login once, in memory, to do it, moves the database's
 ownership to the role, and writes **the role** to `.env` (mode `0600`, the only
-place the password lives). `--provision-app-role` and `--transfer-ownership`
+place the password lives). At the terminal it also asks for the role's name and password (Enter keeps
+`<app>_app` and generates a strong password; a typed one needs 12+ characters;
+the answers file takes `APP_DB_USER` and `APP_DB_PASSWORD`, never a flag), and
+the TUI Install has two optional fields for them. `--provision-app-role` and `--transfer-ownership`
 give those two consents in advance (take a backup first: the second changes the
 owner of an existing database's objects); `--admin-user` names the
 administrative login explicitly (its password comes from
