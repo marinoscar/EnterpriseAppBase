@@ -5,6 +5,7 @@ import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { DoctorPage } from '@marinoscar/platform-web/doctor/ui';
 import {
   AuthProvider,
+  createIdentityApi,
   IdentityWebAdaptersProvider,
   RequireAuth,
   RequirePermission,
@@ -157,7 +158,8 @@ export function AppRoutes() {
       ))}
       <Route element={<RequireAuth loading={spinner} />}>
         {/* Device activation (`<cli> login`, the Android app): signed in, full
-            screen, outside the shell. Without it the catch-all sends /activate home. */}
+            screen, outside the shell. Without it the catch-all sends /activate home. Its
+            API client comes from IdentityWebAdaptersProvider below (no shell here). */}
         <Route path="activate" element={<ActivateDevicePage />} />
         <Route element={shell}>
           <Route index element={<Home />} />
@@ -199,12 +201,19 @@ function Hub(props: Omit<SettingsHubProps, 'hasPermission' | 'features'>) {
   return <SettingsHub {...props} features={useSettingsFeatures()} hasPermission={hasPermission} />;
 }
 
+/**
+ * The identity pages' API client. Given to IdentityWebAdaptersProvider at the
+ * root, so a page outside the shell (/activate) has it too: inside the shell the
+ * platform host would provide it, outside it the page threw "no identity client".
+ */
+const identityApi = createIdentityApi(platformApi);
+
 export default function App() {
   return (
     <AuthProvider client={api} onBeforeLogout={beforeLogout}>
       {/* Every packaged time renders in the signed-in user's profile time zone (cleared on sign-out). */}
       <UserTimeZoneSync api={platformApi} />
-      <IdentityWebAdaptersProvider adapters={{ appName: APP_NAME }}>
+      <IdentityWebAdaptersProvider adapters={{ appName: APP_NAME, api: identityApi }}>
         <AppRoutes />
       </IdentityWebAdaptersProvider>
     </AuthProvider>
