@@ -12,7 +12,7 @@ import {
   useOrgsFeature,
   usePermissions,
 } from '@marinoscar/platform-web/identity/headless';
-import { AuthCallbackPage, LoginPage, OrganizationPage, OrganizationsPage, UserTokensPage, UsersPage } from '@marinoscar/platform-web/identity/ui';
+import { ActivateDevicePage, AuthCallbackPage, LoginPage, OrganizationPage, OrganizationsPage, UserTokensPage, UsersPage } from '@marinoscar/platform-web/identity/ui';
 import { JobInsightsPage, JobsPage } from '@marinoscar/platform-web/jobs/ui';
 import { registerSettingsFeature, useSettingsFeatures } from '@marinoscar/platform-web/settings/headless';
 import { SettingsHub, type SettingsHubProps } from '@marinoscar/platform-web/settings/ui';
@@ -156,6 +156,9 @@ export function AppRoutes() {
         <Route key={route.path} path={`/${route.path}`} element={<Suspense fallback={spinner}>{route.element}</Suspense>} />
       ))}
       <Route element={<RequireAuth loading={spinner} />}>
+        {/* Device activation (`<cli> login`, the Android app): signed in, full
+            screen, outside the shell. Without it the catch-all sends /activate home. */}
+        <Route path="activate" element={<ActivateDevicePage />} />
         <Route element={shell}>
           <Route index element={<Home />} />
           <Route path="notes" element={<Gate permission="notes:read"><NotesPage /></Gate>} />
