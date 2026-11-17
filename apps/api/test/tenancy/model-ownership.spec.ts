@@ -70,6 +70,11 @@ describe('model ownership vs prisma/schema/', () => {
     'WebhookDelivery',
     'StorageMigrationRun',
     'StorageMigrationItem',
+    'OAuthClient',
+    'OAuthAuthorizationRequest',
+    'OAuthGrant',
+    'OAuthAuthorizationCode',
+    'OAuthToken',
     ]);
     expect(modelOwnershipRegistry.list()).toEqual([...PLATFORM_MODEL_OWNERSHIP]);
   });
@@ -102,6 +107,10 @@ describe('model ownership vs prisma/schema/', () => {
       'DeviceCode',
       'Notification',
       'NotificationDelivery',
+      'OAuthAuthorizationCode',
+      'OAuthAuthorizationRequest',
+      'OAuthGrant',
+      'OAuthToken',
       'PersonalAccessToken',
       'PushSubscription',
       'RefreshToken',
