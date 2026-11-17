@@ -21,6 +21,7 @@ import { toPrincipal } from '../../../src/identity/auth/principal.factory';
 import { AuthService } from '../../../src/identity/auth/auth.service';
 import { NodeRouteGuard } from '../../../src/nodes/node-route.guard';
 import { OAUTH_SERVER_SYSTEM_SETTINGS, mergeOAuthServerSettings } from '../../../src/settings/index';
+import type { AuthCredentialInfo } from '../../../src/identity/index';
 import { userGraph } from './support';
 
 describe('credential kind oauth', () => {
@@ -126,7 +127,7 @@ describe('IdentityModule options: oauthServer', () => {
 });
 
 describe('session-only actions refuse an oauth credential', () => {
-  const oauth = { kind: 'oauth', tokenId: 't', grantId: 'g', clientId: 'c', resourceId: 'r', scopes: [] } as const;
+  const oauth: AuthCredentialInfo = { kind: 'oauth', tokenId: 't', grantId: 'g', clientId: 'c', resourceId: 'r', scopes: [] };
 
   it('refuseOAuthCredential refuses oauth only', () => {
     expect(() => refuseOAuthCredential(oauth)).toThrow(ForbiddenException);

@@ -151,8 +151,8 @@ describe('InProcessDelegation over a real Fastify instance and the guard', () =>
       seen.push({ header: svc.headerFor(request) });
       return { ok: true };
     });
-    app.setErrorHandler((error, _request, reply) => {
-      void reply.status(error instanceof UnauthorizedException ? 401 : (error as { statusCode?: number }).statusCode ?? 500).send({ message: error.message });
+    app.setErrorHandler((error: unknown, _request, reply) => {
+      void reply.status(error instanceof UnauthorizedException ? 401 : (error as { statusCode?: number }).statusCode ?? 500).send({ message: (error as Error).message });
     });
     await app.ready();
   });
