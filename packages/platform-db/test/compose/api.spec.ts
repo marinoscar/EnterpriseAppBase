@@ -75,7 +75,7 @@ describe('the default platform schema folder', () => {
     const { files } = composeSchema({ appFragmentsDir: join(dir, 'app'), outDir: join(dir, 'out') });
     expect(files.map((f) => f.path.split('/').pop())).toEqual([
       'platform.ai.prisma', 'platform.alerts.prisma', 'platform.android-app.prisma', 'platform.base.prisma', 'platform.credentials.prisma', 'platform.db-backup.prisma',
-      'platform.identity.prisma', 'platform.jobs.prisma', 'platform.notifications.prisma', 'platform.settings.prisma',
+      'platform.identity.prisma', 'platform.jobs.prisma', 'platform.notifications.prisma', 'platform.oauth.prisma', 'platform.settings.prisma',
       'platform.sharing.prisma', 'platform.storage.prisma', 'platform.webhooks.prisma', 'app.workouts.prisma',
     ]);
   });

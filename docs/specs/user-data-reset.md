@@ -30,11 +30,11 @@ Platform categories and decisions:
 | `files` | `StorageObject` (bytes and rows) | yes |
 | `notifications` | `Notification`, `NotificationDelivery`, `PushSubscription` | yes |
 | `ai` | `AiRun`, `AiUsageEvent`, `UserAiKey` | yes |
-| `credentials` | `PersonalAccessToken`, `DeviceCode`, `UserCredential` | no |
+| `credentials` | `PersonalAccessToken`, `DeviceCode`, `UserCredential`, `OAuthGrant` (its authorization codes and tokens cascade with it) | no |
 | `settings` | `UserSettings`; clears `displayName`, `profileImageUrl` | no |
 | `other` | any owner model without a hint (run time); the conformance suite still demands a hint | yes |
 
-Kept by every data reset: `User`, `UserIdentity`, `UserRole`, `RefreshToken` (the session survives), `AllowedEmail`, `AuditEvent`, `Membership`, `GroupMember`, `Grant`, `WorkerNode`, `NodeCredential`, and every deployment model (system settings, credentials, AI models, broadcasts, backup runs). The kept list is asserted by `user-data-purge.db.spec.ts`, derived from the registry.
+Kept by every data reset: `User`, `UserIdentity`, `UserRole`, `RefreshToken` (the session survives), `AllowedEmail`, `AuditEvent`, `Membership`, `GroupMember`, `Grant`, `WorkerNode`, `NodeCredential`, and every deployment model (including `OAuthClient`, an actor-only model whose `created_by_user_id` is set null when its creator goes) (system settings, credentials, AI models, broadcasts, backup runs). The kept list is asserted by `user-data-purge.db.spec.ts`, derived from the registry.
 
 ### 2.2 The delete order
 

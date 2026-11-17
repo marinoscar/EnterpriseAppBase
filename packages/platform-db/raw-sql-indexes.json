@@ -116,6 +116,15 @@
       "reason": "At most one pending or running storage provider migration run deployment-wide: a constant-expression partial unique index Prisma cannot express. A concurrent second start loses on the index (409 with details.activeRunId), never a findFirst pre-check.",
       "doc": "docs/specs/storage-providers.md",
       "createdIn": "0042_add_storage_migrations"
+    },
+    {
+      "name": "oauth_grants_active_uniq_idx",
+      "table": "oauth_grants",
+      "unique": true,
+      "definition": "CREATE UNIQUE INDEX oauth_grants_active_uniq_idx ON public.oauth_grants USING btree (user_id, client_id, resource) WHERE (revoked_at IS NULL)",
+      "reason": "At most one ACTIVE (not revoked) OAuth grant per user, client and resource: a partial unique index Prisma cannot express. Consent upserts the active grant and treats a unique violation as 'already granted'; a revoked grant frees the slot for a new consent.",
+      "doc": "docs/specs/oauth-server.md",
+      "createdIn": "0043_add_oauth_server"
     }
   ]
 }

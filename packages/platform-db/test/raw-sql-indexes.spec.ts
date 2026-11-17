@@ -40,7 +40,7 @@ describe('the shipped package', () => {
     }
   });
 
-  it('lists the thirteen indexes of CLAUDE.md, each pointing at a document that exists', () => {
+  it('lists the fourteen indexes of CLAUDE.md, each pointing at a document that exists', () => {
     expect(RAW_SQL_INDEXES.map((i) => [i.name, i.unique])).toEqual([
       ['jobs_active_dedup_uniq_idx', true],
       ['jobs_attempts_gt1_idx', false],
@@ -55,9 +55,10 @@ describe('the shipped package', () => {
       ['alert_incidents_open_uniq_idx', true],
       ['notifications_live_dedup_uniq_idx', true],
       ['storage_migration_runs_active_uniq_idx', true],
+      ['oauth_grants_active_uniq_idx', true],
     ]);
     for (const index of RAW_SQL_INDEXES) {
-      expect(['docs/specs/job-queue.md', 'docs/specs/database-backup.md', 'docs/specs/platform-packages.md', 'docs/specs/native-companion-architecture.md', 'docs/specs/storage-providers.md']).toContain(index.doc);
+      expect(['docs/specs/job-queue.md', 'docs/specs/database-backup.md', 'docs/specs/platform-packages.md', 'docs/specs/native-companion-architecture.md', 'docs/specs/storage-providers.md', 'docs/specs/oauth-server.md']).toContain(index.doc);
       expect(existsSync(join(REPO_ROOT, index.doc)), `${index.doc} does not exist`).toBe(true);
       expect(manifest.map((e) => e.id)).toContain(index.createdIn);
       expect(index.reason.length).toBeGreaterThan(20);

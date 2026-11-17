@@ -479,6 +479,11 @@ The schema is composed from per-slice fragments in `packages/platform-db/schema/
 | Identity | `RefreshToken` | `refresh_tokens` | Hashed refresh tokens, rotated on use |
 | Identity | `PersonalAccessToken` | `personal_access_tokens` | Hashed `pat_` tokens with display prefix and expiry |
 | Identity | `DeviceCode` | `device_codes` | RFC 8628 device authorization requests |
+| Identity | `OAuthClient` | `oauth_clients` | An OAuth client: metadata-document (`cimd`), dynamically registered or pre-registered; deployment data, no row-level security |
+| Identity | `OAuthAuthorizationRequest` | `oauth_authorization_requests` | An authorization request waiting for one user's consent (10 minutes) |
+| Identity | `OAuthGrant` | `oauth_grants` | One consent of a user to a client for a resource and scopes; at most one active grant per `(user, client, resource)` (raw-SQL partial index `oauth_grants_active_uniq_idx`) |
+| Identity | `OAuthAuthorizationCode` | `oauth_authorization_codes` | A single-use authorization code (SHA-256 hash only, 60 s) |
+| Identity | `OAuthToken` | `oauth_tokens` | Hashed access and refresh tokens of a grant, with the refresh rotation chain |
 | Identity | `AuditEvent` | `audit_events` | Security-relevant action log |
 | Identity | `Organization` | `organizations` | A tenancy boundary; exactly one row is the default organization (`is_default`); `metadata` (JSONB) holds the app's registered namespaces |
 | Identity | `Membership` | `memberships` | A user's membership of an organization, `active` or `suspended`, with its org role (`role_id`, required); unique per `(org_id, user_id)` |

@@ -253,6 +253,12 @@
       "originId": "platform:0042_add_storage_migrations",
       "sha256": "8d37841523a5b4737379df567d5ad3feb37abb0f29dcef416cd34f20167ba181",
       "since": "1.0.0"
+    },
+    {
+      "localDir": "20261117220229_add_oauth_server",
+      "originId": "platform:0043_add_oauth_server",
+      "sha256": "cc1c32e853e0b559f27cdd2049862f3c5d7062a65506207b20fd3c24f1147d3e",
+      "since": "1.0.0"
     }
   ],
   "platformVersion": "1.0.0"
