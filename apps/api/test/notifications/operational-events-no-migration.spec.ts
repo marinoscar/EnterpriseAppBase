@@ -132,6 +132,8 @@ const MIGRATIONS_AT_288 = [
   // #1093: storage_migration_runs and storage_migration_items (copy-only storage
   // provider migration; the four operational events still need nothing).
   '20261108112214_add_storage_migrations',
+  // PP-15.2 (#1180): the OAuth server tables (the four operational events still need nothing).
+  '20261117220229_add_oauth_server',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

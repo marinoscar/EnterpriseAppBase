@@ -35,6 +35,7 @@ const OWNERSHIP: Record<string, string[]> = {
   'android-app': ['AndroidAppRelease'],
   alerts: ['AlertRule', 'AlertIncident'],
   webhooks: ['WebhookEndpoint', 'WebhookDelivery', 'WebhookScope', 'WebhookDeliveryStatus'],
+  oauth: ['OAuthClient', 'OAuthAuthorizationRequest', 'OAuthGrant', 'OAuthAuthorizationCode', 'OAuthToken', 'OAuthClientKind', 'OAuthRequestStatus', 'OAuthTokenKind'],
 };
 
 const files = readdirSync(SCHEMA_DIR).filter((f) => f.endsWith('.prisma')).sort();
@@ -57,8 +58,8 @@ describe('the shipped platform fragments', () => {
 
   it('declare 48 models and 16 enums, each once', () => {
     const all = inputs.flatMap((i) => parseBlocks(i.text, i.name).blocks).filter((b) => !b.extend);
-    expect(all.filter((b) => b.kind === 'model')).toHaveLength(48);
-    expect(all.filter((b) => b.kind === 'enum')).toHaveLength(16);
+    expect(all.filter((b) => b.kind === 'model')).toHaveLength(53);
+    expect(all.filter((b) => b.kind === 'enum')).toHaveLength(19);
     expect(new Set(all.map((b) => b.name)).size).toBe(all.length);
   });
 
@@ -102,6 +103,7 @@ describe('the shipped platform fragments', () => {
       'db-backup:databaseBackupRuns', 'db-backup:databaseRestores',
       'jobs:nodeCredentials', 'jobs:workerNodes',
       'notifications:broadcastsCreated', 'notifications:notificationDeliveries', 'notifications:notifications', 'notifications:pushSubscriptions',
+      'oauth:oauthClientsCreated', 'oauth:oauthGrants',
       'settings:orgSettingsUpdates', 'settings:settingsUpdates', 'settings:userSettings',
       'sharing:grantsGiven', 'sharing:grantsReceived', 'sharing:grantsRevoked',
       'sharing:groupInvitesClaimed', 'sharing:groupInvitesSent', 'sharing:groupMembersAdded', 'sharing:groupMemberships', 'sharing:groupsCreated',
@@ -112,6 +114,7 @@ describe('the shipped platform fragments', () => {
     expect(by('StorageObject')).toEqual([]);
     expect(by('Group')).toEqual([]);
     expect(by('Organization').filter((e) => e.startsWith('credentials:'))).toEqual(['credentials:orgCredentials']);
+    expect(by('Organization').filter((e) => e.startsWith('oauth:'))).toEqual(['oauth:oauthGrants']);
     expect(by('Organization').filter((e) => e.startsWith('webhooks:'))).toEqual(['webhooks:webhookEndpoints']);
   });
 

@@ -185,6 +185,28 @@ const STORAGE_MIGRATION_MODEL_OWNERSHIP: readonly ModelOwnershipDef[] = [
 ];
 
 /**
+ * The OAuth server's five tables (PP-15.2, #1180). None is under row-level
+ * security: they are resolved at /authorize and the token endpoint, before any
+ * organization scope exists, like `PersonalAccessToken`.
+ */
+const OAUTH_MODEL_OWNERSHIP: readonly ModelOwnershipDef[] = [
+  { model: 'OAuthClient', kind: 'system', rationale: 'A registered, dynamic or metadata-document client: deployment data, resolved before any scope exists.' },
+  {
+    model: 'OAuthAuthorizationRequest',
+    kind: 'user',
+    rationale: 'A short-lived authorization request waiting for one user to consent; resolved before any scope exists.',
+  },
+  {
+    model: 'OAuthGrant',
+    kind: 'user',
+    orgReference: 'orgId',
+    rationale: "A user's consent to a client. org_id records the organisation the grant acts in; it is read at the token endpoint, before any scope exists, so it carries no policy.",
+  },
+  { model: 'OAuthAuthorizationCode', kind: 'user', rationale: "A single-use code of a user's grant; reached through the grant, before any scope exists." },
+  { model: 'OAuthToken', kind: 'user', rationale: "An access or refresh token of a user's grant; read at authentication, before any scope exists." },
+];
+
+/**
  * Every platform model's ownership kind (`org`, `org-optional`, `user` or
  * `system`), in registration order: the base inventory, then the sharing,
  * settings, credentials, android-app and webhooks slices' own classifications.
@@ -205,6 +227,8 @@ export const PLATFORM_MODEL_OWNERSHIP: readonly ModelOwnershipDef[] = Object.fre
   ...WEBHOOKS_MODEL_OWNERSHIP,
   // The storage slice's provider-migration tables (#1093).
   ...STORAGE_MIGRATION_MODEL_OWNERSHIP,
+  // The OAuth server tables (PP-15.2, #1180).
+  ...OAUTH_MODEL_OWNERSHIP,
 ]);
 
 /**

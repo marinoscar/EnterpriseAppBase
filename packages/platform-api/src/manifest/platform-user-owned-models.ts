@@ -251,6 +251,31 @@ const STORAGE_MIGRATION_USER_OWNED_MODELS: readonly UserOwnedModelDef[] = [
 ];
 
 /**
+ * The OAuth server's models with a foreign key to `User` (PP-15.2, #1180). A
+ * grant is one consent and belongs to the user; its codes and tokens have no
+ * `User` key and cascade with it. The client is deployment data that only
+ * records who registered it.
+ */
+const OAUTH_USER_OWNED_MODELS: readonly UserOwnedModelDef[] = [
+  {
+    model: 'OAuthGrant',
+    ownerField: 'userId',
+    purge: 'delete',
+    export: 'include',
+    exportOmit: [],
+    rationale:
+      "The user's own consents to OAuth clients. Deleting the user deletes the grant (Cascade) and, through it, its codes and tokens. The export lists the client, resource, scopes and dates; hashes live on the codes and tokens, which are not exported.",
+  },
+  {
+    model: 'OAuthClient',
+    actorFields: ['createdByUserId'],
+    purge: 'detach',
+    export: 'exclude',
+    rationale: 'Deployment data: a client outlives the administrator who registered it (SetNull); the creator is only recorded.',
+  },
+];
+
+/**
  * Every platform model with a foreign key to `User`, with its role, purge and
  * export policy, in registration order: the base inventory, then the sharing,
  * settings, credentials and android-app slices' own entries.
@@ -271,6 +296,8 @@ export const PLATFORM_USER_OWNED_MODELS: readonly UserOwnedModelDef[] = Object.f
   ...WEBHOOKS_USER_OWNED_MODELS,
   // The storage slice's provider-migration run (#1093).
   ...STORAGE_MIGRATION_USER_OWNED_MODELS,
+  // The OAuth server's grant and client tables (PP-15.2, #1180).
+  ...OAUTH_USER_OWNED_MODELS,
 ]);
 
 /**

@@ -36,6 +36,7 @@ Find the right doc without loading the whole index. Read a doc by section (grep 
 | Use AI or add an AI provider | [specs/ai-platform.md](specs/ai-platform.md), [ai README](../packages/platform-api/src/ai/README.md) |
 | Add a notification | [notifications README](../packages/platform-api/src/notifications/README.md), [specs/browser-notifications.md](specs/browser-notifications.md) |
 | Send events to other systems (webhooks) or alert on metrics and nodes | [specs/webhooks.md](specs/webhooks.md), [specs/alerts.md](specs/alerts.md), [runbooks/webhooks.md](runbooks/webhooks.md), [runbooks/alerts.md](runbooks/alerts.md) |
+| Let third-party clients (hosted AI assistants, MCP clients) act for a user with OAuth | [specs/oauth-server.md](specs/oauth-server.md), [adr/0003-oauth-authorization-server.md](adr/0003-oauth-authorization-server.md) |
 | Add a Doctor check | [specs/doctor.md](specs/doctor.md#4-extending-it-in-a-fork) |
 | Extend a slice from an app or package | [EXTENDING.md](EXTENDING.md) |
 | Find which package carries a slice | [SLICES.md](SLICES.md) |
@@ -81,6 +82,7 @@ Find the right doc without loading the whole index. Read a doc by section (grep 
 | [specs/onboarding.md](specs/onboarding.md) | First-run onboarding: the welcome dialog, the derived Setup guide and Get started checklists, the step and fact registries, activation metrics and feature notices | you add an onboarding step, a fact, an activation milestone or a feature notice |
 | [specs/user-data-reset.md](specs/user-data-reset.md) | User data reset, factory reset and organization offboarding: the registry-driven per-user deletion with scopes, the delete order from the schema, the three jobs, the Danger Zone and factory reset pages | you add a model with an owner column (its keep-or-delete hint), a category, a scope, a factory reset step or an offboarding precondition |
 | [specs/webhooks.md](specs/webhooks.md) | Outbound signed webhooks: scopes, the event catalog and notification bridge, Standard Webhooks signing and rotation, delivery job with retries and circuit breaker, the SSRF guard | you add a webhook event, or change delivery, signing or the egress policy |
+| [specs/oauth-server.md](specs/oauth-server.md) | OAuth 2.1 authorization and resource server for third-party clients (planned): discovery, client identity (CIMD, DCR, pre-registered) and the host allowlist, consent, scoped audience-bound `oat_` tokens, refresh rotation and reuse detection, in-process delegation | you register a scope or protected resource, or change the guard's `oat_` branch or the token endpoints |
 | [specs/alerts.md](specs/alerts.md) | Alert rules over metrics, node events and fleet health: rule kinds, starter rules, the incident state machine, evaluation, dispatch | you add a rule kind or change how incidents fire and resolve |
 | [specs/telemetry.md](specs/telemetry.md) | GreptimeDB-backed telemetry, the Telemetry Explorer and the Telemetry Dashboard | you change telemetry ingest, storage, querying or the dashboard |
 | [specs/user-credentials.md](specs/user-credentials.md) | Encrypted per-user credentials | you add a bring-your-own-key credential type |

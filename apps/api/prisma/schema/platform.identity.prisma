@@ -93,6 +93,10 @@ model User {
   pushSubscriptions      PushSubscription[]      @relation("UserPushSubscriptions")
   broadcastsCreated      NotificationBroadcast[] @relation("BroadcastAuthor")
 
+  // composed from package:oauth.prisma
+  oauthClientsCreated OAuthClient[] @relation("OAuthClientCreatedBy")
+  oauthGrants         OAuthGrant[]  @relation("UserOAuthGrants")
+
   // composed from package:settings.prisma
   userSettings           UserSettings?
   settingsUpdates        SystemSettings[]        @relation("SettingsUpdater")
@@ -477,6 +481,9 @@ model Organization {
 
   // composed from package:notifications.prisma
   notificationBroadcasts NotificationBroadcast[] @relation("BroadcastTargetOrg")
+
+  // composed from package:oauth.prisma
+  oauthGrants OAuthGrant[]
 
   // composed from package:settings.prisma
   settings OrgSettings?

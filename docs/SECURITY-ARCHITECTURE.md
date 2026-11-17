@@ -44,6 +44,7 @@ contract lives in the generated OpenAPI document (`/api/docs`).
 16. [Developer checklist](#16-developer-checklist)
 17. [User-owned data and scoped access](#17-user-owned-data-and-scoped-access)
 18. [Tenant isolation (RLS)](#18-tenant-isolation-rls)
+19. [OAuth access tokens (`oat_`)](#19-oauth-access-tokens-oat_)
 
 ---
 
@@ -1917,3 +1918,17 @@ to `rls-policies.json`, route every caller through `forOrg` / `runInOrg` or a
 named system reason, and put `orgId` in the payload of every job that touches
 it. The coverage tripwire fails until each step is done.
 
+---
+
+## 19. OAuth access tokens (`oat_`)
+
+> **Status:** planned. Design and decision: [OAuth server spec](specs/oauth-server.md), [ADR 0003](adr/0003-oauth-authorization-server.md). This section is a stub; it is filled when the feature ships.
+
+The identity slice is planned to issue a fourth bearer credential to third-party clients that a user approves on a consent page. The rules this section will describe:
+
+- **Kind `oauth`.** Opaque `oat_` access token and `ort_` refresh token, stored as SHA-256 hashes. Short-lived, revocable at once.
+- **Confinement.** The guard admits an `oat_` token only on the routes of the protected resource its grant names, decided from the request path before any lookup.
+- **Narrowing.** Effective permissions are the user's permissions intersected with the permissions of the granted scopes. A scope never grants what the user lacks.
+- **Consent and client trust.** Approved by a session credential only. The consent page names the client's host. Clients are admitted by a deployment host allowlist, closed by default. Client metadata is fetched through the egress guard.
+- **Rotation.** Refresh tokens rotate on every use. A reused one revokes the whole grant.
+- **In-process delegation.** A signed in-memory header, valid only inside the process and only while the originating request lives.
