@@ -81,3 +81,4 @@ Specs, code paths and issues.
 |---|---|---|
 | [0001](0001-org-aware-principal-and-scope.md) | Org-aware principal and scope | Accepted |
 | [0002](0002-database-packaging-and-rls.md) | Database packaging and row-level security | Accepted |
+| [0003](0003-oauth-authorization-server.md) | OAuth authorization server in the identity slice | Accepted |
