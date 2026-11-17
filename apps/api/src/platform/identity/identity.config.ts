@@ -38,4 +38,10 @@ export const identityModule = IdentityModule.forRoot({
   enableTestAuth: process.env.NODE_ENV !== 'production',
   // A device-flow `returnUri` may be https or the Android companion's deep link.
   deviceFlow: { returnUriSchemes: [ANDROID_IDENTITY.deepLinkScheme] },
+  // The OAuth server's resource-server half (PP-15.3): the guard's `oat_`
+  // branch, the token resolver and in-process delegation. It ships OFF (the
+  // `oauthServer.enabled` system setting) and registers no resource or scope:
+  // an `oat_` header is a 401 until an app registers a protected resource and
+  // an administrator switches the server on.
+  oauthServer: {},
 });

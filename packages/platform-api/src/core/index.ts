@@ -76,6 +76,7 @@ export type {
   CredentialKindDef,
   GroupMembership,
   NodePrincipal,
+  OAuthPrincipalInfo,
   OrgMembership,
   Principal,
   PrincipalKindDef,
@@ -145,6 +146,8 @@ export interface CredentialKinds {
   pat: true;
   /** A `nod_` worker-node credential. */
   node: true;
+  /** An `oat_` OAuth access token a user granted to a third-party client. */
+  oauth: true;
 }
 
 /**
@@ -157,7 +160,7 @@ export type PrincipalKind = keyof PrincipalKinds;
 
 /**
  * Every credential kind, built-in and augmented: `keyof CredentialKinds`. The
- * unaugmented type is exactly `'session' | 'device' | 'pat' | 'node'`. A run-time
+ * unaugmented type is exactly `'session' | 'device' | 'pat' | 'node' | 'oauth'`. A run-time
  * check (`isCredentialKind`, `requireCredentialKind`) is still needed for a
  * value that arrives as a string.
  *

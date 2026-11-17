@@ -18,7 +18,7 @@ import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 /**
  * Which credential family admitted the request, as `JwtAuthGuard` records it:
  * an access JWT (`jwt`, a browser session or a device-flow token), a personal
- * access token (`pat`, with its id) or a worker-node credential (`node`).
+ * access token (`pat`, with its id), a worker-node credential (`node`) or an OAuth access token (`oauth`, with its ids and scopes).
  *
  * @stability stable
  */
@@ -36,6 +36,20 @@ export type AuthCredentialInfo =
   | {
       /** A worker-node credential. */
       kind: 'node';
+    }
+  | {
+      /** An `oat_` OAuth access token a user granted to a third-party client. */
+      kind: 'oauth';
+      /** The `oauth_tokens.id` (never the token). */
+      tokenId: string;
+      /** The `oauth_grants.id` (the consent). */
+      grantId: string;
+      /** The `oauth_clients.id` the token was issued to. */
+      clientId: string;
+      /** The protected resource's registered id. */
+      resourceId: string;
+      /** The scope ids the token carries. */
+      scopes: string[];
     };
 
 /**

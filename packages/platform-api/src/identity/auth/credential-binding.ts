@@ -23,7 +23,7 @@
 // org taken from a header, query or body.
 // =============================================================================
 
-import type { CredentialKind } from '../../core/index';
+import type { CredentialKind, OAuthPrincipalInfo } from '../../core/index';
 
 /**
  * What a credential path binds: the org (`null` for a system-scoped node;
@@ -99,4 +99,38 @@ export function hasActiveMembership(
   return (user.memberships ?? []).some(
     (membership) => membership.orgId === orgId && membership.status === 'active',
   );
+}
+
+/**
+ * What an `oat_` token narrows a request to: the permissions of its scopes,
+ * and the metadata `principal.oauth` and `@OAuthGrant()` expose.
+ *
+ * @internal
+ */
+export interface OAuthNarrowing {
+  /** The union of the permissions of the token's scopes. The user's effective set is intersected with it. */
+  readonly permissions: readonly string[];
+  /** The client, grant, resource and scopes (`principal.oauth`). */
+  readonly info: OAuthPrincipalInfo;
+}
+
+/**
+ * Stamps an OAuth narrowing on `target` IN PLACE as a non-enumerable
+ * `oauthNarrowing` property and returns it. ONLY for a graph fresh from the
+ * database (the OAuth resolver builds one per request): the narrowing belongs
+ * to ONE credential, so it must never reach the principal cache, whose
+ * entries every credential of the same user shares. Non-enumerable, so a
+ * cache copy (own enumerable properties only), a JSON body and a log line
+ * never carry it.
+ *
+ * @internal
+ */
+export function stampOAuthNarrowing<T extends object>(target: T, narrowing: OAuthNarrowing): T & { oauthNarrowing: OAuthNarrowing } {
+  Object.defineProperty(target, 'oauthNarrowing', {
+    value: Object.freeze({ permissions: Object.freeze([...narrowing.permissions]), info: Object.freeze({ ...narrowing.info, scopes: Object.freeze([...narrowing.info.scopes]) }) }),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  return target as T & { oauthNarrowing: OAuthNarrowing };
 }

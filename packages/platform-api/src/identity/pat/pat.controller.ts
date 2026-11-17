@@ -30,6 +30,8 @@ import {
 } from '../../core/index';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { CurrentPrincipal } from '../auth/decorators/current-principal.decorator';
+import { AuthCredential, type AuthCredentialInfo } from '../auth/decorators/auth-credential.decorator';
+import { refuseOAuthCredential } from '../auth/refuse-oauth';
 import { CreatePatDto } from './dto/create-pat.dto';
 import { PatCreatedResponseDto, PatListItemDto } from './dto/pat-response.dto';
 
@@ -65,7 +67,10 @@ export class PatController {
     @Body() dto: CreatePatDto,
     @CurrentPrincipal() principal: Principal,
     @Req() request: RequestWithHeaders,
+    @AuthCredential() credential?: AuthCredentialInfo | null,
   ): Promise<PatCreatedResponseDto> {
+    // A PAT carries the user's FULL authority: an OAuth token never mints one.
+    refuseOAuthCredential(credential);
     // Day and month lifetimes are calendar arithmetic in the requester's zone
     // (profile, then `X-Time-Zone`, then UTC).
     const timeZone = await resolveRequestTimeZoneWith(this.timeZones, request, principal.userId);
@@ -113,7 +118,9 @@ export class PatController {
   async revokeToken(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('id') userId: string,
+    @AuthCredential() credential?: AuthCredentialInfo | null,
   ): Promise<void> {
+    refuseOAuthCredential(credential);
     await this.patService.revokeToken(userId, id);
   }
 }

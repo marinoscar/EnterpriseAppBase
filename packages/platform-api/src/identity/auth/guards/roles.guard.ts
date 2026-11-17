@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
+import { ANY_PERMISSIONS_KEY, PERMISSIONS_KEY } from '../decorators/permissions.decorator';
 import { toRequestUser, AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 
 /**
@@ -40,6 +41,23 @@ export class RolesGuard implements CanActivate {
 
     if (!user) {
       throw new ForbiddenException('No user in request');
+    }
+
+    // AN `oauth` CREDENTIAL IS NEVER ADMITTED BY ROLE ALONE (PP-15.3). A role
+    // is the user's whole standing, and an `oat_` token is deliberately
+    // narrower than its user: a route guarded only by `@Roles()` has nothing
+    // a scope could narrow, so admitting by role would hand the token the
+    // user's full authority on that route. A route that ALSO declares
+    // permissions is decided by them (`PermissionsGuard`, over the narrowed
+    // set), so the scope must grant what the route names.
+    if (request.authCredential?.kind === 'oauth') {
+      const declared = [PERMISSIONS_KEY, ANY_PERMISSIONS_KEY].some((key) => {
+        const names = this.reflector.getAllAndOverride<string[]>(key, [context.getHandler(), context.getClass()]);
+        return Array.isArray(names) && names.length > 0;
+      });
+      if (!declared) {
+        throw new ForbiddenException('This route is not available to OAuth access tokens');
+      }
     }
 
     const requestUser = toRequestUser(user);

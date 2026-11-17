@@ -10,7 +10,7 @@ export {
   IDENTITY_OPTIONS,
   resolveIdentityModuleOptions,
 } from './identity.options';
-export type { IdentityModuleOptions, ResolvedDeviceFlowOptions, ResolvedIdentityModuleOptions } from './identity.options';
+export type { IdentityModuleOptions, ResolvedDeviceFlowOptions, ResolvedIdentityModuleOptions, ResolvedOAuthServerOptions } from './identity.options';
 export { identityConfiguration, requireJwtSecret } from './identity.configuration';
 export type { IdentityConfiguration } from './identity.configuration';
 
@@ -22,6 +22,7 @@ export {
   IDENTITY_JOBS,
   IDENTITY_METRICS,
   IDENTITY_NODE_CREDENTIALS,
+  IDENTITY_OAUTH_SETTINGS,
   IDENTITY_NOTIFIER,
   IDENTITY_PROFILE_IMAGES,
   NOOP_IDENTITY_METRICS,
@@ -42,6 +43,7 @@ export type {
   IdentityLoginOutcome,
   IdentityMetrics,
   IdentityNodeCredentials,
+  IdentityOAuthSettings,
   IdentityNotifier,
   IdentityPrisma,
   IdentityProfileImages,
@@ -65,6 +67,8 @@ export type {
   IdentityMembershipRow,
   IdentityOrganizationRow,
   IdentityPermissionRow,
+  IdentityOAuthGrantRow,
+  IdentityOAuthTokenRow,
   IdentityPersonalAccessTokenRow,
   IdentityPrismaError,
   IdentityQueryArgs,
@@ -199,6 +203,39 @@ export { CurrentPrincipal, principalOf } from './auth/decorators/current-princip
 export type { RequestWithPrincipal } from './auth/decorators/current-principal.decorator';
 export { CurrentOrg, activeOrgIdOf } from './auth/decorators/current-org.decorator';
 export { AuthCredential, authCredentialOf } from './auth/decorators/auth-credential.decorator';
+export { refuseOAuthCredential } from './auth/refuse-oauth';
+export { isUnderRoutePrefix, requestPathOf } from './auth/route-prefix';
+export {
+  FORBIDDEN_OAUTH_ROUTE_PREFIXES,
+  findOAuthRegistryProblems,
+  oauthResourceRegistry,
+  registerOAuthProtectedResource,
+  resourceForPath,
+} from './oauth-server/oauth-resource.registry';
+export type { OAuthProtectedResourceDefinition, OAuthRegistryProblem } from './oauth-server/oauth-resource.registry';
+export {
+  OAUTH_SCOPE_ID_MAX_LENGTH,
+  OAUTH_SCOPE_ID_PATTERN,
+  OFFLINE_ACCESS_SCOPE,
+  oauthScopeRegistry,
+  permissionsOfScopes,
+  registerOAuthScope,
+} from './oauth-server/oauth-scope.registry';
+export type { OAuthScopeDefinition, OAuthScopeRisk } from './oauth-server/oauth-scope.registry';
+export { OAUTH_CREDENTIAL_KIND } from './oauth-server/oauth-credential-kind';
+export { OAuthGrant, oauthGrantOf } from './oauth-server/oauth-grant.decorator';
+export { OAuthServerModule, isOAuthServerMounted } from './oauth-server/oauth-server.module';
+export { OAUTH_SETTINGS_CACHE_MS, OAuthServerSettingsReader } from './oauth-server/oauth-server-settings.reader';
+export {
+  OAUTH_SERVER_SETTINGS_DEFAULTS,
+  oauthServerSettingsPatchSchema,
+  oauthServerSettingsSchema,
+} from './oauth-server/oauth-server-settings.schemas';
+export type { OAuthServerSettingsValue } from './oauth-server/oauth-server-settings.schemas';
+export { OAUTH_LAST_USED_INTERVAL_MS, OAuthTokenResolver, oauthResourceIdentifier } from './oauth-server/oauth-token.resolver';
+export type { ResolvedOAuthToken } from './oauth-server/oauth-token.resolver';
+export { IPD_BEARER_PREFIX, IPD_TTL_MS, InProcessDelegation } from './oauth-server/in-process-delegation.service';
+export type { InProcessDelegationEntry } from './oauth-server/in-process-delegation.service';
 export type { AuthCredentialInfo, RequestWithAuthCredential } from './auth/decorators/auth-credential.decorator';
 export { JwtAuthGuard, NODE_ROUTE_PREFIX } from './auth/guards/jwt-auth.guard';
 export { RolesGuard } from './auth/guards/roles.guard';

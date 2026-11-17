@@ -81,6 +81,7 @@ describe('settings namespace registries (#677)', () => {
         'ai',
         'telemetry',
         'retention',
+        'oauthServer',
       ]);
     });
 

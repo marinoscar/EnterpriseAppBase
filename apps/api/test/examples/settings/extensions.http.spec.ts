@@ -124,8 +124,8 @@ describe('settings extension points (PP-14.21)', () => {
     it('registers the namespaces in the documented order: platform, then the contribution', async () => {
       const { systemSettingsNamespaceRegistry } = require('@marinoscar/platform-api/settings');
       const keys: string[] = systemSettingsNamespaceRegistry.ids();
-      expect(keys.slice(0, 9)).toEqual(['notifications', 'jobs', 'nodes', 'databaseBackup', 'maintenance', 'storage', 'ai', 'telemetry', 'retention']);
-      expect(keys.slice(9)).toEqual(['quotaPolicy']);
+      expect(keys.slice(0, 10)).toEqual(['notifications', 'jobs', 'nodes', 'databaseBackup', 'maintenance', 'storage', 'ai', 'telemetry', 'retention', 'oauthServer']);
+      expect(keys.slice(10)).toEqual(['quotaPolicy']);
     });
 
     it('keeps what an administrator saved when the stored row predates the nested field', async () => {

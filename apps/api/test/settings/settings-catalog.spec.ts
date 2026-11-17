@@ -57,7 +57,7 @@ import {
 import type { UserSettingsNamespace } from '@marinoscar/platform-api/settings';
 import { DEFAULT_SYSTEM_SETTINGS as SEEDED_SYSTEM_SETTINGS } from '../../prisma/seed-data';
 
-/** DEFAULT_SYSTEM_SETTINGS on main before #677 (including #681's `retention`), key order included. */
+/** DEFAULT_SYSTEM_SETTINGS on main before #677 (including #681's `retention`, plus `oauthServer` appended by PP-15.3), key order included. */
 const BASELINE_DEFAULT_SYSTEM_SETTINGS = {
   "notifications": {
     "browserEnabled": true,
@@ -196,6 +196,19 @@ const BASELINE_DEFAULT_SYSTEM_SETTINGS = {
       "enabled": true,
       "days": 90
     }
+  },
+  "oauthServer": {
+    "enabled": false,
+    "accessTokenTtlMinutes": 60,
+    "refreshTokenTtlDays": 30,
+    "refreshTokenMaxAgeDays": 180,
+    "alwaysIssueRefreshToken": true,
+    "clientIdMetadataDocuments": true,
+    "dynamicClientRegistration": true,
+    "allowedClientHosts": [],
+    "allowAnyClientHost": false,
+    "allowLoopbackClients": true,
+    "dynamicClientUnusedDays": 7
   }
 };
 
@@ -213,7 +226,8 @@ const BASELINE_SHAPE_KEYS: Record<string, string[]> = {
   "storage",
   "ai",
   "telemetry",
-  "retention"
+  "retention",
+  "oauthServer"
  ],
  "systemSettingsPatchSchema": [
   "notifications",
@@ -224,7 +238,8 @@ const BASELINE_SHAPE_KEYS: Record<string, string[]> = {
   "storage",
   "ai",
   "telemetry",
-  "retention"
+  "retention",
+  "oauthServer"
  ],
  "updateSystemSettingsSchema": [
   "notifications",
@@ -235,7 +250,8 @@ const BASELINE_SHAPE_KEYS: Record<string, string[]> = {
   "storage",
   "ai",
   "telemetry",
-  "retention"
+  "retention",
+  "oauthServer"
  ],
  "patchSystemSettingsSchema": [
   "notifications",
@@ -246,7 +262,8 @@ const BASELINE_SHAPE_KEYS: Record<string, string[]> = {
   "storage",
   "ai",
   "telemetry",
-  "retention"
+  "retention",
+  "oauthServer"
  ],
  "systemSettingsResponseSchema": [
   "security",
@@ -258,6 +275,7 @@ const BASELINE_SHAPE_KEYS: Record<string, string[]> = {
   "storage",
   "ai",
   "retention",
+  "oauthServer",
   "updatedAt",
   "updatedBy",
   "version"

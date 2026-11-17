@@ -59,13 +59,13 @@ type Expect<T extends true> = T;
 
 export type ContractUnions = [
   Expect<Equal<TenancyMode, 'single' | 'multi'>>,
-  Expect<Equal<CredentialKind, 'session' | 'device' | 'pat' | 'node'>>,
+  Expect<Equal<CredentialKind, 'session' | 'device' | 'pat' | 'node' | 'oauth'>>,
   Expect<Equal<PrincipalKind, 'user' | 'node'>>,
   // Unaugmented, the open (augmentable) kinds are exactly the closed built-ins (PP-14.14).
   Expect<Equal<BuiltinCredentialKind, CredentialKind>>,
   Expect<Equal<BuiltinPrincipalKind, PrincipalKind>>,
   Expect<Equal<Principal, UserPrincipal | NodePrincipal>>,
-  Expect<Equal<UserPrincipal['credential'], 'session' | 'device' | 'pat'>>,
+  Expect<Equal<UserPrincipal['credential'], 'session' | 'device' | 'pat' | 'oauth'>>,
   Expect<Equal<NodePrincipal['credential'], 'node'>>,
   Expect<Equal<Principal['kind'], PrincipalKind>>,
   Expect<Equal<SystemActor['kind'], 'system'>>,

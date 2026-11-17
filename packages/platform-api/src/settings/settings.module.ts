@@ -20,7 +20,9 @@
 import { DynamicModule, Module } from '@nestjs/common';
 
 import { REQUEST_TIME_ZONE_RESOLVER } from '../core/index';
-import { PrincipalCacheModule } from '../identity/index';
+import { IDENTITY_OAUTH_SETTINGS, PrincipalCacheModule, isOAuthServerMounted } from '../identity/index';
+import { OAUTH_SERVER_SYSTEM_SETTINGS } from './oauth-server.system-settings';
+import { ensureSystemSettingsNamespaces, type SystemSettingsNamespace } from './registry/system-settings-namespace';
 import { OrgSettingsController } from './org-settings/org-settings.controller';
 import { OrgSettingsService } from './org-settings/org-settings.service';
 import { SystemSettingsRowStore } from './row-store';
@@ -73,6 +75,14 @@ export class SettingsModule {
   static forRoot(options: SettingsModuleOptions = {}): DynamicModule {
     const resolved = resolveSettingsModuleOptions(options);
 
+    // The `oauthServer` namespace (PP-15.3) belongs to a deployment that
+    // mounted the OAuth server (`IdentityModule.forRoot({ oauthServer })`, called
+    // first): registered here unless the app's manifest already did, before the
+    // request bodies are composed below. Without it the server reads as off.
+    if (isOAuthServerMounted()) {
+      ensureSystemSettingsNamespaces([OAUTH_SERVER_SYSTEM_SETTINGS as SystemSettingsNamespace], 'SettingsModule.forRoot()');
+    }
+
     // Controller order is the generated OpenAPI document's path order: the
     // app's old order (user settings, then system settings), then the org
     // layer's route, which is not mounted at all when the layer is off.
@@ -91,9 +101,15 @@ export class SettingsModule {
       providers: [
         { provide: SETTINGS_OPTIONS, useValue: resolved },
         { provide: REQUEST_TIME_ZONE_RESOLVER, useExisting: SettingsResolver },
+        // The OAuth server's switch and policy, read by identity's guard through its port (PP-15.3).
+        {
+          provide: IDENTITY_OAUTH_SETTINGS,
+          useFactory: (system: SystemSettingsService) => ({ read: () => system.getNamespace('oauthServer') }),
+          inject: [SystemSettingsService],
+        },
         ...EXPORTED,
       ],
-      exports: [SETTINGS_OPTIONS, REQUEST_TIME_ZONE_RESOLVER, ...EXPORTED],
+      exports: [SETTINGS_OPTIONS, REQUEST_TIME_ZONE_RESOLVER, IDENTITY_OAUTH_SETTINGS, ...EXPORTED],
     };
   }
 }
