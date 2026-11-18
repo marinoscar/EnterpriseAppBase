@@ -32,3 +32,35 @@ export { OAUTH_LAST_USED_INTERVAL_MS, OAuthTokenResolver, oauthResourceIdentifie
 export type { ResolvedOAuthToken } from './oauth-token.resolver';
 export { IPD_BEARER_PREFIX, IPD_TTL_MS, InProcessDelegation } from './in-process-delegation.service';
 export type { InProcessDelegationEntry } from './in-process-delegation.service';
+
+// ---- the authorization server core (PP-15.4) --------------------------------------------
+export { OAUTH_CLIENT_RESOLVER, StoredClientResolver } from './client-resolver';
+export type { ClientRefused, ClientResolution, ClientResolved, ClientResolver, OAuthClientRecord } from './client-resolver';
+export { InMemoryOAuthRateLimiter, OAUTH_RATE_LIMITER, OAuthRateLimitService } from './oauth-rate-limiter';
+export type { OAuthRateLimitVerdict, OAuthRateLimiter } from './oauth-rate-limiter';
+export { OAuthServerContext, OAuthServerFeatures } from './oauth-server-context';
+export { OAUTH_AUDIT_ACTIONS, OAUTH_AUDIT_TARGET_TYPE, OAuthGrantService } from './oauth-grant.service';
+export type { OAuthAuditEntry, OAuthGrantRef } from './oauth-grant.service';
+export { OAuthProtocolError, invalidClient, oauthError, rateLimited } from './oauth-protocol.error';
+export { OAuthProtocolExceptionFilter } from './oauth-protocol.filter';
+export { buildAuthorizationServerMetadata } from './oauth-metadata';
+export type { OAuthAuthorizationServerMetadata } from './oauth-metadata';
+export { isLoopbackRedirectUri, matchesRedirectUri, normalizeResourceIdentifier, redirectHostOf } from './redirect-uri';
+export { isWellFormedChallenge, isWellFormedVerifier, s256Challenge, verifyPkce } from './pkce';
+export {
+  OAUTH_ACCESS_TOKEN_PREFIX,
+  OAUTH_BODY_LIMIT_BYTES,
+  OAUTH_CODE_PREFIX,
+  OAUTH_CODE_TTL_MS,
+  OAUTH_RATE_LIMITS,
+  OAUTH_REFRESH_GRACE_MS,
+  OAUTH_REFRESH_TOKEN_PREFIX,
+  OAUTH_REQUEST_TTL_MS,
+  OAUTH_ROUTE_PREFIX,
+} from './oauth-server.constants';
+export type { OAuthRateLimitSpec } from './oauth-server.constants';
+export { OAuthAuthorizationService } from './oauth-authorization.service';
+export { OAuthTokenService, parseOAuthForm } from './oauth-token.service';
+export { OAuthConsentController, OAuthGrantsController } from './oauth-consent.controller';
+export { OAuthProtocolController } from './oauth-protocol.controller';
+export { requireSessionCredential } from './session-only';

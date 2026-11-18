@@ -31,6 +31,9 @@ export type {
   IdentityConformanceRlsTable,
   IdentityRoute,
 } from './conformance';
+// OAuth server helpers (PP-15.4): a PKCE pair and a client row with a known secret.
+export { createOAuthTestClient, createOAuthTestPkce } from './oauth';
+export type { OAuthTestClient, OAuthTestClientDb, OAuthTestClientCreated, OAuthTestClientDelegate, OAuthTestClientOptions, OAuthTestPkcePair } from './oauth';
 export { createStubIdentityHost } from './stub-host';
 export type { StubIdentityHost, StubIdentityHostOptions, StubIdentityHostState, StubIdentityNotification } from './stub-host';
 

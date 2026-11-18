@@ -67,6 +67,9 @@ export type {
   IdentityMembershipRow,
   IdentityOrganizationRow,
   IdentityPermissionRow,
+  IdentityOAuthAuthorizationCodeRow,
+  IdentityOAuthAuthorizationRequestRow,
+  IdentityOAuthClientRow,
   IdentityOAuthGrantRow,
   IdentityOAuthTokenRow,
   IdentityPersonalAccessTokenRow,
@@ -101,6 +104,7 @@ export type {
   IdentityMembershipChange,
   IdentityLoginSucceededEvent,
   IdentityMembershipChangedEvent,
+  IdentityOAuthGrantEvent,
   IdentityOrgCreatedEvent,
   IdentityOrgSwitchedEvent,
   IdentityUserCreatedEvent,
@@ -236,6 +240,31 @@ export { OAUTH_LAST_USED_INTERVAL_MS, OAuthTokenResolver, oauthResourceIdentifie
 export type { ResolvedOAuthToken } from './oauth-server/oauth-token.resolver';
 export { IPD_BEARER_PREFIX, IPD_TTL_MS, InProcessDelegation } from './oauth-server/in-process-delegation.service';
 export type { InProcessDelegationEntry } from './oauth-server/in-process-delegation.service';
+// The authorization server core (PP-15.4).
+export { OAUTH_CLIENT_RESOLVER, StoredClientResolver } from './oauth-server/client-resolver';
+export type { ClientRefused, ClientResolution, ClientResolved, ClientResolver, OAuthClientRecord } from './oauth-server/client-resolver';
+export { InMemoryOAuthRateLimiter, OAUTH_RATE_LIMITER, OAuthRateLimitService } from './oauth-server/oauth-rate-limiter';
+export type { OAuthRateLimitVerdict, OAuthRateLimiter } from './oauth-server/oauth-rate-limiter';
+export { OAuthServerContext, OAuthServerFeatures } from './oauth-server/oauth-server-context';
+export { OAUTH_AUDIT_ACTIONS, OAUTH_AUDIT_TARGET_TYPE, OAuthGrantService } from './oauth-server/oauth-grant.service';
+export type { OAuthAuditEntry, OAuthGrantRef } from './oauth-server/oauth-grant.service';
+export { OAuthProtocolError } from './oauth-server/oauth-protocol.error';
+export { buildAuthorizationServerMetadata } from './oauth-server/oauth-metadata';
+export type { OAuthAuthorizationServerMetadata } from './oauth-server/oauth-metadata';
+export { isLoopbackRedirectUri, matchesRedirectUri, normalizeResourceIdentifier, redirectHostOf } from './oauth-server/redirect-uri';
+export { isWellFormedChallenge, isWellFormedVerifier, s256Challenge, verifyPkce } from './oauth-server/pkce';
+export {
+  OAUTH_ACCESS_TOKEN_PREFIX,
+  OAUTH_BODY_LIMIT_BYTES,
+  OAUTH_CODE_PREFIX,
+  OAUTH_CODE_TTL_MS,
+  OAUTH_RATE_LIMITS,
+  OAUTH_REFRESH_GRACE_MS,
+  OAUTH_REFRESH_TOKEN_PREFIX,
+  OAUTH_REQUEST_TTL_MS,
+  OAUTH_ROUTE_PREFIX,
+} from './oauth-server/oauth-server.constants';
+export type { OAuthRateLimitSpec } from './oauth-server/oauth-server.constants';
 export type { AuthCredentialInfo, RequestWithAuthCredential } from './auth/decorators/auth-credential.decorator';
 export { JwtAuthGuard, NODE_ROUTE_PREFIX } from './auth/guards/jwt-auth.guard';
 export { RolesGuard } from './auth/guards/roles.guard';

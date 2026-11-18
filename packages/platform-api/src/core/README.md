@@ -327,13 +327,14 @@ No port. Packaged code logs with `new Logger(Context)` from `@nestjs/common`, wh
 
 The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
 
-Twenty-seven symbols are extension points; the other exports are the contracts, functions, types and constants that go with them (listed below the table).
+Twenty-eight symbols are extension points; the other exports are the contracts, functions, types and constants that go with them (listed below the table).
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `defineRegistry` | registry | `defineRegistry<T>(options: RegistryOptions<T>): Registry<T>` | Declare a module-level registry that `RegistryFreezeService` freezes on bootstrap (permissions, settings namespaces, suites) | stable | [example](../../../../apps/api/src/common/permissions/permission.manifest.ts) |
 | `Registry` | registry | `new Registry<T>(options: RegistryOptions<T>)` | Hold an instance registry inside a provider, frozen by its owner (the packaged `DoctorCheckRegistry` is one; the storage slice's key-prefix registry is another) | stable | [example](../../../../apps/api/src/common/permissions/permission.manifest.ts) |
 | `HttpExceptionFilter` | component | `@Catch() class HttpExceptionFilter implements ExceptionFilter` | Register once as the app's `APP_FILTER`, so every error leaves as the one envelope | stable | [example](../../../../apps/api/src/app.module.ts) |
+| `RawResponse` | hook | `@RawResponse(): MethodDecorator` | Exempt one handler from the `{ data, meta }` response envelope because an external standard dictates its body (the OAuth token and metadata endpoints, RFC 6749 and RFC 8414); `TransformInterceptor` skips it and the OpenAPI document stops describing the envelope for it (`x-raw-response`). Errors use `withVerbatimErrorBody` | experimental | [example](../../../../apps/api/test/identity/oauth/oauth-authorization-server.db.spec.ts) |
 | `systemAccessReasonRegistry` | registry | `Registry<SystemAccessReasonDef>` (`{ id, description }`) | Read the registered bypass reasons (the platform's ten, then the app's) | experimental | [example](../../../../apps/api/test/examples/core/open-vocabularies.spec.ts) |
 | `registerSystemAccessReason` | registry | `registerSystemAccessReason(reason: SystemAccessReasonDef): void` | Let the app's own job name a reason of its own on a system acquisition (`runAsSystem(client, 'transcript-reindex', ...)`); it opens which reason, never who may bypass | experimental | [example](../../../../apps/api/src/app-registrations/core.ts) |
 | `principalKindRegistry` | registry | `Registry<PrincipalKindDef>` (`{ id, description }`) | Read the registered principal kinds (`user`, `node`, then the app's) | experimental | [example](../../../../apps/api/test/examples/core/open-vocabularies.spec.ts) |

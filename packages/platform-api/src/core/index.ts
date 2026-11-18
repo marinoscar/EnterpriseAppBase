@@ -280,6 +280,8 @@ export type {
 // `{ data: … }` envelope response documentation.
 export { ALLOW_DURING_MAINTENANCE_KEY, AllowDuringMaintenance } from './maintenance/allow-during-maintenance.decorator';
 export { ApiDataResponse } from './openapi/api-data-response.decorator';
+// The `{ data }` envelope opt-out for endpoints whose body an external standard dictates (PP-15.4, #1182).
+export { RAW_RESPONSE_KEY, RAW_RESPONSE_OPENAPI_EXTENSION, RawResponse, isRawResponse } from './http/raw-response.decorator';
 export type { ApiDataResponseOptions, DataResponsePagination } from './openapi/api-data-response.decorator';
 
 // The PostgreSQL connection string from `POSTGRES_*` (issue #172; packaged by

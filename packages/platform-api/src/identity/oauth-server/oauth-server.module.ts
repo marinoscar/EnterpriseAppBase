@@ -1,7 +1,17 @@
-import { Global, Injectable, Logger, Module, OnModuleInit } from '@nestjs/common';
+import { Global, Injectable, Logger, Module, OnModuleInit, Optional } from '@nestjs/common';
+import { HttpAdapterHost } from '@nestjs/core';
 
 import { permissionRegistry } from '../../core/index';
+import { OAUTH_CLIENT_RESOLVER, StoredClientResolver } from './client-resolver';
 import { InProcessDelegation } from './in-process-delegation.service';
+import { OAuthAuthorizationService } from './oauth-authorization.service';
+import { installOAuthBodyGuard } from './oauth-body-guard';
+import { OAuthConsentController, OAuthGrantsController } from './oauth-consent.controller';
+import { OAuthGrantService } from './oauth-grant.service';
+import { OAuthProtocolController } from './oauth-protocol.controller';
+import { OAuthRateLimitService } from './oauth-rate-limiter';
+import { OAuthServerContext, OAuthServerFeatures } from './oauth-server-context';
+import { OAuthTokenService } from './oauth-token.service';
 import './oauth-credential-kind';
 import { findOAuthRegistryProblems } from './oauth-resource.registry';
 import { OAuthServerSettingsReader } from './oauth-server-settings.reader';
@@ -31,18 +41,65 @@ export class OAuthRegistryBootstrapCheck implements OnModuleInit {
 }
 
 /**
- * The OAuth server's resource-server half (PP-15.3): the token resolver, the
- * settings reader and in-process delegation. Mounted by
- * `IdentityModule.forRoot({ oauthServer })`; absent, an `oat_` header is a
- * `401`. Global, because `JwtAuthGuard` is instantiated in every module whose
- * controllers use `@Auth()`.
+ * Installs the body rules of `/api/oauth/token` and `/api/oauth/revoke` (form
+ * only, 16 KiB) on the HTTP server, before it starts listening.
+ *
+ * @internal
+ */
+@Injectable()
+export class OAuthBodyGuardInstaller implements OnModuleInit {
+  constructor(
+    private readonly settings: OAuthServerSettingsReader,
+    @Optional() private readonly adapterHost?: HttpAdapterHost,
+  ) {}
+
+  /** Registers the hook; a host with no Fastify instance (a unit test) is skipped. */
+  onModuleInit(): void {
+    const instance = this.adapterHost?.httpAdapter?.getInstance?.();
+    installOAuthBodyGuard(instance, () => this.settings.isEnabled());
+  }
+}
+
+/**
+ * The OAuth server: the resource-server half (PP-15.3: the token resolver, the
+ * settings reader, in-process delegation) and the authorization server core
+ * (PP-15.4: metadata, authorize, the consent API, token, revoke and the grants
+ * API under `/api/oauth`). Mounted by `IdentityModule.forRoot({ oauthServer })`;
+ * absent, an `oat_` header is a `401` and no route exists. Global, because
+ * `JwtAuthGuard` is instantiated in every module whose controllers use `@Auth()`.
+ *
+ * The client is looked up through `OAUTH_CLIENT_RESOLVER` (default: the stored
+ * rows); the rate limiter is `OAUTH_RATE_LIMITER` when an app binds one, else an
+ * in-memory fixed window.
  *
  * @stability experimental
  */
 @Global()
 @Module({
-  providers: [OAuthServerSettingsReader, OAuthTokenResolver, InProcessDelegation, OAuthRegistryBootstrapCheck],
-  exports: [OAuthServerSettingsReader, OAuthTokenResolver, InProcessDelegation],
+  controllers: [OAuthProtocolController, OAuthConsentController, OAuthGrantsController],
+  providers: [
+    OAuthServerSettingsReader,
+    OAuthTokenResolver,
+    InProcessDelegation,
+    OAuthRegistryBootstrapCheck,
+    OAuthServerContext,
+    OAuthServerFeatures,
+    OAuthRateLimitService,
+    OAuthGrantService,
+    OAuthAuthorizationService,
+    OAuthTokenService,
+    OAuthBodyGuardInstaller,
+    { provide: OAUTH_CLIENT_RESOLVER, useClass: StoredClientResolver },
+  ],
+  exports: [
+    OAuthServerSettingsReader,
+    OAuthTokenResolver,
+    InProcessDelegation,
+    OAuthServerContext,
+    OAuthServerFeatures,
+    OAuthGrantService,
+    OAUTH_CLIENT_RESOLVER,
+  ],
 })
 export class OAuthServerModule {}
 

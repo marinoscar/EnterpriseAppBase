@@ -76,6 +76,14 @@ const TAG_GROUPS: AppOpenApiTagGroup[] = [
           'permission set of the user that minted it and is accepted on every authenticated route.',
       },
       {
+        name: 'OAuth server',
+        description:
+          'The OAuth 2.1 authorization server for third-party and hosted AI clients (only while the `oauthServer` ' +
+          'setting is on; every route is a 404 otherwise). Protocol routes (metadata, `authorize`, `token`, `revoke`) use the ' +
+          'RFC wire formats, not the `{ data }` envelope or the platform error body; the consent routes (session credential only) ' +
+          'and the grants routes (Connected apps) are ordinary platform routes.',
+      },
+      {
         name: 'Allowlist',
         description:
           'Pre-authorized email addresses. Access is allowlist-gated: an email absent from this list ' +

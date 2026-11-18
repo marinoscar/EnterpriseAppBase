@@ -8,6 +8,7 @@ import { SSE_METADATA } from '@nestjs/common/constants';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
+import { RAW_RESPONSE_KEY, isRawResponse } from '../../core/index';
 import { isReportableKey } from '../internal/bounded';
 import { responseMetaContributorRegistry } from './response-meta.registry';
 
@@ -171,6 +172,12 @@ export class TransformInterceptor<T>
     // file exists.
     const isSse = Reflect.getMetadata(SSE_METADATA, context.getHandler());
     if (isSse) {
+      return next.handle() as Observable<ApiEnvelope<T>>;
+    }
+
+    // A handler marked `@RawResponse()` (the OAuth token and metadata endpoints,
+    // whose bodies RFC 6749 and RFC 8414 dictate) is not enveloped (PP-15.4).
+    if (isRawResponse(Reflect.getMetadata(RAW_RESPONSE_KEY, context.getHandler()))) {
       return next.handle() as Observable<ApiEnvelope<T>>;
     }
 

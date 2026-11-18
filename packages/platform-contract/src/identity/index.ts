@@ -135,3 +135,39 @@ export type {
   UpdateOrgMemberRequest,
   UserExtensions,
 } from './schemas.js';
+
+// The OAuth authorization server's wire shapes (PP-15.4, #1182).
+export {
+  OAUTH_CLIENT_KINDS,
+  OAUTH_DECISIONS,
+  OAUTH_ERROR_CODES,
+  OAUTH_ERROR_PAGE_CODES,
+  OAUTH_GRANT_REVOKED_REASONS,
+  OAUTH_GRANT_TYPES,
+  OAUTH_SCOPE_RISKS,
+  oauthConsentRequestSchema,
+  oauthConsentScopeSchema,
+  oauthDecisionRequestSchema,
+  oauthDecisionResponseSchema,
+  oauthErrorResponseSchema,
+  oauthGrantViewSchema,
+  oauthTokenRequestSchema,
+  oauthTokenResponseSchema,
+} from './oauth.js';
+export type {
+  OAuthClientKindEnum,
+  OAuthDecisionEnum,
+  OAuthErrorCodeEnum,
+  OAuthGrantTypeEnum,
+  OAuthScopeRiskEnum,
+  OAuthConsentRequest,
+  OAuthDecisionRequest,
+  OAuthDecisionResponse,
+  OAuthErrorCode,
+  OAuthErrorPageCode,
+  OAuthErrorResponse,
+  OAuthGrantRevokedReason,
+  OAuthGrantView,
+  OAuthTokenRequest,
+  OAuthTokenResponse,
+} from './oauth.js';

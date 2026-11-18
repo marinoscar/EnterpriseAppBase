@@ -3,6 +3,7 @@ import { ExecutionContext, CallHandler } from '@nestjs/common';
 import { SSE_METADATA } from '@nestjs/common/constants';
 import { TransformInterceptor, ApiEnvelope } from '../../../src/host/http/transform.interceptor';
 import { of } from 'rxjs';
+import { RAW_RESPONSE_KEY, RawResponse } from '../../../src/core/index';
 
 describe('TransformInterceptor', () => {
   let interceptor: TransformInterceptor<any>;
@@ -517,6 +518,53 @@ describe('TransformInterceptor', () => {
         // Proves the guard, not luck: without SSE_METADATA the exact same
         // shaped payload IS wrapped, whereas the SSE-flagged handler above
         // left it alone.
+        done();
+      });
+    });
+  });
+
+  describe('@RawResponse() (the OAuth protocol endpoints, PP-15.4)', () => {
+    class Probe {
+      @RawResponse()
+      raw() {
+        return { access_token: 'x' };
+      }
+
+      enveloped() {
+        return { access_token: 'x' };
+      }
+    }
+
+    const contextFor = (handler: unknown): ExecutionContext =>
+      ({
+        switchToHttp: () => ({ getRequest: () => ({}), getResponse: () => ({}) }),
+        getClass: () => Probe,
+        getHandler: () => handler,
+      }) as any;
+
+    it('stamps the reflector key', () => {
+      expect(Reflect.getMetadata(RAW_RESPONSE_KEY, Probe.prototype.raw)).toBe(true);
+      expect(Reflect.getMetadata(RAW_RESPONSE_KEY, Probe.prototype.enveloped)).toBeUndefined();
+    });
+
+    it('passes the body through untouched: no data, no meta', (done) => {
+      interceptor.intercept(contextFor(Probe.prototype.raw), createMockCallHandler({ access_token: 'x' })).subscribe((result: any) => {
+        expect(result).toEqual({ access_token: 'x' });
+        done();
+      });
+    });
+
+    it('still envelopes a handler that is not marked', (done) => {
+      interceptor.intercept(contextFor(Probe.prototype.enveloped), createMockCallHandler({ access_token: 'x' })).subscribe((result: any) => {
+        expect(result.data).toEqual({ access_token: 'x' });
+        expect(result.meta.timestamp).toBeDefined();
+        done();
+      });
+    });
+
+    it('an empty raw body stays empty (the revocation endpoint answers 200 with nothing)', (done) => {
+      interceptor.intercept(contextFor(Probe.prototype.raw), createMockCallHandler(undefined)).subscribe((result: any) => {
+        expect(result).toBeUndefined();
         done();
       });
     });

@@ -29,6 +29,10 @@ import type { Logger } from '@nestjs/common';
  * - `identity.org.switched`: a session switched its active organization.
  * - `identity.login.succeeded`: a sign-in with any provider ended in a session.
  * - `identity.org.created`: an administrator created an organization.
+ * - `identity.oauth.grant.created`: a user approved an OAuth client (a new
+ *   grant, or an existing one widened); emitted after the approval committed.
+ * - `identity.oauth.grant.revoked`: an OAuth grant was revoked (by the user, by
+ *   reuse detection, by the client, with an organization); after the commit.
  *
  * @example
  * ```ts
@@ -50,6 +54,10 @@ export const IDENTITY_EVENTS = {
   LOGIN_SUCCEEDED: 'identity.login.succeeded',
   /** An organization was created. Payload: {@link IdentityOrgCreatedEvent}. */
   ORG_CREATED: 'identity.org.created',
+  /** An OAuth grant was created or widened. Payload: {@link IdentityOAuthGrantEvent}. */
+  OAUTH_GRANT_CREATED: 'identity.oauth.grant.created',
+  /** An OAuth grant was revoked. Payload: {@link IdentityOAuthGrantEvent}. */
+  OAUTH_GRANT_REVOKED: 'identity.oauth.grant.revoked',
 } as const;
 
 /**
@@ -133,6 +141,27 @@ export interface IdentityOrgCreatedEvent {
   createdBy: string;
 }
 
+/**
+ * Payload of `identity.oauth.grant.created` and `identity.oauth.grant.revoked`
+ * (docs/specs/oauth-server.md §2.21). Ids and closed values only: never a token,
+ * code, secret or scope list. The platform sends no notification itself; an app
+ * listens and notifies.
+ *
+ * @stability experimental
+ */
+export interface IdentityOAuthGrantEvent {
+  /** The user who owns the grant. */
+  userId: string;
+  /** The `oauth_grants.id`. */
+  grantId: string;
+  /** The `oauth_clients.id`. */
+  clientId: string;
+  /** The protected resource's registered id, or `null` when the resource is no longer registered. */
+  resourceId: string | null;
+  /** `created` or `updated` for a creation event; the revocation reason (`user`, `reuse_detected`, `client_disabled`, `offboarding`, `admin`) for a revocation. */
+  reason: string;
+}
+
 /** The emitter shape identity needs: `EventEmitter2`'s `emit`. */
 interface EventEmitterLike {
   emit(event: string, payload: unknown): boolean;
@@ -156,7 +185,8 @@ export function emitIdentityEvent(
     | IdentityMembershipChangedEvent
     | IdentityOrgSwitchedEvent
     | IdentityLoginSucceededEvent
-    | IdentityOrgCreatedEvent,
+    | IdentityOrgCreatedEvent
+    | IdentityOAuthGrantEvent,
 ): void {
   if (!emitter) return;
   try {

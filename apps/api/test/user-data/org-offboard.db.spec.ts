@@ -80,4 +80,39 @@ describeWithDb('org.offboard (real Postgres, RLS on)', () => {
     expect(counts).toMatchObject({ memberships: 2, invites: 1, usersPurged: 1, organizations: 1 });
     expect(svc.audit.map((event) => event.action)).toContain('org.offboard.completed');
   });
+
+  it('revokes the OAuth grants acting in the organization (revoked_reason offboarding) before anything else, and leaves other organizations\' grants alone (PP-15.4)', async () => {
+    // the first test removed ORG_A: this one offboards a third organization
+    const ORG_C = '33333333-3333-4333-8333-cccccccccccc';
+    await seedOrgs(db, [[ORG_C, 'org-c']]);
+    const member = await seedRichUser(db, 'oauth-member@example.test', [ORG_C, ORG_B]);
+    const admin = await seedRichUser(db, 'oauth-admin@example.test', [ORG_B]);
+    const ids = await sys(db, async (tx) => {
+      const client = await tx.oAuthClient.create({
+        data: { clientId: 'oc_offboard_test', kind: 'registered', name: 'Client Alpha', redirectUris: ['https://client.example.test/cb'], tokenEndpointAuthMethod: 'none', host: 'client.example.test' },
+      });
+      const grantIn = async (orgId: string, resource: string) => {
+        const grant = await tx.oAuthGrant.create({ data: { userId: member.userId, orgId, clientId: client.id, resource, scopes: ['a:read'] } });
+        await tx.oAuthToken.create({ data: { kind: 'access', tokenHash: `${orgId.slice(0, 8)}${'h'.repeat(56)}`, tokenPrefix: 'abcdefgh', grantId: grant.id, scopes: ['a:read'], expiresAt: new Date(Date.now() + 600_000) } });
+        return grant.id;
+      };
+      return { client: client.id, inA: await grantIn(ORG_C, 'https://app.example.test/api/a'), inB: await grantIn(ORG_B, 'https://app.example.test/api/b') };
+    });
+    const job = await runningJob(db, 'org.offboard', { orgId: ORG_C, actorUserId: admin.userId, userDisposition: 'keep' }, { type: 'organization', id: ORG_C });
+
+    await svc.offboard.process(job);
+
+    const stored = await sys(db, (tx) => tx.job.findUnique({ where: { id: job.id } }));
+    const counts = (stored.payload as { result: { counts: Record<string, number> } }).result.counts;
+    expect(counts.oauthGrantsRevoked).toBe(1);
+    const after = await sys(db, async (tx) => ({
+      // the organization's cascade removed the revoked grant with it; the other organization's grant is untouched and live
+      inA: await tx.oAuthGrant.count({ where: { id: ids.inA } }),
+      inB: await tx.oAuthGrant.findUnique({ where: { id: ids.inB } }),
+      client: await tx.oAuthClient.count({ where: { id: ids.client } }),
+    }));
+    expect(after.inA).toBe(0);
+    expect(after.inB).toMatchObject({ revokedAt: null, revokedReason: null });
+    expect(after.client).toBe(1);
+  });
 });
