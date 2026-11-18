@@ -15,6 +15,7 @@
 // =============================================================================
 
 import type {
+  OAuthAdminGrantView,
   OAuthClientView,
   OAuthClientWithSecret,
   OAuthConsentRequest,
@@ -151,6 +152,24 @@ export interface OAuthClientListParams {
 }
 
 /**
+ * The query of `GET /api/admin/oauth/grants` (`oauth_clients:read`).
+ *
+ * @stability experimental
+ */
+export interface OAuthAdminGrantListParams {
+  /** Only the grants of this client: the client's row id (`OAuthClientView.id`), not its `clientId`. */
+  clientId?: string;
+  /** Only the grants of this user. */
+  userId?: string;
+  /** `true` also lists revoked grants; default active only. */
+  includeRevoked?: boolean;
+  /** 1-based page. */
+  page?: number;
+  /** Page size (at most 100). */
+  pageSize?: number;
+}
+
+/**
  * The body of `POST /api/admin/oauth/clients`.
  *
  * @stability experimental
@@ -193,6 +212,17 @@ export interface OAuthServerApi {
   rotateClientSecret(id: string): Promise<OAuthClientWithSecret>;
   /** `DELETE /api/admin/oauth/clients/:id` (`oauth_clients:write`). */
   deleteClient(id: string): Promise<void>;
+  /**
+   * `GET /api/admin/oauth/grants` (`oauth_clients:read`): a page of users'
+   * grants, newest first, never a token. Active grants only unless
+   * `includeRevoked`.
+   */
+  listAdminGrants(params?: OAuthAdminGrantListParams): Promise<Paginated<OAuthAdminGrantView>>;
+  /**
+   * `DELETE /api/admin/oauth/grants/:id` (`oauth_clients:write`): revokes a
+   * user's grant (reason `admin`); its tokens stop working at once.
+   */
+  revokeAdminGrant(id: string): Promise<void>;
   /**
    * `GET /api/admin/oauth/refused-hosts` (`oauth_clients:read`): the hosts the
    * trust policy refused in the last 30 days. A server without the route
@@ -273,6 +303,19 @@ export function createOAuthServerApi(api: PlatformApiClient): OAuthServerApi {
     rotateClientSecret: (id) => api.post<OAuthClientWithSecret>(`/admin/oauth/clients/${encode(id)}/rotate-secret`),
     async deleteClient(id) {
       await api.delete<void>(`/admin/oauth/clients/${encode(id)}`);
+    },
+    listAdminGrants(params) {
+      const search = new URLSearchParams();
+      if (params?.clientId) search.set('clientId', params.clientId);
+      if (params?.userId) search.set('userId', params.userId);
+      if (params?.includeRevoked) search.set('includeRevoked', 'true');
+      if (params?.page) search.set('page', String(params.page));
+      if (params?.pageSize) search.set('pageSize', String(params.pageSize));
+      const qs = search.toString();
+      return api.get<Paginated<OAuthAdminGrantView>>(`/admin/oauth/grants${qs ? `?${qs}` : ''}`);
+    },
+    async revokeAdminGrant(id) {
+      await api.delete<void>(`/admin/oauth/grants/${encode(id)}`);
     },
     listRefusedHosts: () => api.get<OAuthRefusedHost[]>('/admin/oauth/refused-hosts'),
     getPolicy: () => api.get<OAuthPolicy>('/admin/oauth/policy'),

@@ -82,7 +82,15 @@ You should see the grant gone from the user's Connected apps and `401` for every
 
 **One client** (a compromised or unwanted app): in Clients, choose Disable on the client. Every active grant of it is revoked at once (`client_disabled`) and its token calls fail. Delete removes the client and cascades its grants and tokens. Rotate secret replaces a confidential client's secret (shown once).
 
-**One grant of one user** (an administrator acts for a user): there is no page for it in the packaged web UI; use the API with `oauth_clients:read` and `oauth_clients:write`.
+**One grant of one user** (an administrator acts for a user), with `oauth_clients:read` to see and `oauth_clients:write` to revoke:
+
+1. Open `/admin/settings/oauth-clients`, find the client under Clients and choose Details.
+2. In Connections, find the user by email (switch on "Include revoked" to see revoked connections and their reason; the list pages 20 at a time).
+3. Choose Revoke on the connection and confirm.
+
+You should see the connection gone from the list (or marked Revoked, "revoked by an administrator", with "Include revoked" on), the client's Connections count drop by one, and the next call with its token answer `401`.
+
+Or use the API, which also lists one user's grants across every client:
 
 ```bash
 appctl api GET '/api/admin/oauth/grants?userId=<user id>'

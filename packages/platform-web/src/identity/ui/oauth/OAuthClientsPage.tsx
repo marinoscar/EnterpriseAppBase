@@ -13,12 +13,14 @@
 //   3. Refused attempts: the hosts the trust policy turned away, with "Allow
 //      this host".
 //   4. Clients: the list, disable/enable, delete (says how many connections
-//      stop), add a client (the secret shown once), rotate a secret.
+//      stop), add a client (the secret shown once), rotate a secret. A
+//      client's Details drawer lists its Connections (users' grants, #1203)
+//      with Revoke; part of the client's detail, not a tab or a card.
 //   5. Token lifetimes.
 //
 // Permissions (the API enforces every one; these only hide controls):
 //   - the card and the client list: `oauth_clients:read`;
-//   - client writes: `oauth_clients:write`;
+//   - client writes and revoking a connection: `oauth_clients:write`;
 //   - the settings sections READ `/api/system-settings`
 //     (`system_settings:read`) and SAVE through it (`system_settings:write`);
 //     the spec gates their controls on `oauth_clients:write` too, so editing
@@ -83,6 +85,7 @@ import type {
 import { DefaultPageHeader } from '../PageHeader.js';
 import { IdentityTable } from '../table.js';
 import { AddOAuthClientDialog, CopyField, OAuthClientSecretDialog } from './OAuthClientDialogs.js';
+import { OAuthClientConnections } from './OAuthClientConnections.js';
 import { clientHostProblem, relativeTime } from './oauth-display.js';
 
 const PAGE_TITLE = 'OAuth clients';
@@ -773,7 +776,7 @@ function ClientsSection({ api, canWrite }: { api: OAuthServerApi | undefined; ca
         anchor="right"
         open={details !== null}
         onClose={() => setDetails(null)}
-        slotProps={{ paper: { sx: { width: { xs: '100%', sm: 420 } } } }}
+        slotProps={{ paper: { sx: { width: { xs: '100%', sm: 480 } } } }}
       >
         {details && (
           <Box sx={{ p: 2 }} role="region" aria-labelledby="oauth-client-details-title">
@@ -806,6 +809,13 @@ function ClientsSection({ api, canWrite }: { api: OAuthServerApi | undefined; ca
                   ))}
                 </List>
               </Box>
+              <OAuthClientConnections
+                key={details.id}
+                client={details}
+                api={api}
+                canWrite={canWrite}
+                onRevoked={() => void clients.refresh()}
+              />
             </Stack>
           </Box>
         )}
