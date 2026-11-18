@@ -19,7 +19,7 @@ import { OAuthTokenCleanupHandler } from './oauth-token-cleanup.handler';
 import { OAuthTokenCleanupTask } from './oauth-token-cleanup.task';
 import { OAuthClientCleanupHandler } from './clients/oauth-client-cleanup.handler';
 import { OAuthClientCleanupTask } from './clients/oauth-client-cleanup.task';
-import { OAuthAdminHintsController, OAuthClientsAdminController } from './clients/oauth-clients-admin.controller';
+import { OAuthAdminHintsController, OAuthClientsAdminController, OAuthGrantsAdminController } from './clients/oauth-clients-admin.controller';
 import { OAuthClientsAdminService } from './clients/oauth-clients-admin.service';
 import { InProcessDelegation } from './in-process-delegation.service';
 import { OAuthAuthorizationService } from './oauth-authorization.service';
@@ -135,7 +135,7 @@ export class OAuthBodyGuardInstaller implements OnModuleInit {
  */
 @Global()
 @Module({
-  controllers: [OAuthProtocolController, OAuthResourceMetadataController, OAuthConsentController, OAuthGrantsController, OAuthClientsAdminController, OAuthAdminHintsController],
+  controllers: [OAuthProtocolController, OAuthResourceMetadataController, OAuthConsentController, OAuthGrantsController, OAuthClientsAdminController, OAuthAdminHintsController, OAuthGrantsAdminController],
   providers: [
     OAuthServerSettingsReader,
     OAuthTokenResolver,

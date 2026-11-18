@@ -855,6 +855,51 @@ describeWithDb('OAuth client identity and the trust policy through the whole app
     });
   });
 
+  describe('admin grants (#1195)', () => {
+    const grantsBase = '/api/admin/oauth/grants';
+    let adminToken: string;
+    let adminUserId: string;
+
+    beforeAll(async () => {
+      adminUserId = await makeUser('grants-admin-actor', { admin: true });
+      adminToken = await sessionToken(adminUserId);
+    });
+
+    it('lists grants, filters them, revokes one with reason admin, audits it and is idempotent', async () => {
+      const made = await http().post('/api/admin/oauth/clients').set(bearer(adminToken)).send({ name: 'Grants Admin', redirectUris: ['https://grants-admin.example.test/cb'], tokenEndpointAuthMethod: 'none' }).expect(201);
+      const clientRowId = made.body.data.id as string;
+      created.clients.push(clientRowId);
+      const userId = await makeUser('grants-admin');
+      const grant = await client.oAuthGrant.create({ data: { userId, orgId: defaultOrgId, clientId: clientRowId, resource: resourceUrl, scopes: ['clitems:read'] } });
+      const token = await client.oAuthToken.create({
+        data: { grantId: grant.id, kind: 'access', tokenHash: sha256(`grants-admin-${grant.id}`), tokenPrefix: 'oat_gadm', scopes: ['clitems:read'], expiresAt: new Date(Date.now() + 3_600_000) },
+      });
+
+      const list = await http().get(`${grantsBase}?clientId=${clientRowId}`).set(bearer(adminToken)).expect(200);
+      expect(list.body.data.items).toHaveLength(1);
+      expect(list.body.data.items[0]).toMatchObject({ id: grant.id, user: { id: userId }, client: { id: clientRowId, name: 'Grants Admin' }, scopes: ['clitems:read'], revokedAt: null, revokedReason: null });
+      expect(JSON.stringify(list.body)).not.toContain(token.tokenHash);
+      expect((await http().get(`${grantsBase}?userId=${userId}`).set(bearer(adminToken)).expect(200)).body.data.items).toHaveLength(1);
+
+      await http().delete(`${grantsBase}/${grant.id}`).set(bearer(adminToken)).expect(204);
+      const row = await client.oAuthGrant.findUniqueOrThrow({ where: { id: grant.id } });
+      expect(row).toMatchObject({ revokedReason: 'admin' });
+      expect(row.revokedAt).not.toBeNull();
+      expect((await client.oAuthToken.findUniqueOrThrow({ where: { id: token.id } })).revokedAt).not.toBeNull();
+      const audit = await client.auditEvent.findMany({ where: { action: 'oauth:grant.revoke', targetId: grant.id } });
+      expect(audit).toHaveLength(1);
+      expect(audit[0]).toMatchObject({ actorUserId: adminUserId, targetType: 'oauth_grant', meta: { by: 'admin', userId } });
+
+      expect((await http().get(`${grantsBase}?clientId=${clientRowId}`).set(bearer(adminToken)).expect(200)).body.data.items).toHaveLength(0);
+      const withRevoked = await http().get(`${grantsBase}?clientId=${clientRowId}&includeRevoked=true`).set(bearer(adminToken)).expect(200);
+      expect(withRevoked.body.data.items[0]).toMatchObject({ id: grant.id, revokedReason: 'admin' });
+
+      await http().delete(`${grantsBase}/${grant.id}`).set(bearer(adminToken)).expect(204);
+      expect(await client.auditEvent.count({ where: { action: 'oauth:grant.revoke', targetId: grant.id } })).toBe(1);
+      await http().delete(`${grantsBase}/${randomUUID()}`).set(bearer(adminToken)).expect(404);
+    });
+  });
+
   describe('logs', () => {
     it('carry no secret and no fetched document body', () => {
       const text = logLines.join('\n');

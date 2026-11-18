@@ -10,12 +10,10 @@
 // AND some registered scope of the token's resource grants it.
 // =============================================================================
 
-import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
-import { permissionsWithoutOAuthNarrowing } from '../auth/principal.factory';
 import { InsufficientScopeException } from './oauth-insufficient-scope';
 import { oauthGrantOf } from './oauth-grant.decorator';
 import { oauthResourceRegistry } from './oauth-resource.registry';
-import { oauthScopeRegistry } from './oauth-scope.registry';
+import { reconsentScopeFor, userPermissionsOf } from './oauth-access-decision';
 
 /**
  * The `insufficient_scope` exception for a permission denial, or `null` when
@@ -39,11 +37,8 @@ export function stepUpForDeniedPermissions(
   const resource = oauthResourceRegistry.get(grant.resourceId);
   if (!resource) return null;
 
-  const held = new Set(permissionsWithoutOAuthNarrowing(request.user as AuthenticatedUser));
-  const scopeFor = (permission: string): string | undefined => {
-    if (!held.has(permission)) return undefined;
-    return resource.scopes.find((id) => !grant.scopes.includes(id) && oauthScopeRegistry.get(id)?.permissions.includes(permission));
-  };
+  const held = userPermissionsOf(request);
+  const scopeFor = (permission: string): string | undefined => reconsentScopeFor(request, permission, held);
 
   const required = new Set<string>();
   if (anyOf) {

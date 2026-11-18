@@ -8,7 +8,7 @@
 // A secret is returned ONCE (create, rotate) and stored hashed.
 //
 // Disabling revokes the client's active grants with reason `client_disabled`
-// (the reason `admin` is reserved), so its tokens fail on the next call.
+// (an administrator revoking one grant uses `admin`: `OAuthGrantService.revokeGrantAsAdmin`), so its tokens fail on the next call.
 // =============================================================================
 
 import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';

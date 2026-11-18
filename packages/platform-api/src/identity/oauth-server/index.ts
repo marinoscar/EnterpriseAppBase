@@ -20,6 +20,7 @@ export {
 export type { OAuthScopeDefinition, OAuthScopeRisk } from './oauth-scope.registry';
 export { OAUTH_CREDENTIAL_KIND } from './oauth-credential-kind';
 export { OAuthGrant, oauthGrantOf } from './oauth-grant.decorator';
+export { oauthAccessDecision, userPermissionsOf } from './oauth-access-decision';
 export { OAuthServerModule } from './oauth-server.module';
 export { OAUTH_SETTINGS_CACHE_MS, OAuthServerSettingsReader } from './oauth-server-settings.reader';
 export {
@@ -40,7 +41,7 @@ export { InMemoryOAuthRateLimiter, OAUTH_RATE_LIMITER, OAuthRateLimitService } f
 export type { OAuthRateLimitVerdict, OAuthRateLimiter } from './oauth-rate-limiter';
 export { OAuthServerContext, OAuthServerFeatures } from './oauth-server-context';
 export { OAUTH_AUDIT_ACTIONS, OAUTH_AUDIT_TARGET_TYPE, OAUTH_CLIENT_AUDIT_TARGET_TYPE, OAuthGrantService } from './oauth-grant.service';
-export type { OAuthAuditEntry, OAuthGrantRef } from './oauth-grant.service';
+export type { OAuthAdminGrantViewPage, OAuthAuditEntry, OAuthGrantRef } from './oauth-grant.service';
 export { OAuthProtocolError, invalidClient, oauthError, rateLimited } from './oauth-protocol.error';
 export { OAuthProtocolExceptionFilter } from './oauth-protocol.filter';
 export { buildAuthorizationServerMetadata } from './oauth-metadata';
