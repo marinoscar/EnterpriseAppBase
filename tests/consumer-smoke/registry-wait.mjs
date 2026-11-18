@@ -28,7 +28,7 @@ export async function waitForRegistry({
   view,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   now = () => Date.now(),
-  timeoutMs = 10 * 60_000,
+  timeoutMs = 30 * 60_000,
   initialDelayMs = 5_000,
   maxDelayMs = 60_000,
   log = () => {},

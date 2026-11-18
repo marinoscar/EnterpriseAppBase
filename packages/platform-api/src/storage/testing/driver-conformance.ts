@@ -164,6 +164,8 @@ const DEFAULT_STREAMED_BYTES = 6 * 1024 * 1024;
 const DEFAULT_PROXIED_PART_BYTES = 64 * 1024 * 1024;
 const PROXIED_SAMPLE_BYTES = 4 * 1024 * 1024;
 const STREAM_CHUNK_BYTES = 64 * 1024;
+/** Readings taken (each after a collection and a turn of the event loop) per memory sample. */
+const PROXIED_SAMPLE_ATTEMPTS = 8;
 
 /**
  * A function that runs a full garbage collection, or `null` when the runtime
@@ -544,23 +546,38 @@ export function describeStorageDriverConformance(
           //    External memory is sampled after a FORCED collection every few
           //    MiB, so garbage the driver has already let go of is not counted:
           //    only bytes it still holds are. (Skipped where the runtime offers
-          //    no way to collect.)
+          //    no way to collect.) V8 frees a Buffer's backing store on a
+          //    concurrent sweeper, so one reading right after `gc()` can still
+          //    include bytes already released (a loaded machine delays the
+          //    sweep). Each sample therefore yields to the event loop between
+          //    collections and keeps the LOWEST of a few readings: bytes a
+          //    driver really holds stay in every reading, released ones drop out.
           const gc = gcFunction();
           gc?.();
           const baseline = process.memoryUsage().arrayBuffers;
           let peak = 0;
           let produced = 0;
           let sinceSample = 0;
+          const budget = partBytes / 2;
+          const heldNow = async (): Promise<number> => {
+            let lowest = Number.POSITIVE_INFINITY;
+            for (let attempt = 0; attempt < PROXIED_SAMPLE_ATTEMPTS; attempt += 1) {
+              gc!();
+              await new Promise<void>((resolve) => setImmediate(resolve));
+              lowest = Math.min(lowest, process.memoryUsage().arrayBuffers - baseline);
+              if (lowest < budget / 2) break;
+            }
+            return lowest;
+          };
           const source = Readable.from(
-            (function* () {
+            (async function* () {
               while (produced < partBytes) {
                 const size = Math.min(STREAM_CHUNK_BYTES, partBytes - produced);
                 produced += size;
                 sinceSample += size;
                 if (gc !== null && sinceSample >= PROXIED_SAMPLE_BYTES) {
                   sinceSample = 0;
-                  gc();
-                  peak = Math.max(peak, process.memoryUsage().arrayBuffers - baseline);
+                  peak = Math.max(peak, await heldNow());
                 }
                 yield Buffer.allocUnsafeSlow(size).fill(7);
               }
@@ -571,7 +588,7 @@ export function describeStorageDriverConformance(
           const stored = await provider.uploadPart!(key, uploadId, 1, source, partBytes);
           expect(typeof stored.eTag).toBe('string');
           expect(produced).toBe(partBytes);
-          if (gc !== null) expect(peak).toBeLessThan(partBytes / 2);
+          if (gc !== null) expect(peak).toBeLessThan(budget);
 
           // 2. A body that fails part-way (the platform errors the stream when it
           //    ends short or runs long) must not leave a part behind.
