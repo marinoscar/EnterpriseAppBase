@@ -1,6 +1,6 @@
 # Runbook: Let third-party clients connect with OAuth
 
-> **Audience:** operators · **Spec:** [specs/oauth-server.md](../specs/oauth-server.md) · **Admin UI:** `/admin/settings/oauth-clients` · **Permission:** `oauth_clients:read` to look, `oauth_clients:write` to change
+> **Guide:** [AI-ASSISTANT-CONNECTORS.md](../AI-ASSISTANT-CONNECTORS.md) (the end-to-end story for ChatGPT, Claude and other assistants) · **Audience:** operators · **Spec:** [specs/oauth-server.md](../specs/oauth-server.md) · **Admin UI:** `/admin/settings/oauth-clients` · **Permission:** `oauth_clients:read` to look, `oauth_clients:write` to change
 
 Use this runbook to switch the OAuth server on, decide which client hosts may connect, check that a hosted client can reach it, and react when something goes wrong: a refresh token was replayed, a client must be cut off, a user must lose every connection, or a client says it cannot connect. It changes the `oauthServer` system settings and the grants and clients stored in the database. It assumes the app mounts the server (`IdentityModule.forRoot({ oauthServer })`) and registers at least one protected resource; the examples use the placeholder host `app.example.test`.
 
@@ -82,6 +82,15 @@ You should see the grant gone from the user's Connected apps and `401` for every
 
 **One client** (a compromised or unwanted app): in Clients, choose Disable on the client. Every active grant of it is revoked at once (`client_disabled`) and its token calls fail. Delete removes the client and cascades its grants and tokens. Rotate secret replaces a confidential client's secret (shown once).
 
+**One grant of one user** (an administrator acts for a user): there is no page for it in the packaged web UI; use the API with `oauth_clients:read` and `oauth_clients:write`.
+
+```bash
+appctl api GET '/api/admin/oauth/grants?userId=<user id>'
+appctl api DELETE /api/admin/oauth/grants/<grant id>
+```
+
+`GET` lists active grants (add `includeRevoked=true` for revoked ones; filters `userId`, `clientId`). `DELETE` revokes the grant and every token of it (`revoked_reason: admin`), audits `oauth:grant.revoke` with you as the actor and answers `204`; an already revoked grant is a no-op `204`. You should see the grant in `GET` with `revokedAt` set when `includeRevoked=true`, and the next call with its token answer `401`.
+
 **One user:** the user disconnects each app in `/settings/connected-apps`. To cut a user off at once, deactivate the user (`/admin/settings/users`): every `oat_` token re-checks the user on every request and is refused. Leaving an organization is also enforced: a token whose grant is for an organization the user no longer belongs to is refused. Offboarding an organization revokes its grants (`offboarding`).
 
 **Everything:** switch the server off ("Let other apps connect with OAuth"). Every `oat_` token is `401` and every OAuth route is `404` at once; grants and clients are kept, so switching it on again restores them (tokens that expired meanwhile need a refresh).
@@ -113,10 +122,11 @@ You should see the connections vanish from Connected apps (disable and delete) a
 - [ ] The five `oauth.*` Doctor checks pass.
 - [ ] The three `curl` calls answer as described.
 - [ ] A test connection from the client reaches the consent page and completes.
-- [ ] You know where `oauth:token.reuse_detected` rows are and how to disable a client.
+- [ ] You know where `oauth:token.reuse_detected` rows are, how to disable a client and how to revoke one user's grant.
 
 ## See also
 
 - [specs/oauth-server.md](../specs/oauth-server.md) and [SECURITY-ARCHITECTURE.md §19](../SECURITY-ARCHITECTURE.md#19-oauth-access-tokens-oat_)
 - [runbooks/doctor.md](doctor.md)
+- [AI-ASSISTANT-CONNECTORS.md](../AI-ASSISTANT-CONNECTORS.md)
 - [ADMIN-GUIDE.md](../ADMIN-GUIDE.md#let-another-app-connect)

@@ -36,6 +36,7 @@ Find the right doc without loading the whole index. Read a doc by section (grep 
 | Use AI or add an AI provider | [specs/ai-platform.md](specs/ai-platform.md), [ai README](../packages/platform-api/src/ai/README.md) |
 | Add a notification | [notifications README](../packages/platform-api/src/notifications/README.md), [specs/browser-notifications.md](specs/browser-notifications.md) |
 | Send events to other systems (webhooks) or alert on metrics and nodes | [specs/webhooks.md](specs/webhooks.md), [specs/alerts.md](specs/alerts.md), [runbooks/webhooks.md](runbooks/webhooks.md), [runbooks/alerts.md](runbooks/alerts.md) |
+| Let ChatGPT, Claude or another MCP client connect to an app (enable it, connect, disconnect) | [AI-ASSISTANT-CONNECTORS.md](AI-ASSISTANT-CONNECTORS.md) |
 | Let third-party clients (hosted AI assistants, MCP clients) act for a user with OAuth | [specs/oauth-server.md](specs/oauth-server.md), [adr/0003-oauth-authorization-server.md](adr/0003-oauth-authorization-server.md), [runbooks/oauth-server.md](runbooks/oauth-server.md) |
 | Add a Doctor check | [specs/doctor.md](specs/doctor.md#4-extending-it-in-a-fork) |
 | Extend a slice from an app or package | [EXTENDING.md](EXTENDING.md) |
@@ -53,6 +54,7 @@ Find the right doc without loading the whole index. Read a doc by section (grep 
 |---|---|
 | [API.md](API.md) | API conventions: auth schemes, response envelope, pagination, errors, `If-Match`, SSE, rate limits, how the OpenAPI document is produced |
 | [DEVICE-AUTH.md](DEVICE-AUTH.md) | Integrating a CLI or device with the RFC 8628 device flow |
+| [AI-ASSISTANT-CONNECTORS.md](AI-ASSISTANT-CONNECTORS.md) | Letting ChatGPT, Claude and other MCP clients use an app: what to register and wire (developers), turning it on and allowing hosts (operators), connecting and disconnecting (users), admin grant revocation |
 | [personal-access-tokens.md](personal-access-tokens.md) | Creating and using `pat_` tokens for scripts and CI |
 | [../SECURITY.md](../SECURITY.md) | Supported versions, private vulnerability reporting, response targets and scope |
 | [../apps/cli/README.md](../apps/cli/README.md) | `appctl`: install, `login`, `api`, `config`, `deploy`, `node`, CI usage |
