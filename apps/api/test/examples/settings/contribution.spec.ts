@@ -36,7 +36,7 @@ describe('a settings contribution', () => {
     inFreshRegistry({}, () => {
       require('../../../src/settings/registry/composed');
       const { systemSettingsNamespaceRegistry, userSettingsNamespaceRegistry, settingsContributionRegistry } = require('@marinoscar/platform-api/settings');
-      expect(systemSettingsNamespaceRegistry.ids()).toEqual(['notifications', 'jobs', 'nodes', 'databaseBackup', 'maintenance', 'storage', 'ai', 'telemetry', 'retention']);
+      expect(systemSettingsNamespaceRegistry.ids()).toEqual(['notifications', 'jobs', 'nodes', 'databaseBackup', 'maintenance', 'storage', 'ai', 'telemetry', 'retention', 'oauthServer']);
       expect(userSettingsNamespaceRegistry.ids()).toEqual(['dataTables', 'navigation', 'notifications', 'ai', 'onboarding']);
       expect(settingsContributionRegistry.size).toBe(0);
     });

@@ -18,6 +18,7 @@ export type {
   TenancyMode,
   BuiltinCredentialKind,
   BuiltinPrincipalKind,
+  OAuthPrincipalInfo,
   OrgMembership,
   GroupMembership,
   UserPrincipal,

@@ -248,7 +248,7 @@ describe('app extensions over HTTP, through the real host core', () => {
 
   describe('a credential kind with a guard', () => {
     it('is registered against the user principal kind, after the platform\'s four', () => {
-      expect(credentialKindRegistry.ids()).toEqual(['session', 'device', 'pat', 'node', API_KEY_CREDENTIAL_KIND]);
+      expect(credentialKindRegistry.ids()).toEqual(['session', 'device', 'pat', 'node', 'oauth', API_KEY_CREDENTIAL_KIND]);
       expect(credentialKindRegistry.require(API_KEY_CREDENTIAL_KIND).principalKind).toBe('user');
     });
 

@@ -162,10 +162,21 @@ describe('sign-in copy', () => {
 describe('identity registry entries', () => {
   it('carry the exact permissions the identity controllers enforce, in order', () => {
     expect(identityAdminSections.access.map((c) => [c.path, c.permission])).toEqual([['/admin/settings/users', 'users:read']]);
+    // `OAuth clients` (PP-15.7): its own key (an app opts in with the route),
+    // the exact string `oauth-clients-admin.controller.ts` enforces, no
+    // `feature` (it is where the OAuth server is switched on).
+    expect(identityAdminSections.oauthClients.map((c) => [c.title, c.path, c.permission, c.feature])).toEqual([
+      ['OAuth clients', '/admin/settings/oauth-clients', 'oauth_clients:read', undefined],
+    ]);
     expect(identityAdminSections.organizations.map((c) => [c.path, c.permission, c.feature])).toEqual([
       ['/admin/settings/organization', 'org_members:read', 'orgs'],
       ['/admin/settings/organizations', 'organizations:read', 'orgs'],
     ]);
     expect(identityUserSettingsSections.security.map((c) => [c.path, c.permission])).toEqual([['/settings/tokens', undefined]]);
+    // `Connected apps` (PP-15.7): no permission (the grants routes are `@Auth()`
+    // only), hidden while the OAuth server is off.
+    expect(identityUserSettingsSections.connectedApps.map((c) => [c.title, c.path, c.permission, c.feature])).toEqual([
+      ['Connected apps', '/settings/connected-apps', undefined, 'oauthServer'],
+    ]);
   });
 });

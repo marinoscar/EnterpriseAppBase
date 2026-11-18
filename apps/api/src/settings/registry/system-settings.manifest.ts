@@ -31,6 +31,7 @@ import { NOTIFICATIONS_SYSTEM_SETTINGS } from '@marinoscar/platform-api/notifica
 import { STORAGE_SYSTEM_SETTINGS } from '../../platform/storage/storage.system-settings';
 import { TELEMETRY_SYSTEM_SETTINGS } from '../../platform/telemetry/telemetry.system-settings';
 import {
+  OAUTH_SERVER_SYSTEM_SETTINGS,
   assembleSystemSettingsNamespaces,
   registerSystemSettingsNamespaces,
   type SystemSettingsNamespace,
@@ -51,6 +52,8 @@ const PLATFORM_NAMESPACES: readonly SystemSettingsNamespace[] = [
   AI_SYSTEM_SETTINGS,
   TELEMETRY_SYSTEM_SETTINGS,
   RETENTION_SYSTEM_SETTINGS as SystemSettingsNamespace,
+  // The OAuth server's switch and policy (PP-15.3); ships off.
+  OAUTH_SERVER_SYSTEM_SETTINGS,
 ];
 
 // One assembly, in a documented order (the package README, "Contributions"):

@@ -10,7 +10,7 @@ export {
   IDENTITY_OPTIONS,
   resolveIdentityModuleOptions,
 } from './identity.options';
-export type { IdentityModuleOptions, ResolvedDeviceFlowOptions, ResolvedIdentityModuleOptions } from './identity.options';
+export type { IdentityModuleOptions, ResolvedDeviceFlowOptions, ResolvedIdentityModuleOptions, ResolvedOAuthServerOptions } from './identity.options';
 export { identityConfiguration, requireJwtSecret } from './identity.configuration';
 export type { IdentityConfiguration } from './identity.configuration';
 
@@ -22,6 +22,7 @@ export {
   IDENTITY_JOBS,
   IDENTITY_METRICS,
   IDENTITY_NODE_CREDENTIALS,
+  IDENTITY_OAUTH_SETTINGS,
   IDENTITY_NOTIFIER,
   IDENTITY_PROFILE_IMAGES,
   NOOP_IDENTITY_METRICS,
@@ -42,6 +43,7 @@ export type {
   IdentityLoginOutcome,
   IdentityMetrics,
   IdentityNodeCredentials,
+  IdentityOAuthSettings,
   IdentityNotifier,
   IdentityPrisma,
   IdentityProfileImages,
@@ -65,6 +67,11 @@ export type {
   IdentityMembershipRow,
   IdentityOrganizationRow,
   IdentityPermissionRow,
+  IdentityOAuthAuthorizationCodeRow,
+  IdentityOAuthAuthorizationRequestRow,
+  IdentityOAuthClientRow,
+  IdentityOAuthGrantRow,
+  IdentityOAuthTokenRow,
   IdentityPersonalAccessTokenRow,
   IdentityPrismaError,
   IdentityQueryArgs,
@@ -97,6 +104,7 @@ export type {
   IdentityMembershipChange,
   IdentityLoginSucceededEvent,
   IdentityMembershipChangedEvent,
+  IdentityOAuthGrantEvent,
   IdentityOrgCreatedEvent,
   IdentityOrgSwitchedEvent,
   IdentityUserCreatedEvent,
@@ -185,6 +193,8 @@ export { assertAnyRoleAssignable, assertRoleAssignable, describeRole, isAppManag
 export { USERS_PERMISSIONS } from './users/users.permissions';
 export { ALLOWLIST_PERMISSIONS } from './allowlist/allowlist.permissions';
 export { ORGANIZATIONS_PERMISSIONS } from './organizations/organizations.permissions';
+export { OAuthClientCreateRequestDto, OAuthClientPatchRequestDto, OAuthClientsQueryDto } from './oauth-server/oauth.dto';
+export { OAUTH_CLIENTS_PERMISSIONS } from './oauth-server/oauth-clients.permissions';
 export { ORGANIZATIONS_APP_METRICS } from './organizations/organizations.metrics';
 export type { IdentityAppMetricDef } from './organizations/organizations.metrics';
 
@@ -199,6 +209,95 @@ export { CurrentPrincipal, principalOf } from './auth/decorators/current-princip
 export type { RequestWithPrincipal } from './auth/decorators/current-principal.decorator';
 export { CurrentOrg, activeOrgIdOf } from './auth/decorators/current-org.decorator';
 export { AuthCredential, authCredentialOf } from './auth/decorators/auth-credential.decorator';
+export { refuseOAuthCredential } from './auth/refuse-oauth';
+export { isUnderRoutePrefix, requestPathOf } from './auth/route-prefix';
+export {
+  FORBIDDEN_OAUTH_ROUTE_PREFIXES,
+  findOAuthRegistryProblems,
+  oauthResourceRegistry,
+  registerOAuthProtectedResource,
+  resourceForPath,
+} from './oauth-server/oauth-resource.registry';
+export type { OAuthProtectedResourceDefinition, OAuthRegistryProblem } from './oauth-server/oauth-resource.registry';
+export {
+  OAUTH_SCOPE_ID_MAX_LENGTH,
+  OAUTH_SCOPE_ID_PATTERN,
+  OFFLINE_ACCESS_SCOPE,
+  oauthScopeRegistry,
+  permissionsOfScopes,
+  registerOAuthScope,
+} from './oauth-server/oauth-scope.registry';
+export type { OAuthScopeDefinition, OAuthScopeRisk } from './oauth-server/oauth-scope.registry';
+export { OAUTH_CREDENTIAL_KIND } from './oauth-server/oauth-credential-kind';
+export { OAuthGrant, oauthGrantOf } from './oauth-server/oauth-grant.decorator';
+export { OAuthServerModule, isOAuthServerMounted } from './oauth-server/oauth-server.module';
+export { OAUTH_SETTINGS_CACHE_MS, OAuthServerSettingsReader } from './oauth-server/oauth-server-settings.reader';
+export {
+  OAUTH_SERVER_SETTINGS_DEFAULTS,
+  oauthServerSettingsPatchSchema,
+  oauthServerSettingsSchema,
+} from './oauth-server/oauth-server-settings.schemas';
+export type { OAuthServerSettingsValue } from './oauth-server/oauth-server-settings.schemas';
+export { OAUTH_LAST_USED_INTERVAL_MS, OAuthTokenResolver, oauthResourceIdentifier } from './oauth-server/oauth-token.resolver';
+export type { ResolvedOAuthToken } from './oauth-server/oauth-token.resolver';
+export { IPD_BEARER_PREFIX, IPD_TTL_MS, InProcessDelegation } from './oauth-server/in-process-delegation.service';
+export type { InProcessDelegationEntry } from './oauth-server/in-process-delegation.service';
+// The authorization server core (PP-15.4).
+export { OAUTH_CLIENT_RESOLVER, StoredClientResolver } from './oauth-server/client-resolver';
+export type { ClientRefused, ClientResolution, ClientResolved, ClientResolver, OAuthClientRecord } from './oauth-server/client-resolver';
+export { InMemoryOAuthRateLimiter, OAUTH_RATE_LIMITER, OAuthRateLimitService } from './oauth-server/oauth-rate-limiter';
+export type { OAuthRateLimitVerdict, OAuthRateLimiter } from './oauth-server/oauth-rate-limiter';
+export { OAuthServerContext, OAuthServerFeatures } from './oauth-server/oauth-server-context';
+export { OAUTH_AUDIT_ACTIONS, OAUTH_AUDIT_TARGET_TYPE, OAUTH_CLIENT_AUDIT_TARGET_TYPE, OAuthGrantService } from './oauth-server/oauth-grant.service';
+export type { OAuthAuditEntry, OAuthGrantRef } from './oauth-server/oauth-grant.service';
+export { OAuthProtocolError } from './oauth-server/oauth-protocol.error';
+export { buildAuthorizationServerMetadata } from './oauth-server/oauth-metadata';
+export type { OAuthAuthorizationServerMetadata } from './oauth-server/oauth-metadata';
+export { isLoopbackRedirectUri, matchesRedirectUri, normalizeResourceIdentifier, redirectHostOf } from './oauth-server/redirect-uri';
+export { isWellFormedChallenge, isWellFormedVerifier, s256Challenge, verifyPkce } from './oauth-server/pkce';
+export {
+  OAUTH_ACCESS_TOKEN_PREFIX,
+  OAUTH_BODY_LIMIT_BYTES,
+  OAUTH_CODE_PREFIX,
+  OAUTH_CODE_TTL_MS,
+  OAUTH_RATE_LIMITS,
+  OAUTH_REFRESH_GRACE_MS,
+  OAUTH_REFRESH_TOKEN_PREFIX,
+  OAUTH_PUBLIC_CORS_PATHS,
+  OAUTH_REQUEST_TTL_MS,
+  OAUTH_ROUTE_PREFIX,
+} from './oauth-server/oauth-server.constants';
+export type { OAuthRateLimitSpec } from './oauth-server/oauth-server.constants';
+// Resource-server helpers: protected resource metadata and the challenges (PP-15.6).
+export { OAuthResourceMetadataController } from './oauth-server/oauth-resource-metadata.controller';
+export { buildProtectedResourceMetadata } from './oauth-server/oauth-resource-metadata';
+export type { OAuthProtectedResourceMetadata } from './oauth-server/oauth-resource-metadata';
+export { buildBearerChallenge, protectedResourceMetadataUrl, quoteChallengeValue } from './oauth-server/oauth-challenge';
+export type { BearerChallengeInput, OAuthChallengeError } from './oauth-server/oauth-challenge';
+export { InsufficientScopeException, assertOAuthScopes } from './oauth-server/oauth-insufficient-scope';
+// Client identity and the trust policy (PP-15.5).
+export {
+  CIMD_MAX_BYTES,
+  CimdError,
+  CimdFetcher,
+  ClientIdentityResolver,
+  ClientRefusalRecorder,
+  ClientRegistrationService,
+  ClientTrustPolicy,
+  OAUTH_CIMD_HOST_RESOLVER,
+  OAUTH_CIMD_TRANSPORT,
+  OAUTH_CLIENT_CLEANUP_TYPE,
+  OAuthClientCleanupHandler,
+  OAuthClientCleanupTask,
+  OAuthAdminHintsController,
+  OAuthClientsAdminController,
+  OAuthClientsAdminService,
+  cimdExpiry,
+  evaluateClientTrust,
+  parseCimdClientId,
+  validateCimdDocument,
+} from './oauth-server/clients/index';
+export type { CimdFailureCode, CimdFetchResult, CimdMetadata, OAuthClientViewPage, TrustRefusalReason, TrustSettings, TrustSubject, TrustVerdict } from './oauth-server/clients/index';
 export type { AuthCredentialInfo, RequestWithAuthCredential } from './auth/decorators/auth-credential.decorator';
 export { JwtAuthGuard, NODE_ROUTE_PREFIX } from './auth/guards/jwt-auth.guard';
 export { RolesGuard } from './auth/guards/roles.guard';
@@ -298,6 +397,28 @@ export { OrganizationsService } from './organizations/organizations.service';
 export { OrgMembersService } from './organizations/org-members.service';
 export { OrgInvitesService } from './organizations/org-invites.service';
 export { OrganizationsAdminService } from './organizations/organizations-admin.service';
+
+// ---- OAuth token housekeeping, metrics and Doctor checks (PP-15.8) ------------------------
+export { OAUTH_TOKEN_CLEANUP_TYPE, OAUTH_TOKEN_RETENTION, OAuthTokenCleanupHandler } from './oauth-server/oauth-token-cleanup.handler';
+export type { OAuthTokenCleanupResult } from './oauth-server/oauth-token-cleanup.handler';
+export { OAuthTokenCleanupTask } from './oauth-server/oauth-token-cleanup.task';
+export { OAUTH_APP_METRICS } from './oauth-server/oauth.metrics';
+export {
+  OAUTH_SETTINGS_PATH,
+  OAUTH_TOKEN_CLEANUP_GRACE_MS,
+  OAuthClientPolicyDoctorCheck,
+  OAuthPublicUrlDoctorCheck,
+  OAuthResourcesDoctorCheck,
+  OAuthTokenCleanupDoctorCheck,
+  OAuthWellKnownDoctorCheck,
+  decideOAuthClientPolicy,
+  decideOAuthPublicUrl,
+  decideOAuthResources,
+  decideOAuthTokenCleanup,
+  decideOAuthWellKnown,
+  isNonPublicHostName,
+} from './oauth-server/doctor/oauth-server.doctor-checks';
+export type { WellKnownProbe } from './oauth-server/doctor/oauth-server.doctor-checks';
 
 // ---- the job types (permanent strings; both server-only) --------------------------------
 export { AUTH_TOKEN_CLEANUP_TYPE } from './auth/handlers/token-cleanup.handler';

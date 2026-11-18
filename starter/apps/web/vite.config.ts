@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import react from '@vitejs/plugin-react';
 import { build as viteBuild, defineConfig, type Plugin } from 'vite';
 
+// The OAuth server's well-known documents in the dev server (build-config/oauth-well-known.ts).
+import { openIdConfigurationNotFound, wellKnownProxy } from './build-config/oauth-well-known';
+
 /** The identity fields the page shell and the manifest show (packages/shared/identity.json). */
 export interface WebIdentity {
   productName: string;
@@ -109,13 +112,16 @@ function identityPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), identityPlugin(), serviceWorkerPlugin()],
+  plugins: [react(), identityPlugin(), serviceWorkerPlugin(), openIdConfigurationNotFound()],
   // The packaged pages are one chunk until the app splits its routes.
   build: { chunkSizeWarningLimit: 2000 },
   server: {
     host: true,
     port: 5173,
-    proxy: { '/api': { target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:3000', changeOrigin: false } },
+    proxy: {
+      '/api': { target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:3000', changeOrigin: false },
+      ...wellKnownProxy(process.env.VITE_API_PROXY_TARGET || 'http://localhost:3000'),
+    },
   },
   test: {
     environment: 'jsdom',

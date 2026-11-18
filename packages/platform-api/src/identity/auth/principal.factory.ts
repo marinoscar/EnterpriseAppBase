@@ -51,6 +51,7 @@ import type {
   UserPrincipal,
 } from '../../core/index';
 
+import type { OAuthNarrowing } from './credential-binding';
 import { currentTenancyMode } from './tenancy-mode';
 
 /** The role graph a principal needs: the role and the names of its permissions. */
@@ -116,6 +117,12 @@ export interface PrincipalSource {
    * graph was loaded outside a request (the sign-in rule then picks it).
    */
   activeOrgId?: string | null;
+  /**
+   * Set (non-enumerable, by `stampOAuthNarrowing`) on the graph of an `oat_`
+   * request only: the effective permissions are narrowed to the scopes'
+   * permissions. See {@link resolveEffectiveAccess}.
+   */
+  oauthNarrowing?: OAuthNarrowing;
 }
 
 /**
@@ -194,6 +201,19 @@ export function resolveEffectiveAccess(user: PrincipalSource, mode: TenancyMode)
 
   const roles = [...new Set(orgRole ? [...systemRoles, orgRole] : systemRoles)];
 
+  // OAUTH NARROWING (PP-15.3): THE one place an `oat_` token's scopes bite.
+  // effective = the user's own permissions ∩ the permissions of the token's
+  // scopes. Every reader (`toRequestUser`, the principal, `PermissionsGuard`,
+  // `principal.can`) goes through this function, so none can see the wide set.
+  // Roles stay as they are, for display; `RolesGuard` refuses an `oauth`
+  // credential on role alone. The narrowing lives on this request's graph
+  // copy, never on the cached graph.
+  const narrowing = user.oauthNarrowing;
+  if (narrowing) {
+    const allowed = new Set(narrowing.permissions);
+    return { systemRoles, membership, orgRole, roles, permissions: [...permissions].filter((name) => allowed.has(name)) };
+  }
+
   return { systemRoles, membership, orgRole, roles, permissions: [...permissions] };
 }
 
@@ -231,7 +251,7 @@ export class PrincipalFactory {
     const access = this.access(user);
     const activeOrgId =
       typeof user.activeOrgId === 'string' ? user.activeOrgId : access.membership?.orgId;
-    return {
+    const principal: UserPrincipal = {
       kind: 'user',
       userId: user.id,
       email: user.email,
@@ -242,6 +262,11 @@ export class PrincipalFactory {
       ...(user.memberships ? { memberships: listMemberships(user.memberships) } : {}),
       groups: [],
     };
+    // `principal.oauth`: non-enumerable request metadata (read by `@OAuthGrant()`).
+    if (user.oauthNarrowing) {
+      Object.defineProperty(principal, 'oauth', { value: user.oauthNarrowing.info, enumerable: false, writable: false, configurable: true });
+    }
+    return principal;
   }
 
   /**
@@ -279,6 +304,22 @@ function listMemberships(memberships: ReadonlyArray<PrincipalMembership>): OrgMe
 export const principalFactory = new PrincipalFactory();
 
 /**
+ * The permissions `user` holds WITHOUT an `oat_` token's scope narrowing: what
+ * re-consent could add to the token (PP-15.6). Read-only and pure: the graph
+ * is not modified (the narrowing is shadowed on a prototype-linked view, so the
+ * non-enumerable active org still applies).
+ *
+ * @param user - the request's graph.
+ * @returns the user's own effective permissions.
+ *
+ * @internal
+ */
+export function permissionsWithoutOAuthNarrowing(user: PrincipalSource): string[] {
+  const wide = Object.create(user, { oauthNarrowing: { value: undefined } }) as PrincipalSource;
+  return resolveEffectiveAccess(wide, currentTenancyMode()).permissions;
+}
+
+/**
  * The runtime mapper ADR 0001 specifies (#724): the request's `Principal`
  * from the loaded user graph and the credential kind `JwtAuthGuard` admitted
  * it with. A node credential yields a system-scoped `NodePrincipal` (no
@@ -309,6 +350,9 @@ export function toPrincipal(
     throw error;
   }
   if (credential === 'node') return principalFactory.forNode(user, nodeId);
+  // An `oauth` principal without its narrowing would carry the user's FULL
+  // permissions: refuse rather than build it.
+  if (credential === 'oauth' && !user.oauthNarrowing) throw new UnauthorizedException('Unrecognised credential');
   if (principalKind === 'user') {
     // A registered app kind (`api-key`) lands here with its own id; the
     // `UserPrincipal.credential` type names the platform's three, which is the

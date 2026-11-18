@@ -21,6 +21,8 @@ import { DeviceAuthService } from './device-auth.service';
 import { Public } from '../auth/decorators/public.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { AuthCredential, type AuthCredentialInfo } from '../auth/decorators/auth-credential.decorator';
+import { refuseOAuthCredential } from '../auth/refuse-oauth';
 import { RequestUser } from '../auth/interfaces/authenticated-user.interface';
 
 // Request DTOs
@@ -218,7 +220,10 @@ export class DeviceAuthController {
   async authorizeDevice(
     @CurrentUser() user: RequestUser,
     @Body() body: DeviceAuthorizeRequestDto,
+    @AuthCredential() credential?: AuthCredentialInfo | null,
   ): Promise<{ data: DeviceAuthorizeResponseDto }> {
+    // Approving a device mints a credential: never an OAuth token's act.
+    refuseOAuthCredential(credential);
     // #724: an approved device session is bound to the approver's active
     // org (validated by the approver's own credential path).
     const result = await this.deviceAuthService.authorizeDevice(
@@ -311,7 +316,9 @@ export class DeviceAuthController {
   async revokeSession(
     @CurrentUser() user: RequestUser,
     @Param('id') sessionId: string,
+    @AuthCredential() credential?: AuthCredentialInfo | null,
   ): Promise<{ data: DeviceAuthorizeResponseDto }> {
+    refuseOAuthCredential(credential);
     const result = await this.deviceAuthService.revokeDeviceSession(
       user.id,
       sessionId,

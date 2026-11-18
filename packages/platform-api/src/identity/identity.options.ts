@@ -69,6 +69,19 @@ export interface IdentityModuleOptions {
     returnUriSchemes?: readonly string[];
   };
   /**
+   * Mounts the OAuth server sub-slice (PP-15.3, docs/specs/oauth-server.md):
+   * the `oat_` branch of the guard, the token resolver and in-process
+   * delegation. Absent (the default), the sub-slice is NOT mounted: an `oat_`
+   * header is a `401` and no OAuth route exists. Even mounted, the server is
+   * off until the `oauthServer.enabled` system setting is true. Protected
+   * resources and scopes are registered with `registerOAuthProtectedResource`
+   * and `registerOAuthScope`, never through options.
+   */
+  oauthServer?: {
+    /** Hosts the admin UI offers as suggestions for the client allowlist. The platform ships none. */
+    defaultAllowedClientHosts?: readonly string[];
+  };
+  /**
    * The modules that bind identity's host ports (`IDENTITY_NOTIFIER`,
    * `USER_DEFAULTS`, `IDENTITY_JOBS`, `IDENTITY_NODE_CREDENTIALS`, ...). Each
    * must be `@Global()`: `JwtAuthGuard` is instantiated in every module whose
@@ -88,6 +101,16 @@ export interface ResolvedDeviceFlowOptions {
 }
 
 /**
+ * The OAuth server sub-slice's options after defaults.
+ *
+ * @stability experimental
+ */
+export interface ResolvedOAuthServerOptions {
+  /** Suggested client hosts, lower-cased and deduplicated. */
+  readonly defaultAllowedClientHosts: readonly string[];
+}
+
+/**
  * The options after defaults, as `IDENTITY_OPTIONS` provides them.
  *
  * @stability experimental
@@ -103,6 +126,8 @@ export interface ResolvedIdentityModuleOptions {
   readonly signInPolicy?: PortBinding<SignInPolicy>;
   /** The device flow's resolved options. */
   readonly deviceFlow: ResolvedDeviceFlowOptions;
+  /** The OAuth server's options; absent when the sub-slice is not mounted. */
+  readonly oauthServer?: ResolvedOAuthServerOptions;
   /** The host-port modules. */
   readonly imports: ReadonlyArray<Type<unknown> | DynamicModule | Promise<DynamicModule> | ForwardReference>;
 }
@@ -123,6 +148,7 @@ export const DEFAULT_IDENTITY_OPTIONS: ResolvedIdentityModuleOptions = Object.fr
 const ENV_NAME = /^[A-Z][A-Z0-9_]*$/;
 const SCHEME = /^[a-z][a-z0-9+.-]*$/;
 const BLOCKED_RETURN_URI_SCHEMES: ReadonlySet<string> = new Set(['http', 'javascript', 'data', 'vbscript', 'file', 'blob', 'about']);
+const CLIENT_HOST = /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/;
 const ROLE_NAME = /^[a-z][a-z0-9_]*$/;
 
 /**
@@ -176,12 +202,25 @@ export function resolveIdentityModuleOptions(
       );
     }
   }
+  let oauthServer: ResolvedOAuthServerOptions | undefined;
+  if (options.oauthServer !== undefined) {
+    const hosts = (options.oauthServer.defaultAllowedClientHosts ?? []).map((host) => host.trim().toLowerCase());
+    for (const host of hosts) {
+      if (!CLIENT_HOST.test(host)) {
+        throw new Error(
+          `IdentityModule.forRoot: oauthServer.defaultAllowedClientHosts entry ${JSON.stringify(host)} is not an exact host name (no scheme, port, path or wildcard).`,
+        );
+      }
+    }
+    oauthServer = Object.freeze({ defaultAllowedClientHosts: Object.freeze([...new Set(hosts)]) });
+  }
   return Object.freeze({
     defaultOrgRole,
     initialAdminEmailEnv,
     enableTestAuth,
     ...(signInPolicy ? { signInPolicy } : {}),
     deviceFlow: Object.freeze({ returnUriSchemes: Object.freeze([...new Set(returnUriSchemes)]) }),
+    ...(oauthServer ? { oauthServer } : {}),
     imports: Object.freeze([...(options.imports ?? [])]),
   });
 }

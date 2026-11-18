@@ -115,6 +115,7 @@ export interface UserSettingsNamespaceDeclarations {}
 export interface UserProfileSettingsExtensions {}
 
 // ---- the namespace registries (rung 2) ---------------------------------------------------
+export { OAUTH_SERVER_SYSTEM_SETTINGS, mergeOAuthServerSettings } from './oauth-server.system-settings';
 export {
   RESERVED_SYSTEM_SETTINGS_KEYS,
   SETTINGS_NAMESPACE_KEY_PATTERN,

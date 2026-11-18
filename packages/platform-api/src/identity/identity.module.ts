@@ -31,6 +31,7 @@ import { IdentityMetadataService } from './metadata/identity-metadata.service';
 import { IDENTITY_OPTIONS, resolveIdentityModuleOptions, type IdentityModuleOptions } from './identity.options';
 import { IDENTITY_ALLOWLIST } from './ports';
 import { OrganizationsModule } from './organizations/organizations.module';
+import { OAuthServerModule, markOAuthServerMounted } from './oauth-server/oauth-server.module';
 import { PatModule } from './pat/pat.module';
 import { RolesModule } from './roles/roles.module';
 import { TestAuthModule } from './testing/test-auth.module';
@@ -76,6 +77,7 @@ export class IdentityModule {
    */
   static forRoot(options: IdentityModuleOptions = {}): DynamicModule {
     const resolved = resolveIdentityModuleOptions(options);
+    if (resolved.oauthServer) markOAuthServerMounted();
 
     // Every registered sign-in provider's Passport strategy (Google first),
     // registered before this call; the registry freezes at bootstrap.
@@ -99,6 +101,8 @@ export class IdentityModule {
         UsersModule,
         RolesModule,
         DeviceAuthModule,
+        // The OAuth server's resource-server half (PP-15.3): only when mounted.
+        ...(resolved.oauthServer ? [OAuthServerModule] : []),
         ...(resolved.enableTestAuth ? [TestAuthModule] : []),
       ],
     });

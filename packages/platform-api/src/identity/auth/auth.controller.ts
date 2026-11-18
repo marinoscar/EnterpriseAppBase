@@ -31,6 +31,8 @@ import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Auth } from './decorators/auth.decorator';
 import { CurrentPrincipal } from './decorators/current-principal.decorator';
+import { AuthCredential, type AuthCredentialInfo } from './decorators/auth-credential.decorator';
+import { refuseOAuthCredential } from './refuse-oauth';
 import type { Principal } from '../../core/index';
 import { RequestUser } from './interfaces/authenticated-user.interface';
 import { SwitchOrgDto } from './dto/switch-org.dto';
@@ -275,7 +277,7 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Missing or invalid access token or refresh token' })
   @ApiResponse({
     status: 403,
-    description: 'The credential is a personal access token or a device credential, which cannot switch organization',
+    description: 'The credential is a personal access token, a device credential or an OAuth access token, which cannot switch organization',
   })
   @ApiResponse({ status: 404, description: 'Not an organization the caller is an active member of' })
   async switchOrg(
@@ -361,7 +363,9 @@ export class AuthController {
   async logoutAll(
     @CurrentUser() user: RequestUser,
     @Res({ passthrough: true }) res: FastifyReply,
+    @AuthCredential() credential?: AuthCredentialInfo | null,
   ): Promise<void> {
+    refuseOAuthCredential(credential);
     await this.authService.revokeAllUserTokens(user.id);
 
     // Clear refresh token cookie

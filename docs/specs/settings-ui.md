@@ -146,6 +146,17 @@ The boundary is `sm` (600px), never `md` (900px). 600px is Material 3's compact/
 - **Keyboard focus is visible on every navigation control**, via an explicit `&.Mui-focusVisible` outline in `ShellNavigationRail.tsx`.
 - **The collapse toggle is a real `<button>` with `aria-expanded`.**
 
+### The OAuth cards
+
+Two opt-in cards ship as data under NEW keys, not appended to `access` or `security`, so an app that upgrades gets no card without a route: `identityAdminSections.oauthClients` and `identityUserSettingsSections.connectedApps` of `@marinoscar/platform-web/identity/ui`. An app that mounts the OAuth server spreads them into its registries.
+
+| Card | Route | Group | Permission | Feature |
+|---|---|---|---|---|
+| OAuth clients | `/admin/settings/oauth-clients` | Access | `oauth_clients:read` (the settings sections need `system_settings:read`; editing needs `system_settings:write` and `oauth_clients:write`) | none: it is where the server is switched on |
+| Connected apps | `/settings/connected-apps` | Security | none | `oauthServer` |
+
+The platform declares the feature `oauthServer` in `SettingsFeatureRegistry`. `OAuthServerStatusProvider` probes `GET /api/oauth/.well-known/authorization-server` (200 while on, 404 while off) once per signed-in user, and the admin page refreshes it when the server is switched on. `/oauth/error` is a public route and `/oauth/consent` sits inside `RequireAuth` next to `/activate`; an app can supply the optional `oauthApi` identity adapter (`useOAuthServerApi`).
+
 ### The Organization settings card
 
 `Organization settings` (#733) is the third card of the appended `Organizations` group: `/admin/settings/organization-settings`, `org_settings:read` (the org permission `org-settings.controller.ts` of `@marinoscar/platform-api/settings` enforces), `feature: 'orgs'`. A card next to `Organization`, never a tab on it: "how this organization is configured" is a different question from "who belongs to it". The page renders a form generated from the namespace descriptors of `GET /api/org-settings` (boolean, enum, number and string fields; any other shape links to the owning slice's page) and disables every control without `org_settings:write`, and the controls of a namespace whose own write permission the caller lacks.

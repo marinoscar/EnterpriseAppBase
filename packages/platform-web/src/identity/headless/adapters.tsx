@@ -17,6 +17,8 @@ import type { ComponentType, ReactElement, ReactNode } from 'react';
 import { useOptionalPlatformHost } from '../../core/index.js';
 import { createIdentityApi } from './api.js';
 import type { IdentityApi } from './api.js';
+import { createOAuthServerApi } from './oauth-api.js';
+import type { OAuthServerApi } from './oauth-api.js';
 import type { IdentityDataTableComponent } from './table.js';
 
 /**
@@ -60,6 +62,13 @@ export interface IdentityWebAdapters {
   DataTable?: IdentityDataTableComponent;
   /** The identity calls. Default `createIdentityApi(usePlatformApi())`. */
   api?: IdentityApi;
+  /**
+   * The OAuth server calls (the consent, Connected apps and OAuth clients
+   * pages). Default `createOAuthServerApi(usePlatformApi())`. The consent page
+   * renders outside the signed-in shell, where no platform host is mounted, so
+   * an app that routes it hands one in here.
+   */
+  oauthApi?: OAuthServerApi;
 }
 
 const NO_ADAPTERS: IdentityWebAdapters = Object.freeze({});
@@ -123,6 +132,31 @@ export function useIdentityApi(explicit?: IdentityApi): IdentityApi {
     throw new Error(
       'useIdentityApi: no identity client. Mount PlatformHostProvider (@marinoscar/platform-web/core) or ' +
         'IdentityWebAdaptersProvider with an `api`, or pass a client to the hook.',
+    );
+  }
+  return api;
+}
+
+/**
+ * The OAuth client the OAuth hooks use: `explicit` when given, else the
+ * adapters' `oauthApi`, else `createOAuthServerApi` over the platform host's
+ * transport.
+ *
+ * @param explicit - a client to use instead (keep its identity stable).
+ * @returns the client.
+ * @throws Error when none of the three is available.
+ *
+ * @stability experimental
+ */
+export function useOAuthServerApi(explicit?: OAuthServerApi): OAuthServerApi {
+  const adapters = useIdentityWebAdapters();
+  const hostApi = useOptionalPlatformHost()?.api;
+  const fromHost = useMemo(() => (hostApi ? createOAuthServerApi(hostApi) : null), [hostApi]);
+  const api = explicit ?? adapters.oauthApi ?? fromHost;
+  if (!api) {
+    throw new Error(
+      'useOAuthServerApi: no OAuth client. Mount PlatformHostProvider (@marinoscar/platform-web/core) or ' +
+        'IdentityWebAdaptersProvider with an `oauthApi`, or pass a client to the hook.',
     );
   }
   return api;

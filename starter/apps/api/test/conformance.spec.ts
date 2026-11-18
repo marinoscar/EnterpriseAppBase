@@ -130,6 +130,14 @@ runPlatformConformance({
       grants: catalogGrants(buildPermissionCatalog()),
       minRoutes: 4,
     },
+    // The OAuth server (the example scopes and resource of src/platform/oauth-example.ts): registrations,
+    // confinement, narrowing, session-only and roles-only routes, the 401 challenge and the metadata documents.
+    // Its secret-egress check needs a database flow; an app that turns the server on runs it there.
+    oauthServer: {
+      rootModule: AppModule,
+      permissions: permissionRegistry.list().map((permission) => permission.id),
+      secretEgress: { skip: 'the check needs a real flow and database; run checkOAuthSecretEgress over one when you enable the server' },
+    },
     // The host core: exactly one APP_GUARD and it is the maintenance guard
     // (no global JWT guard), one PlatformHostCoreModule, the `{ data }`
     // envelope and the exception filter registered once.

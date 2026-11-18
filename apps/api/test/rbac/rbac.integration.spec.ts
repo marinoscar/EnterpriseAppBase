@@ -193,6 +193,42 @@ describe('RBAC System (Integration)', () => {
     });
   });
 
+  describe('OAuth clients admin routes (PP-15.5, #1183)', () => {
+    const ID = '11111111-1111-4111-8111-111111111111';
+    const routes: Array<{ method: 'get' | 'post' | 'patch' | 'delete'; path: string; write: boolean }> = [
+      { method: 'get', path: '/api/admin/oauth/clients', write: false },
+      { method: 'post', path: '/api/admin/oauth/clients', write: true },
+      { method: 'patch', path: `/api/admin/oauth/clients/${ID}`, write: true },
+      { method: 'post', path: `/api/admin/oauth/clients/${ID}/rotate-secret`, write: true },
+      { method: 'delete', path: `/api/admin/oauth/clients/${ID}`, write: true },
+    ];
+
+    it('is refused to a contributor and a viewer on every route (403)', async () => {
+      for (const make of [createMockContributorUser, createMockViewerUser]) {
+        const user = await make(context);
+        for (const route of routes) {
+          const response = await request(context.app.getHttpServer())[route.method](route.path).set(authHeader(user.accessToken)).send({});
+          expect([route.method, route.path, response.status]).toEqual([route.method, route.path, 403]);
+        }
+      }
+    });
+
+    it('is refused without a credential (401)', async () => {
+      for (const route of routes) {
+        const response = await request(context.app.getHttpServer())[route.method](route.path).send({});
+        expect([route.method, route.path, response.status]).toEqual([route.method, route.path, 401]);
+      }
+    });
+
+    it('lets an administrator list clients (oauth_clients:read)', async () => {
+      const admin = await createMockAdminUser(context);
+      context.prismaMock.oAuthClient.findMany.mockResolvedValue([]);
+      context.prismaMock.oAuthClient.count.mockResolvedValue(0);
+      const response = await request(context.app.getHttpServer()).get('/api/admin/oauth/clients').set(authHeader(admin.accessToken)).expect(200);
+      expect(response.body.data.items).toEqual([]);
+    });
+  });
+
   describe('Permission-Based Access', () => {
     it('should allow users:read permission to list users', async () => {
       const admin = await createMockAdminUser(context);

@@ -379,6 +379,171 @@ export interface IdentityInviteRow {
   createdAt: Date;
 }
 
+/**
+ * An `oauth_tokens` row (PP-15.3): an access or refresh token. Only the hash is stored.
+ *
+ * @stability experimental
+ */
+export interface IdentityOAuthTokenRow {
+  /** The token's id. */
+  id: string;
+  /** `access` or `refresh`. */
+  kind: 'access' | 'refresh';
+  /** SHA-256 of the token; the token itself is never stored. */
+  tokenHash: string;
+  /** The displayable prefix. */
+  tokenPrefix: string;
+  /** The grant (consent) it belongs to. */
+  grantId: string;
+  /** The scope ids it carries. */
+  scopes: string[];
+  /** When it expires. */
+  expiresAt: Date;
+  /** When it was issued. */
+  createdAt: Date;
+  /** When it was last used, or `null`. */
+  lastUsedAt: Date | null;
+  /** When a refresh token was rotated (presented and replaced), or `null`. */
+  rotatedAt: Date | null;
+  /** The refresh token that replaced this one, or `null`. */
+  replacedById: string | null;
+  /** When it was revoked, or `null`. */
+  revokedAt: Date | null;
+}
+
+/**
+ * What the OAuth resolver loads with a token: its grant, the grant's client and the
+ * user graph (loaded with `PRINCIPAL_USER_INCLUDE` by the caller).
+ *
+ * @stability experimental
+ */
+export interface IdentityOAuthGrantRow {
+  /** The grant's id. */
+  id: string;
+  /** The consenting user. */
+  userId: string;
+  /** The organization the grant acts in, or `null` (a pre-org row). */
+  orgId: string | null;
+  /** The client's row id. */
+  clientId: string;
+  /** The resource identifier (audience) the grant was made for. */
+  resource: string;
+  /** The granted scope ids. */
+  scopes: string[];
+  /** When the consent was first given. */
+  createdAt: Date;
+  /** When the grant last changed. */
+  updatedAt: Date;
+  /** When a token of it was last used, or `null`. */
+  lastUsedAt: Date | null;
+  /** When it was revoked, or `null`. */
+  revokedAt: Date | null;
+  /** Why it was revoked (`user`, `admin`, `reuse_detected`, `client_disabled`, `offboarding`), or `null`. */
+  revokedReason: string | null;
+}
+
+/**
+ * An `oauth_clients` row (PP-15.4).
+ *
+ * @stability experimental
+ */
+export interface IdentityOAuthClientRow {
+  /** The row id (what grants and tokens reference). */
+  id: string;
+  /** The public `client_id`: an HTTPS metadata URL (`cimd`) or `oc_...`. */
+  clientId: string;
+  /** `cimd`, `dynamic` or `registered`. */
+  kind: 'cimd' | 'dynamic' | 'registered';
+  /** The self-asserted display name. */
+  name: string;
+  /** The client's home page, or `null`. */
+  clientUri: string | null;
+  /** The client's logo, or `null`. */
+  logoUri: string | null;
+  /** The registered redirect URIs (a JSON array of strings). */
+  redirectUris: unknown;
+  /** `none`, `client_secret_post` or `client_secret_basic`. */
+  tokenEndpointAuthMethod: string;
+  /** SHA-256 of the client secret (confidential clients), or `null`. */
+  secretHash: string | null;
+  /** `web` or `native`, or `null`. */
+  applicationType: string | null;
+  /** The lower-cased host the trust policy and the consent page use. */
+  host: string;
+  /** When the client was disabled, or `null`. */
+  disabledAt: Date | null;
+  /** When the metadata document was last fetched (`cimd`), or `null`. */
+  metadataFetchedAt: Date | null;
+  /** When the cached metadata document must be refetched (`cimd`), or `null`. */
+  metadataExpiresAt: Date | null;
+  /** The administrator who pre-registered it (`registered`), or `null`. */
+  createdByUserId: string | null;
+  /** When it was last used to complete an authorization, or `null`. */
+  lastUsedAt: Date | null;
+  /** When it first appeared. */
+  createdAt: Date;
+}
+
+/**
+ * An `oauth_authorization_requests` row (PP-15.4): an authorization request waiting for consent.
+ *
+ * @stability experimental
+ */
+export interface IdentityOAuthAuthorizationRequestRow {
+  /** The opaque id carried in the consent URL. */
+  id: string;
+  /** The client's row id. */
+  clientId: string;
+  /** The redirect URI the client sent (it matched a registered one). */
+  redirectUri: string;
+  /** The requested scopes, space-separated. */
+  scope: string;
+  /** The client's `state`, or `null`. */
+  state: string | null;
+  /** The resource identifier (audience). */
+  resource: string;
+  /** The PKCE challenge. */
+  codeChallenge: string;
+  /** Always `S256`. */
+  codeChallengeMethod: string;
+  /** The user it is bound to (set at first read), or `null`. */
+  userId: string | null;
+  /** `pending`, `approved`, `denied` or `expired`. */
+  status: 'pending' | 'approved' | 'denied' | 'expired';
+  /** The end of the 10-minute window. */
+  expiresAt: Date;
+  /** When it was created. */
+  createdAt: Date;
+}
+
+/**
+ * An `oauth_authorization_codes` row (PP-15.4): a single-use code. Only its hash is stored.
+ *
+ * @stability experimental
+ */
+export interface IdentityOAuthAuthorizationCodeRow {
+  /** The code's id. */
+  id: string;
+  /** SHA-256 of the `oac_` code. */
+  codeHash: string;
+  /** The grant it was issued for. */
+  grantId: string;
+  /** The authorization request's redirect URI. */
+  redirectUri: string;
+  /** The PKCE challenge. */
+  codeChallenge: string;
+  /** The approved scopes, space-separated. */
+  scope: string;
+  /** The resource identifier. */
+  resource: string;
+  /** When it expires (60 s). */
+  expiresAt: Date;
+  /** When it was redeemed, or `null`. */
+  consumedAt: Date | null;
+  /** When it was issued. */
+  createdAt: Date;
+}
+
 // ---- the client -------------------------------------------------------------------------
 
 /**
@@ -455,6 +620,16 @@ export interface IdentityTx {
   refreshToken: IdentityDelegate<IdentityRefreshTokenRow>;
   /** `personal_access_tokens`. */
   personalAccessToken: IdentityDelegate<IdentityPersonalAccessTokenRow>;
+  /** `oauth_tokens` (PP-15.3). */
+  oAuthToken: IdentityDelegate<IdentityOAuthTokenRow>;
+  /** `oauth_grants` (PP-15.3). */
+  oAuthGrant: IdentityDelegate<IdentityOAuthGrantRow>;
+  /** `oauth_clients` (PP-15.4). */
+  oAuthClient: IdentityDelegate<IdentityOAuthClientRow>;
+  /** `oauth_authorization_requests` (PP-15.4). */
+  oAuthAuthorizationRequest: IdentityDelegate<IdentityOAuthAuthorizationRequestRow>;
+  /** `oauth_authorization_codes` (PP-15.4). */
+  oAuthAuthorizationCode: IdentityDelegate<IdentityOAuthAuthorizationCodeRow>;
   /** `allowed_emails`. */
   allowedEmail: IdentityDelegate<IdentityAllowedEmailRow>;
   /** `device_codes`. */

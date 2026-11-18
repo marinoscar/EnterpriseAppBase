@@ -134,4 +134,11 @@ describe('applyDataEnvelope', () => {
     const response = op.responses['200'] as { content: Record<string, { schema: unknown }> };
     expect(response.content['image/jpeg'].schema).toEqual({ type: 'string', format: 'binary' });
   });
+
+  it('leaves an operation stamped x-raw-response alone: a protocol body (RFC 6749 token response) is never enveloped', () => {
+    const doc = documentWith({ '200': jsonResponse({ $ref: '#/components/schemas/Token' }) }, { Token: { type: 'object', properties: { access_token: { type: 'string' } } } });
+    (doc.paths!['/api/thing'] as Record<string, Record<string, unknown>>).get!['x-raw-response'] = true;
+    applyDataEnvelope(doc);
+    expect(schemaOf(doc, '200')).toEqual({ $ref: '#/components/schemas/Token' });
+  });
 });

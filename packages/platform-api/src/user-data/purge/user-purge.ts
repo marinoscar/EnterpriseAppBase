@@ -294,6 +294,15 @@ export interface DeletedUserRows {
 }
 
 /**
+ * User-keyed rows with NO foreign key to `User`, purged by name with the category they belong to.
+ * A schema without the model (no such delegate) is skipped.
+ */
+const FK_LESS_USER_ROWS: readonly { model: string; delegate: string; field: string; category: string }[] = Object.freeze([
+  // PP-15.4: a pending OAuth authorization request is bound to the user at first read; it is short-lived and has no FK.
+  { model: 'OAuthAuthorizationRequest', delegate: 'oAuthAuthorizationRequest', field: 'userId', category: 'credentials' },
+]);
+
+/**
  * Deletes one user's rows of the included categories, children before
  * parents, inside the caller's transaction. Clears the `User` columns the
  * included categories name. Never deletes the storage-object model (the
@@ -347,6 +356,17 @@ export async function deleteUserRows(
   }
 
   await cancelPending(options.objectIds ?? []);
+
+  // Rows keyed by a plain user id with NO foreign key to `User`: the registry is built from the
+  // schema's `User` foreign keys (and its tripwire enforces that), so they cannot be listed there.
+  for (const entry of FK_LESS_USER_ROWS) {
+    const delegate = tx[entry.delegate];
+    if (!delegate || !options.categories.has(entry.category)) continue;
+    const { count } = await delegate.deleteMany({ where: { [entry.field]: userId } });
+    if (count === 0) continue;
+    out.models[entry.model] = (out.models[entry.model] ?? 0) + count;
+    out.categories[entry.category] = (out.categories[entry.category] ?? 0) + count;
+  }
 
   const clear = [...new Set(options.clearUserFields ?? [])];
   if (clear.length > 0) {

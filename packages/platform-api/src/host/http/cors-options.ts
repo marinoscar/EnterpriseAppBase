@@ -80,7 +80,29 @@ export interface ExtraCorsOptions {
   exposedHeaders?: string | string[];
   /** `Access-Control-Max-Age`, in seconds (a non-negative integer). */
   maxAge?: number;
+  /**
+   * Route prefixes (each `/api/...`, no trailing slash; a path equal to the prefix or under it) that
+   * answer ANY origin WITHOUT credentials, whatever `CORS_ORIGIN` says: `Access-Control-Allow-Origin: *`,
+   * `Allow-Headers: content-type, authorization`, no `Allow-Credentials`. For endpoints that take no
+   * cookie and are meant for browser-based third-party clients (the OAuth server's token, register and
+   * revoke endpoints and metadata documents). Every other route keeps the policy above, unchanged.
+   *
+   * Implemented as the CORS plugin's per-request options delegate, because the plugin answers every
+   * preflight in an `onRequest` hook before any route handler runs: a route cannot widen its own CORS
+   * once an allowlist is configured, and a later hook would run too late.
+   */
+  openPaths?: readonly string[];
 }
+
+/**
+ * The per-request options function the CORS plugin accepts as `delegator`.
+ *
+ * @stability experimental
+ */
+export type CorsDelegator = (
+  request: { url?: string },
+  callback: (error: Error | null, options: Record<string, unknown>) => void,
+) => void;
 
 /**
  * Structurally assignable to `FastifyCorsOptions`, which
@@ -89,7 +111,11 @@ export interface ExtraCorsOptions {
  *
  * @stability experimental
  */
-export type CorsOptions = (SameOriginCorsOptions | AllowlistCorsOptions) & ExtraCorsOptions;
+export type CorsOptions = (SameOriginCorsOptions | AllowlistCorsOptions) &
+  Omit<ExtraCorsOptions, 'openPaths'> & {
+    /** The per-request options function, set when `openPaths` is given. */
+    delegator?: CorsDelegator;
+  };
 
 /**
  * Raised for a CORS_ORIGIN value the API refuses to start with.
@@ -127,7 +153,33 @@ export class InvalidCorsOriginError extends Error {
  */
 export function buildCorsOptions(raw: string | undefined, extra?: ExtraCorsOptions): CorsOptions {
   const policy = buildOriginPolicy(raw);
-  return extra === undefined ? policy : { ...policy, ...validateExtra(extra) };
+  if (extra === undefined) return policy;
+  const { openPaths, ...rest } = validateExtra(extra);
+  const base: CorsOptions = { ...policy, ...rest };
+  if (openPaths === undefined || openPaths.length === 0) return base;
+  return { ...base, delegator: openPathsDelegator(base, openPaths) };
+}
+
+/** The options an open path answers with: any origin, no credentials. */
+function openPathOptions(maxAge: number | undefined): Record<string, unknown> {
+  return {
+    origin: '*',
+    credentials: false,
+    methods: 'GET,HEAD,POST',
+    allowedHeaders: 'content-type, authorization',
+    maxAge: maxAge ?? 600,
+  };
+}
+
+function openPathsDelegator(base: CorsOptions, openPaths: readonly string[]): CorsDelegator {
+  const prefixes = [...openPaths];
+  const open = openPathOptions(base.maxAge);
+  const closed = { ...base } as Record<string, unknown>;
+  return (request, callback) => {
+    const path = (request.url ?? '').split('?')[0] ?? '';
+    const isOpen = prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+    callback(null, isOpen ? open : closed);
+  };
 }
 
 function validateExtra(extra: ExtraCorsOptions): ExtraCorsOptions {
@@ -138,8 +190,8 @@ function validateExtra(extra: ExtraCorsOptions): ExtraCorsOptions {
         `"${key}" cannot be passed as an extra CORS option: the origin policy comes from CORS_ORIGIN alone.`,
       );
     }
-    if (key !== 'methods' && key !== 'allowedHeaders' && key !== 'exposedHeaders' && key !== 'maxAge') {
-      throw new InvalidCorsOriginError(`"${key}" is not a supported extra CORS option (methods, allowedHeaders, exposedHeaders, maxAge).`);
+    if (key !== 'methods' && key !== 'allowedHeaders' && key !== 'exposedHeaders' && key !== 'maxAge' && key !== 'openPaths') {
+      throw new InvalidCorsOriginError(`"${key}" is not a supported extra CORS option (methods, allowedHeaders, exposedHeaders, maxAge, openPaths).`);
     }
   }
   for (const key of ['methods', 'allowedHeaders', 'exposedHeaders'] as const) {
@@ -150,6 +202,12 @@ function validateExtra(extra: ExtraCorsOptions): ExtraCorsOptions {
       throw new InvalidCorsOriginError(`${key} must be a non-empty string or an array of non-empty strings without line breaks.`);
     }
     out[key] = Array.isArray(value) ? [...value] : value;
+  }
+  if (extra.openPaths !== undefined) {
+    if (extra.openPaths.some((prefix) => typeof prefix !== 'string' || !/^\/[A-Za-z0-9._~\-/]*[A-Za-z0-9._~-]$/.test(prefix) || prefix.includes('//'))) {
+      throw new InvalidCorsOriginError('openPaths must be route prefixes that start with "/", have no trailing slash and no "//".');
+    }
+    out.openPaths = [...extra.openPaths];
   }
   if (extra.maxAge !== undefined) {
     if (!Number.isInteger(extra.maxAge) || extra.maxAge < 0) {

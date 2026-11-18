@@ -19,7 +19,7 @@ import {
 import { AppModule } from './app.module';
 import { PrismaService } from './prisma/prisma.service';
 import { verifyEncryptionKeyAtStartup } from '@marinoscar/platform-api/core';
-import { verifyTenancyModeAtStartup } from '@marinoscar/platform-api/identity';
+import { OAUTH_PUBLIC_CORS_PATHS, verifyTenancyModeAtStartup } from '@marinoscar/platform-api/identity';
 import { APP_OPENAPI } from './openapi/document';
 import {
   buildCorsOptions,
@@ -41,7 +41,14 @@ async function bootstrap() {
   // CORS policy (#517). Parsed HERE, before the application or its database
   // connection exists, so a wildcard or malformed CORS_ORIGIN fails the boot
   // immediately with its own message. Applied further down, after the prefix.
-  const corsOptions = buildCorsOptions(process.env.CORS_ORIGIN);
+  //
+  // `openPaths`: the OAuth server's token, register and revoke endpoints and its
+  // metadata documents answer ANY origin without credentials (browser-based
+  // third-party clients), even while CORS_ORIGIN lists an allowlist. The CORS
+  // plugin answers every preflight before a route handler runs, so the policy
+  // for those paths must live here, in the plugin's per-request options; no
+  // other route is loosened (PP-15.6, docs/specs/oauth-server.md §3).
+  const corsOptions = buildCorsOptions(process.env.CORS_ORIGIN, { openPaths: OAUTH_PUBLIC_CORS_PATHS });
 
   // DEPLOYMENT_MODE (#685). Parsed HERE, beside CORS_ORIGIN and for the same
   // reason: it needs nothing but the environment, so a typo stops the boot

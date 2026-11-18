@@ -20,7 +20,7 @@
  */
 
 import { APP_NAME } from '@app/shared';
-import { createIdentityApi } from '@marinoscar/platform-web/identity/headless';
+import { createIdentityApi, createOAuthServerApi } from '@marinoscar/platform-web/identity/headless';
 import type { IdentityWebAdapters } from '@marinoscar/platform-web/identity/headless';
 
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
@@ -33,4 +33,7 @@ export const appIdentityAdapters: IdentityWebAdapters = Object.freeze<IdentityWe
   Spinner: LoadingSpinner,
   DataTable,
   api: createIdentityApi(appPlatformApi),
+  // The OAuth pages (#1185): the consent page renders outside the shell, where
+  // no platform host is mounted, so the transport is handed in here.
+  oauthApi: createOAuthServerApi(appPlatformApi),
 });

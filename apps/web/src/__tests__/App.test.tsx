@@ -51,6 +51,11 @@ vi.mock('@marinoscar/platform-web/identity/ui', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@marinoscar/platform-web/identity/ui')>()),
   UsersPage: () => <h1>Admin Users</h1>,
   UserTokensPage: () => <h1>User Tokens Page</h1>,
+  // #1185: the two settings pages are stood in; the consent and error pages
+  // stay REAL, because what is under test there is that they render outside
+  // the shell (and, for the error page, outside the auth guard).
+  OAuthClientsPage: () => <h1>Admin OAuth Clients</h1>,
+  ConnectedAppsPage: () => <h1>Connected Apps Page</h1>,
 }));
 
 // Issue #392: the target of the `/admin/settings/deployment` redirect.
@@ -843,5 +848,85 @@ describe('Sharing routes (#731)', () => {
     );
     await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), { timeout: 5000 });
     expect(screen.queryByRole('heading', { name: 'Groups Page' })).not.toBeInTheDocument();
+  });
+
+  /**
+   * Issue #1185 (PP-15.7). The OAuth server's routes: the admin page behind
+   * `oauth_clients:read`, the user page ungated, the consent page outside the
+   * shell (no app bar) and the error page outside the auth guard.
+   */
+  describe('OAuth server routes (#1185)', () => {
+    it('redirects a user without oauth_clients:read away from /admin/settings/oauth-clients', async () => {
+      signInAs(['user_settings:read']);
+      render(
+        <MemoryRouter initialEntries={['/admin/settings/oauth-clients']}>
+          <App />
+        </MemoryRouter>,
+      );
+      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), { timeout: 5000 });
+      expect(screen.queryByRole('heading', { name: 'Admin OAuth Clients' })).not.toBeInTheDocument();
+    });
+
+    it('renders /admin/settings/oauth-clients for oauth_clients:read', async () => {
+      signInAs(['oauth_clients:read'], ['admin']);
+      render(
+        <MemoryRouter initialEntries={['/admin/settings/oauth-clients']}>
+          <App />
+        </MemoryRouter>,
+      );
+      expect(await screen.findByRole('heading', { name: 'Admin OAuth Clients' }, { timeout: 5000 })).toBeInTheDocument();
+    });
+
+    it('renders /settings/connected-apps for any signed-in user', async () => {
+      signInAs(['user_settings:read']);
+      render(
+        <MemoryRouter initialEntries={['/settings/connected-apps']}>
+          <App />
+        </MemoryRouter>,
+      );
+      expect(await screen.findByRole('heading', { name: 'Connected Apps Page' }, { timeout: 5000 })).toBeInTheDocument();
+    });
+
+    it('renders the consent page outside the shell for a signed-in user', async () => {
+      signInAs(['user_settings:read']);
+      server.use(
+        http.get(`${API_BASE}/oauth/requests/:id`, () =>
+          HttpResponse.json({
+            data: {
+              id: '11111111-1111-4111-8111-111111111111',
+              client: { name: 'Example Assistant', host: 'chat.example.test', logoUri: null, kind: 'cimd', firstSeenAt: '2026-01-01T00:00:00.000Z', isNewToDeployment: false },
+              redirectHost: 'callback.example.test',
+              isLoopbackRedirect: false,
+              resource: { id: 'runs', name: 'Runs' },
+              scopes: [],
+              offlineAccess: false,
+              organizations: [],
+              expiresAt: '2099-01-01T00:00:00.000Z',
+            },
+          }),
+        ),
+      );
+      render(
+        <MemoryRouter initialEntries={['/oauth/consent?request=11111111-1111-4111-8111-111111111111']}>
+          <App />
+        </MemoryRouter>,
+      );
+      expect(await screen.findByText('chat.example.test', {}, { timeout: 5000 })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Allow' })).toBeInTheDocument();
+      // Outside the shell: no navigation chrome.
+      expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
+    });
+
+    it('renders the error page without signing in', async () => {
+      server.use(http.get(`${API_BASE}/auth/me`, () => HttpResponse.json({ message: 'Unauthorized' }, { status: 401 })));
+      render(
+        <MemoryRouter initialEntries={['/oauth/error?code=server_disabled']}>
+          <App />
+        </MemoryRouter>,
+      );
+      expect(
+        await screen.findByRole('heading', { name: 'Connecting apps is switched off' }, { timeout: 5000 }),
+      ).toBeInTheDocument();
+    });
   });
 });

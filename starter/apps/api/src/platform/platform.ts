@@ -19,6 +19,8 @@ import './storage.settings';
 // credential purposes, storage prefixes, notifications, onboarding steps...).
 // Before the first `forRoot()` below, and never from `onModuleInit`.
 import './slices/bootstrap';
+// EXAMPLE OAuth scopes and one protected resource over the notes routes; delete it with `oauthServer: {}` below.
+import './oauth-example';
 
 import { APP_NAME } from '@app/shared';
 import { Global, Module, type ModuleMetadata, type Provider } from '@nestjs/common';
@@ -116,7 +118,9 @@ export const PLATFORM_MODULES = [
   PlatformHostCoreModule.forRoot(),
   // Sign-in, sessions, tokens, users, the allowlist and organizations, plus
   // the guards and decorators every route uses (`@Auth()`, `@Public()`).
-  IdentityModule.forRoot({ imports: [AppHostModule], enableTestAuth: process.env.NODE_ENV !== 'production' }),
+  // `oauthServer: {}` mounts the OAuth server sub-slice (off at runtime until an administrator
+  // switches it on at /admin/settings/oauth-clients). Delete the line, and ./oauth-example.ts, to drop it.
+  IdentityModule.forRoot({ imports: [AppHostModule], oauthServer: {}, enableTestAuth: process.env.NODE_ENV !== 'production' }),
   // `/api/system-settings`, `/api/user-settings`, `/api/org-settings`.
   SettingsModule.forRoot({ imports: [AppHostModule] }),
   // The `nod_` worker-node credential family the identity guard accepts.

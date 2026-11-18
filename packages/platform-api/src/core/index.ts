@@ -20,6 +20,10 @@ export * from './pluggable/index';
 // end user can aim (a webhook) runs every resolved address through.
 export { isBlockedAddress, isBlockedIpv4, isBlockedIpv6 } from './net/ip-classify';
 
+// The egress guard and the pinned GET transport (issue #1046; moved here by PP-15.5,
+// #1183 so identity can fetch client metadata without depending on webhooks).
+export * from './egress/index';
+
 // The host ports (issue #696): the access port (`definePlatformHost`), the
 // DI-time ports (`AUDIT_SINK`, `SYSTEM_SETTINGS_STORE`, `PLATFORM_PRISMA`) and
 // `PlatformHostModule`, which binds them. Every packaged slice reuses them.
@@ -76,6 +80,7 @@ export type {
   CredentialKindDef,
   GroupMembership,
   NodePrincipal,
+  OAuthPrincipalInfo,
   OrgMembership,
   Principal,
   PrincipalKindDef,
@@ -145,6 +150,8 @@ export interface CredentialKinds {
   pat: true;
   /** A `nod_` worker-node credential. */
   node: true;
+  /** An `oat_` OAuth access token a user granted to a third-party client. */
+  oauth: true;
 }
 
 /**
@@ -157,7 +164,7 @@ export type PrincipalKind = keyof PrincipalKinds;
 
 /**
  * Every credential kind, built-in and augmented: `keyof CredentialKinds`. The
- * unaugmented type is exactly `'session' | 'device' | 'pat' | 'node'`. A run-time
+ * unaugmented type is exactly `'session' | 'device' | 'pat' | 'node' | 'oauth'`. A run-time
  * check (`isCredentialKind`, `requireCredentialKind`) is still needed for a
  * value that arrives as a string.
  *
@@ -181,6 +188,8 @@ export {
 } from './errors/error-codes';
 export type { ErrorCodeDef, ErrorMapper } from './errors/error-codes';
 export { withVerbatimErrorBody, hasVerbatimErrorBody } from './errors/verbatim-error-body.exception';
+export { withResponseHeaders, responseHeadersOf } from './errors/response-headers.exception';
+export type { ExceptionResponseHeaders } from './errors/response-headers.exception';
 export { DatabaseSeedException } from './errors/database-seed.exception';
 export { ErrorDto } from './errors/error.dto';
 
@@ -277,6 +286,8 @@ export type {
 // `{ data: … }` envelope response documentation.
 export { ALLOW_DURING_MAINTENANCE_KEY, AllowDuringMaintenance } from './maintenance/allow-during-maintenance.decorator';
 export { ApiDataResponse } from './openapi/api-data-response.decorator';
+// The `{ data }` envelope opt-out for endpoints whose body an external standard dictates (PP-15.4, #1182).
+export { RAW_RESPONSE_KEY, RAW_RESPONSE_OPENAPI_EXTENSION, RawResponse, isRawResponse } from './http/raw-response.decorator';
 export type { ApiDataResponseOptions, DataResponsePagination } from './openapi/api-data-response.decorator';
 
 // The PostgreSQL connection string from `POSTGRES_*` (issue #172; packaged by

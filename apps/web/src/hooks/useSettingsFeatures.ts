@@ -11,6 +11,8 @@
  *   - `ai` from `useAiFeatures()` (#425) and `telemetry` from
  *     `useTelemetryFeatures()` (#537): the platform's two keys, read where
  *     they always were;
+ *   - `oauthServer` from `useOAuthServerFeature()` (#1185: the OAuth server
+ *     answers its metadata document), the platform's third key;
  *   - `orgs` from `useOrgsFeature()` (#726: `/api/auth/me` reports
  *     `tenancyMode: 'multi'`): THIS APP's key, added to the open
  *     `SettingsFeatureRegistry` by module augmentation below.
@@ -25,7 +27,7 @@ import {
 } from '@marinoscar/platform-web/settings/headless';
 import type { SettingsFeatures } from '@marinoscar/platform-web/settings/headless';
 import { useAiFeatures } from '@marinoscar/platform-web/ai/headless';
-import { useOrgsFeature } from '@marinoscar/platform-web/identity/headless';
+import { useOAuthServerFeature, useOrgsFeature } from '@marinoscar/platform-web/identity/headless';
 
 declare module '@marinoscar/platform-web/settings/headless' {
   interface SettingsFeatureRegistry {
@@ -37,11 +39,15 @@ declare module '@marinoscar/platform-web/settings/headless' {
 registerSettingsFeature('ai', () => useAiFeatures().ai);
 registerSettingsFeature('telemetry', () => useTelemetryFeatures().telemetry);
 registerSettingsFeature('orgs', useOrgsFeature);
+// #1185: the platform's `oauthServer` key, read from the shell's
+// `OAuthServerStatusProvider` (`platform/shellProviders.tsx`).
+registerSettingsFeature('oauthServer', useOAuthServerFeature);
 
 export interface SettingsFeatureFlags extends SettingsFeatures {
   ai: boolean;
   telemetry: boolean;
   orgs: boolean;
+  oauthServer: boolean;
 }
 
 export function useSettingsFeatures(): SettingsFeatureFlags {

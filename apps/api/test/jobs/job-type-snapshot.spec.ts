@@ -48,6 +48,10 @@ const REGISTERED_JOB_TYPES: Readonly<Record<string, string>> = {
   'storage.migrate_object': 'Storage migration (copy object)',
   'auth.token.cleanup': 'Token cleanup',
   'device-auth.code.cleanup': 'Device code cleanup',
+  // The OAuth server's client identity (#1183, PP-15.5): server-only, permanent.
+  'oauth.client.cleanup': 'OAuth client cleanup',
+  // The OAuth server's hourly token housekeeping (#1186, PP-15.8): server-only, permanent.
+  'oauth.token.cleanup': 'OAuth token cleanup',
   'nodes.fleet.sweep': 'Fleet sweep',
   'nodes.fleet.prune': 'Fleet prune',
   'nodes.node_events_purge': 'Node events purge',

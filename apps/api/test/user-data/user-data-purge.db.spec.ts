@@ -111,6 +111,47 @@ describeWithDb('user.data.purge (real Postgres, RLS on)', () => {
     expect((await ownedCounts(db, me.userId)).StorageObject).toBe(0);
   });
 
+  it('deletes the user\'s OAuth consents and pending authorization requests (user_id has no foreign key), and keeps the client and other users\' rows (PP-15.4)', async () => {
+    const me = await seedRichUser(db, 'oauth-me@example.test', [ORG_A]);
+    const other = await seedRichUser(db, 'oauth-other@example.test', [ORG_A]);
+    const seeded = await sys(db, async (tx) => {
+      const oauthClient = await tx.oAuthClient.create({
+        data: { clientId: 'oc_purge_test', kind: 'registered', name: 'Client Alpha', redirectUris: ['https://client.example.test/cb'], tokenEndpointAuthMethod: 'none', host: 'client.example.test' },
+      });
+      const request = (userId: string | null) => ({
+        clientId: oauthClient.id,
+        redirectUri: 'https://client.example.test/cb',
+        scope: 'a:read',
+        resource: 'https://app.example.test/api/x',
+        codeChallenge: 'c'.repeat(43),
+        codeChallengeMethod: 'S256',
+        userId,
+        expiresAt: new Date(Date.now() + 600_000),
+      });
+      await tx.oAuthAuthorizationRequest.create({ data: request(me.userId) });
+      await tx.oAuthAuthorizationRequest.create({ data: request(me.userId) });
+      await tx.oAuthAuthorizationRequest.create({ data: request(other.userId) });
+      await tx.oAuthAuthorizationRequest.create({ data: request(null) });
+      const grant = await tx.oAuthGrant.create({ data: { userId: me.userId, orgId: ORG_A, clientId: oauthClient.id, resource: 'https://app.example.test/api/x', scopes: ['a:read'] } });
+      await tx.oAuthToken.create({ data: { kind: 'access', tokenHash: 'h'.repeat(64), tokenPrefix: 'abcdefgh', grantId: grant.id, scopes: ['a:read'], expiresAt: new Date(Date.now() + 600_000) } });
+      return oauthClient.id;
+    });
+    const job = await runningJob(db, 'user.data.purge', { userId: me.userId, scope: 'everything' }, { type: 'user', id: me.userId });
+
+    const result = await svc.runner.runJob(job, { userId: me.userId, scope: 'everything' });
+
+    const left = await sys(db, async (tx) => ({
+      myRequests: await tx.oAuthAuthorizationRequest.count({ where: { userId: me.userId } }),
+      otherRequests: await tx.oAuthAuthorizationRequest.count({ where: { userId: other.userId } }),
+      unbound: await tx.oAuthAuthorizationRequest.count({ where: { clientId: seeded, userId: null } }),
+      myGrants: await tx.oAuthGrant.count({ where: { userId: me.userId } }),
+      tokens: await tx.oAuthToken.count({ where: { tokenHash: 'h'.repeat(64) } }),
+      client: await tx.oAuthClient.count({ where: { id: seeded } }),
+    }));
+    expect(left).toEqual({ myRequests: 0, otherRequests: 1, unbound: 1, myGrants: 0, tokens: 0, client: 1 });
+    expect(result.models).toMatchObject({ OAuthAuthorizationRequest: 2, OAuthGrant: 1 });
+  });
+
   it('dedups a second request onto the purge in flight', async () => {
     const me = await seedRichUser(db, 'dedup@example.test', [ORG_A]);
     const input = { type: 'user.data.purge', reason: 'rerun' as const, subjectType: 'user', subjectId: me.userId, payload: { userId: me.userId, scope: 'everything' }, orgId: null };

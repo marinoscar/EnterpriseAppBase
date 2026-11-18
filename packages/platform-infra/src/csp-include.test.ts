@@ -77,6 +77,22 @@ describe.each([
     expect(map![0]).toContain('*.conf');
   });
 
+  it('derives the never-framed pages from the policy: DENY and frame-ancestors none, no copy of it', () => {
+    expect(conf).toMatch(/map \$uri \$frame_deny \{\s*default 0;\s*~\^\/oauth\/\(consent\|error\)\(\/\|\$\) 1;\s*\}/);
+    expect(conf).toMatch(/map \$frame_deny \$x_frame_options \{\s*default SAMEORIGIN;\s*1 DENY;\s*\}/);
+    // $csp_header rewrites ONLY frame-ancestors of $csp_policy; every other character is kept.
+    expect(conf).toContain('map "$frame_deny|$csp_policy" $csp_header');
+    expect(conf).toContain("${csp_head}frame-ancestors 'none'${csp_tail}");
+    expect((conf.match(/frame-ancestors 'none'/g) ?? []).length).toBe(1);
+  });
+
+  it('sends the derived X-Frame-Options and Content-Security-Policy from security-headers.conf', () => {
+    const headers = readFileSync(join(NGINX, 'platform', 'security-headers.conf'), 'utf8');
+    expect(headers).toMatch(/^add_header X-Frame-Options \$x_frame_options always;$/m);
+    expect(headers).toMatch(/^add_header Content-Security-Policy \$csp_header always;$/m);
+    expect(headers).not.toMatch(/^add_header Content-Security-Policy \$csp_policy/m);
+  });
+
   it('keeps the csp_policy map last, defaulting nothing else', () => {
     expect(conf.trimEnd().endsWith('}')).toBe(true);
     expect(conf.lastIndexOf('map $uri $csp_policy')).toBeGreaterThan(conf.lastIndexOf('map $uri $csp_extra'));

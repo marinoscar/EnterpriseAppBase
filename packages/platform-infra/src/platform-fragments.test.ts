@@ -73,6 +73,7 @@ describe('syncInfra() with the compose, nginx and env fragments', () => {
       ['infra/nginx/nginx.conf', 'nginx/nginx.conf'],
       ['infra/nginx/platform/sse-proxy.conf', 'nginx/platform/sse-proxy.conf'],
       ['infra/nginx/platform/android-app.conf', 'nginx/platform/android-app.conf'],
+      ['infra/nginx/platform/oauth-server.conf', 'nginx/platform/oauth-server.conf'],
       ['infra/compose/prod.compose.yml', 'compose/prod.compose.yml'],
     ] as const) {
       expect(splitGenerated(read(to)).body, to).toBe(packageFile(from));

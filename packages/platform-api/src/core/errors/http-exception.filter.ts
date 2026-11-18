@@ -14,6 +14,7 @@ import {
   isErrorCodeForStatus,
   type ErrorMapper,
 } from './error-codes';
+import { responseHeadersOf } from './response-headers.exception';
 import { hasVerbatimErrorBody } from './verbatim-error-body.exception';
 
 /**
@@ -122,6 +123,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       const exceptionResponse = exception.getResponse();
+
+      // Headers the exception asked for (`withResponseHeaders`: the OAuth
+      // `WWW-Authenticate` challenge), set before any body shape is chosen.
+      for (const [name, value] of Object.entries(responseHeadersOf(exception, request))) {
+        response.header(name, value);
+      }
 
       // ---------------------------------------------------------------------
       // Verbatim bodies (#153) — checked FIRST, and returns immediately.

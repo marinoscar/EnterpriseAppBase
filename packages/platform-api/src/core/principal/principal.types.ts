@@ -46,6 +46,9 @@ export type TenancyMode = 'single' | 'multi';
  *   minted it.
  * - `'pat'`: a `pat_` personal access token.
  * - `'node'`: a `nod_` worker-node credential, confined to `/api/nodes`.
+ * - `'oauth'`: an `oat_` access token a user granted to a third-party client,
+ *   confined to the routes of one protected resource and narrowed to the
+ *   permissions of its scopes.
  *
  * Small and closed, so unlike an org id it is safe as a metric label. This is
  * the PLATFORM's closed list; the open vocabulary an app extends is
@@ -62,7 +65,8 @@ export type BuiltinCredentialKind =
   | 'session'
   | 'device'
   | 'pat'
-  | 'node';
+  | 'node'
+  | 'oauth';
 
 /**
  * Discriminant of {@link Principal}: a human user (directly or through a
@@ -175,7 +179,30 @@ interface PrincipalBase {
  */
 export interface UserPrincipal extends PrincipalBase {
   readonly kind: 'user';
-  readonly credential: 'session' | 'device' | 'pat';
+  readonly credential: 'session' | 'device' | 'pat' | 'oauth';
+  /**
+   * Present only when `credential` is `'oauth'`: which client, grant and
+   * resource the token belongs to and the scopes it carries. NON-ENUMERABLE
+   * request metadata (like a log line or a JSON body never sees it); read it
+   * with `@OAuthGrant()`. `permissions` is already narrowed to the scopes.
+   */
+  readonly oauth?: OAuthPrincipalInfo;
+}
+
+/**
+ * What an OAuth-authenticated principal carries beyond the common fields.
+ *
+ * @stability experimental
+ */
+export interface OAuthPrincipalInfo {
+  /** The `oauth_clients.id` the token was issued to. */
+  readonly clientId: string;
+  /** The `oauth_grants.id` (the consent) behind the token. */
+  readonly grantId: string;
+  /** The protected resource's registered id (audience). */
+  readonly resourceId: string;
+  /** The scope ids the token carries. */
+  readonly scopes: readonly string[];
 }
 
 /**

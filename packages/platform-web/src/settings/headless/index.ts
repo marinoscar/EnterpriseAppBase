@@ -37,7 +37,7 @@ export type { UseOrgSettingsResult } from './use-org-settings.js';
 
 /**
  * The known deployment feature keys, as an augmentation target. The platform
- * declares `ai` and `telemetry`; an app adds a key with module augmentation
+ * declares `ai`, `telemetry` and `oauthServer`; an app adds a key with module augmentation
  * and registers its resolver with {@link registerSettingsFeature}.
  *
  * @example
@@ -55,4 +55,11 @@ export interface SettingsFeatureRegistry {
   ai: true;
   /** A telemetry store is deployed and collection is on. */
   telemetry: true;
+  /**
+   * The deployment's OAuth server is on (PP-15.7): the identity slice's
+   * `Connected apps` card. Resolved by `useOAuthServerFeature` of
+   * `@marinoscar/platform-web/identity/headless` under its
+   * `OAuthServerStatusProvider`.
+   */
+  oauthServer: true;
 }

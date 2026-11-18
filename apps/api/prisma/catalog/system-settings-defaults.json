@@ -136,5 +136,18 @@
       "enabled": true,
       "days": 90
     }
+  },
+  "oauthServer": {
+    "enabled": false,
+    "accessTokenTtlMinutes": 60,
+    "refreshTokenTtlDays": 30,
+    "refreshTokenMaxAgeDays": 180,
+    "alwaysIssueRefreshToken": true,
+    "clientIdMetadataDocuments": true,
+    "dynamicClientRegistration": true,
+    "allowedClientHosts": [],
+    "allowAnyClientHost": false,
+    "allowLoopbackClients": true,
+    "dynamicClientUnusedDays": 7
   }
 }

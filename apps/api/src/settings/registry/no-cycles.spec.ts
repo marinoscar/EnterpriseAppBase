@@ -14,7 +14,7 @@
 // needs instead; see the import-cycle rule at the top of `composed.ts`.
 // =============================================================================
 
-const SYSTEM_KEYS = ['notifications', 'jobs', 'nodes', 'databaseBackup', 'maintenance', 'storage', 'ai', 'telemetry', 'retention'];
+const SYSTEM_KEYS = ['notifications', 'jobs', 'nodes', 'databaseBackup', 'maintenance', 'storage', 'ai', 'telemetry', 'retention', 'oauthServer'];
 const USER_KEYS = ['dataTables', 'navigation', 'notifications', 'ai', 'onboarding'];
 
 type Exports = Record<string, unknown>;

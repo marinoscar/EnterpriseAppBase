@@ -7,7 +7,11 @@
 // organization, and checks the registered preconditions before it enqueues.
 // Steps, each idempotent, counts committed with their rows:
 //
-//   1. Pending jobs of the organization (`jobs.org_id`), except this one;
+//   1. Pending jobs of the organization (`jobs.org_id`), except this one, and
+//      the organization's OAuth grants: revoked (`offboarding`) with every token
+//      of them FIRST, so a third-party client loses access at once instead of
+//      when the slow steps below reach the membership or the organization row
+//      (the organization's cascade would delete the grants later);
 //   2. The members left without any other membership are recorded in the
 //      payload (once: a retry must not lose them when step 4 removed the
 //      memberships);
@@ -134,6 +138,19 @@ export class OrgOffboardHandler implements JobHandler, OnModuleInit {
       await inTx(async (tx) => {
         const { count } = await tx.job.deleteMany({ where: { orgId, status: 'pending', id: { not: job.id } } });
         await commit(tx, { jobs: count });
+      });
+
+      // 1b. OAuth grants acting in the organization: revoked, then (with the organization) cascaded away.
+      // A schema without the OAuth server has no such delegate. Idempotent: a revoked grant is left alone.
+      await inTx(async (tx) => {
+        if (!tx.oAuthGrant) return;
+        const now = new Date();
+        const grants: { id: string }[] = await tx.oAuthGrant.findMany({ where: { orgId, revokedAt: null }, select: { id: true } });
+        if (grants.length === 0) return;
+        const ids = grants.map((grant) => grant.id);
+        await tx.oAuthGrant.updateMany({ where: { id: { in: ids }, revokedAt: null }, data: { revokedAt: now, revokedReason: 'offboarding' } });
+        await tx.oAuthToken.updateMany({ where: { grantId: { in: ids }, revokedAt: null }, data: { revokedAt: now } });
+        await commit(tx, { oauthGrantsRevoked: ids.length });
       });
 
       // 2. Members left with no other membership (recorded once).

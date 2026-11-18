@@ -27,6 +27,8 @@
 //     those declares a JSON schema, so skipping schemaless responses is exactly
 //     the right filter and needs no allowlist.
 //   * Schemas that already carry a `data` property, resolved through `$ref`.
+//   * Operations stamped `x-raw-response` (`@RawResponse()`, the OAuth token and
+//     metadata endpoints): the interceptor does not envelope them either.
 //   * Attachments: a response that declares a `Content-Disposition` header is
 //     a file the handler writes itself with `@Res()` (bypassing the
 //     interceptor), even when the file is JSON. The Doctor's support bundle
@@ -55,6 +57,8 @@ export function applyDataEnvelope(document: MutableDocument): MutableDocument {
     {}) as Record<string, SchemaLike>;
 
   forEachOperation(document, (operation) => {
+    // `@RawResponse()` (PP-15.4): the body is the protocol's, never enveloped.
+    if (operation['x-raw-response'] === true) return;
     for (const [status, response] of Object.entries(operation.responses ?? {})) {
       if (!/^2\d\d$/.test(status)) continue;
 

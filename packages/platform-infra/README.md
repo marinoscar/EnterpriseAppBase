@@ -8,7 +8,7 @@ What the package owns:
 
 - the Compose files `base`, `dev`, `devdb`, `prod`, `vps` (with the stack agent), `worker`, `worker.build` and `test`, and the order Compose applies them in per mode (`composeFilesForMode()`, `dev`, `devdb`, `prod`, `vps`, `worker` and `test`, plus the modes an app adds with `registerComposeMode`), with the app's overlays last;
 - `postgres-init/10-application-role.sh`, the executable init script `devdb` and `test` mount at `/docker-entrypoint-initdb.d`: it creates the ordinary (`NOSUPERUSER NOBYPASSRLS`) role the API runs as, so row-level security applies to it;
-- `nginx.conf` with its include points (`app.d/http`, `server`, `locations`, `csp` and the Permissions-Policy file), the two CSP maps and the `platform/` snippets (`security-headers.conf`, `sse-proxy.conf`);
+- `nginx.conf` with its include points (`app.d/http`, `server`, `locations`, `csp` and the Permissions-Policy file), the two CSP maps (`csp.conf`, `csp.dev.conf`; they also derive `$frame_deny`, `$x_frame_options` and `$csp_header`, so `/oauth/consent` and `/oauth/error` answer `X-Frame-Options: DENY` and `frame-ancestors 'none'` with the rest of the policy unchanged) and the `platform/` snippets (`security-headers.conf`, which sends `X-Frame-Options $x_frame_options` and `Content-Security-Policy $csp_header`, and `sse-proxy.conf`);
 - the platform's environment variables (`env/base.env.example`) and the worker's (`env/worker.env.example`);
 - identity rendering: the app's CLI name, env prefix, service name, worker image and test database names written into those files (`deriveInfraIdentity()`, `renderInfraText()`);
 - the `platform-infra sync` command and its lock;
@@ -220,6 +220,8 @@ The package's own invariants also run as its tests (`docker compose config` snap
 ## Upgrade notes
 
 From the files an app copied by hand (before #714): run `npx platform-infra sync`, then move every difference from the generated files into an overlay: extra compose settings into `infra/compose/app.*.compose.yml`, nginx locations into `infra/nginx/app.d/locations/` (SSE routes through `platform/sse-proxy.conf`), the `Permissions-Policy` into `infra/nginx/app.d/permissions-policy.conf`, app variables into `infra/compose/app.env.example`. After a rename (`scripts/rename.mjs`), run the sync again: it re-renders the identity and rewrites the lock.
+
+From a version before `$frame_deny` (the OAuth consent and error pages never framed): run `npm run platform:infra:sync` (`platform-infra sync`), then recreate nginx. `csp.conf`, `csp.dev.conf` and `platform/security-headers.conf` change together; an app that overrides one of them must take all three.
 
 ## Troubleshooting
 

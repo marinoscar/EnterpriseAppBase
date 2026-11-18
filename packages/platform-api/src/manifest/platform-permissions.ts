@@ -19,7 +19,7 @@ import type { PermissionDeclarationMap, RoleDeclarationMap } from '../core/index
 import { AI_PERMISSIONS } from '../ai/index';
 import { ALERTS_PERMISSIONS } from '../alerts/index';
 import { DB_BACKUP_PERMISSIONS } from '../db-backup/index';
-import { ALLOWLIST_PERMISSIONS, IDENTITY_ROLES, ORGANIZATIONS_PERMISSIONS, USERS_PERMISSIONS } from '../identity/index';
+import { ALLOWLIST_PERMISSIONS, IDENTITY_ROLES, OAUTH_CLIENTS_PERMISSIONS, ORGANIZATIONS_PERMISSIONS, USERS_PERMISSIONS } from '../identity/index';
 import { JOBS_PERMISSIONS } from '../jobs/index';
 import { NODES_PERMISSIONS } from '../nodes/index';
 import { BROADCASTS_PERMISSIONS, ORG_BROADCASTS_PERMISSIONS, PUSH_PERMISSIONS } from '../notifications/index';
@@ -128,6 +128,8 @@ export const PLATFORM_PERMISSION_SETS: readonly PlatformPermissionSet[] = Object
   { slice: 'webhooks', name: 'SYSTEM_WEBHOOKS_PERMISSIONS', permissions: SYSTEM_WEBHOOKS_PERMISSIONS },
   // #1047: the alerts slice's two system permissions.
   { slice: 'alerts', name: 'ALERTS_PERMISSIONS', permissions: ALERTS_PERMISSIONS },
+  // PP-15.5 (#1183): the OAuth server's two Admin-only system permissions, appended last.
+  { slice: 'identity', name: 'OAUTH_CLIENTS_PERMISSIONS', permissions: OAUTH_CLIENTS_PERMISSIONS },
 ] satisfies PlatformPermissionSet[]);
 
 /**
@@ -157,7 +159,8 @@ export const PLATFORM_PERMISSIONS: typeof SETTINGS_PERMISSIONS &
   typeof WEBHOOKS_PERMISSIONS &
   typeof ORG_WEBHOOKS_PERMISSIONS &
   typeof SYSTEM_WEBHOOKS_PERMISSIONS &
-  typeof ALERTS_PERMISSIONS = Object.freeze({
+  typeof ALERTS_PERMISSIONS &
+  typeof OAUTH_CLIENTS_PERMISSIONS = Object.freeze({
   ...SETTINGS_PERMISSIONS,
   ...USERS_PERMISSIONS,
   ...ALLOWLIST_PERMISSIONS,
@@ -179,4 +182,5 @@ export const PLATFORM_PERMISSIONS: typeof SETTINGS_PERMISSIONS &
   ...ORG_WEBHOOKS_PERMISSIONS,
   ...SYSTEM_WEBHOOKS_PERMISSIONS,
   ...ALERTS_PERMISSIONS,
+  ...OAUTH_CLIENTS_PERMISSIONS,
 });

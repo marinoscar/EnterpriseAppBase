@@ -1,8 +1,8 @@
 # OAuth server
 
-> **Status:** Planned (PP-15) · **Code:** `packages/platform-api/src/identity/oauth-server/` (API), `packages/platform-web/src/identity/ui/oauth/` (web), `packages/platform-contract/src/identity/` (wire shapes), `packages/platform-db/schema/oauth.prisma` (schema), `packages/platform-infra/nginx/platform/oauth-server.conf` (nginx), all to be created · **API:** `/api/oauth/*`, `/api/admin/oauth/*`, `/.well-known/oauth-*` (see `/api/docs` once built) · **Admin UI:** `/admin/settings/oauth-clients`; user UI `/settings/connected-apps`; consent `/oauth/consent` · **Decision:** [ADR 0003](../adr/0003-oauth-authorization-server.md) · **Runbook:** planned, `docs/runbooks/oauth-server.md` · **Recipe:** [§4](#4-extending-it-in-a-fork)
+> **Status:** Shipped (PP-15) · **Code:** `packages/platform-api/src/identity/oauth-server/` (API), `packages/platform-web/src/identity/ui/oauth/` (web), `packages/platform-contract/src/identity/oauth.ts` (wire shapes), `packages/platform-db/schema/oauth.prisma` (schema), `packages/platform-infra/nginx/platform/oauth-server.conf` (nginx) · **API:** `/api/oauth/*`, `/api/admin/oauth/*`, `/.well-known/oauth-*` (see `/api/docs`) · **Admin UI:** `/admin/settings/oauth-clients`; user UI `/settings/connected-apps`; consent `/oauth/consent` · **Decision:** [ADR 0003](../adr/0003-oauth-authorization-server.md) · **Runbook:** [oauth-server.md](../runbooks/oauth-server.md) · **Recipe:** [§4](#4-extending-it-in-a-fork)
 
-The identity slice becomes an OAuth 2.1 authorization server and resource server. A third-party client that a user does not control (a hosted AI assistant, an MCP client, another product's integration) sends the user to a consent page in this app. The user approves what the client may do. The client receives a short-lived, scoped, audience-bound, revocable token. This document is the contract the implementation follows. Nothing in it exists yet.
+The identity slice is an OAuth 2.1 authorization server and resource server. A third-party client that a user does not control (a hosted AI assistant, an MCP client, another product's integration) sends the user to a consent page in this app. The user approves what the client may do. The client receives a short-lived, scoped, audience-bound, revocable token. An app mounts the sub-slice with `IdentityModule.forRoot({ oauthServer: {} })`; it ships off until an administrator enables it at runtime.
 
 ## 1. Purpose
 
@@ -85,7 +85,7 @@ sequenceDiagram
     participant W as Web app /oauth/consent
     C->>B: open /api/oauth/authorize?response_type=code&client_id&redirect_uri&code_challenge&resource&state
     B->>API: GET /api/oauth/authorize
-    API->>API: validate (section 2.6), CIMD fetch if needed
+    API->>API: validate (section 2.10), CIMD fetch if needed
     API-->>B: 302 https://app.example.test/oauth/consent?request=ID
     B->>W: GET /oauth/consent?request=ID
     alt not signed in
@@ -186,7 +186,7 @@ sequenceDiagram
 
 ### 2.8 Endpoints
 
-All protocol endpoints use RFC wire formats. They are not wrapped in the `{ data }` envelope and their errors are not the platform error body. The consent API, grants API and admin API are ordinary platform routes: `{ data }` envelope and standard error body.
+All protocol endpoints use RFC wire formats. They are marked `@RawResponse()` ([core README](../../packages/platform-api/src/core/README.md)): the `{ data }` envelope is not applied, the OpenAPI document carries `x-raw-response: true` on them, and their errors are `{ "error", "error_description" }` (`OAuthProtocolExceptionFilter`), not the platform error body. The consent API, grants API and admin API are ordinary platform routes: `{ data }` envelope and standard error body.
 
 | Endpoint | Method and path | Auth | Content type |
 |---|---|---|---|
@@ -213,7 +213,7 @@ Request (query): `response_type` (`code`), `client_id`, `redirect_uri`, `scope` 
 
 Success: `302` to `${APP_URL}/oauth/consent?request=<id>`. Nothing else is put in that URL.
 
-Errors: the ordered list in [§2.10](#210-validation-at-authorize). A user-facing error is a `302` to `${APP_URL}/oauth/error?code=<code>`. A client-facing error is a `302` to `redirect_uri` with `error`, `error_description`, `state` and `iss`. This route answers while the server is disabled with the error page `server_disabled`, because a person is looking at it.
+Errors: the ordered list in [§2.10](#210-validation-at-authorize). A user-facing error is a `302` to `${APP_URL}/oauth/error?code=<code>`; `client_not_allowed` adds `&host=<host>` (URL-encoded) so an administrator knows which host to allow. A client-facing error is a `302` to `redirect_uri` with `error`, `error_description`, `state` and `iss`. This route answers while the server is disabled with the error page `server_disabled`, because a person is looking at it.
 
 #### `GET /api/oauth/requests/:id`
 
@@ -221,10 +221,11 @@ Auth: session credential only. Binds the request to the caller on first read (`u
 
 | Field | Meaning |
 |---|---|
-| `client` | `{ name, host, logoUri, kind, firstSeenAt }` |
+| `client` | `{ name, host, logoUri, kind, firstSeenAt, isNewToDeployment }`. `isNewToDeployment` is `true` when the client was first seen less than 24 hours ago, or when no OTHER user holds an active grant with it (the consent page says so) |
 | `redirectHost`, `isLoopbackRedirect` | Where the user goes after deciding |
 | `resource` | `{ id, name }` |
-| `scopes` | Requested scopes as `{ id, title, description, risk, grantable, required, alreadyGranted }`. `grantable` is false when the user lacks every permission the scope maps to. `required` marks the resource's default scopes the user cannot untick |
+| `scopes` | Requested scopes as `{ id, title, description, risk, grantable, required, alreadyGranted }`; `offline_access` is not listed here. `grantable` is false when the user lacks every permission the scope maps to. `required` marks the resource's default scopes the user cannot untick |
+| `offlineAccess` | `true` when the client asked to stay connected (`offline_access` was requested); the page shows it as a line, not a tickable scope |
 | `organizations` | The user's active memberships the grant may act in (`multi` tenancy), with the default |
 | `expiresAt` | End of the 10-minute window |
 
@@ -255,7 +256,7 @@ Request (form body): see [§2.11](#211-validation-at-token). Success `200`, `Cac
 }
 ```
 
-`refresh_token` is present when the scopes include `offline_access` or `alwaysIssueRefreshToken` is on. Errors (RFC 6749 JSON, `{ "error", "error_description" }`): `400 invalid_request` (not a form body, a missing parameter, body over 16 KiB), `401 invalid_client` (with `WWW-Authenticate: Basic`), `400 invalid_grant`, `400 unsupported_grant_type`, `400 invalid_scope`, `429` ([§3](#3-configuration-and-permissions)). Browser clients may call it cross-origin (`Access-Control-Allow-Origin: *`, no credentials, `OPTIONS` answered).
+`refresh_token` is present when the scopes include `offline_access` or `alwaysIssueRefreshToken` is on. Errors (RFC 6749 JSON, `{ "error", "error_description" }`): `400 invalid_request` (not a form body, a missing parameter, body over 16 KiB), `401 invalid_client` (with `WWW-Authenticate: Basic`), `400 unauthorized_client` (the trust policy no longer admits the client's host, [§2.15](#215-client-identity-and-trust)), `400 invalid_grant`, `400 unsupported_grant_type`, `400 invalid_scope`, `429` ([§3](#3-configuration-and-permissions)). The form-only rule is enforced twice: a global `onRequest` hook (`installOAuthBodyGuard`) looks only at `POST /api/oauth/token` and `POST /api/oauth/revoke` and answers `400 invalid_request` before the body is read when the content type is not `application/x-www-form-urlencoded` or the declared length exceeds 16 KiB, and the handler checks the content type again. Every other route keeps the framework's body handling. Browser clients may call it cross-origin (`Access-Control-Allow-Origin: *`, no credentials, `OPTIONS` answered).
 
 #### `POST /api/oauth/register`
 
@@ -263,15 +264,22 @@ Request (JSON), RFC 7591 fields: `redirect_uris` (required), `client_name`, `cli
 
 Success `201`: `client_id` (`oc_...`), `client_secret` (once, confidential clients only), `client_id_issued_at`, `client_secret_expires_at: 0` and the stored metadata. A public client that registers again with exactly the same `redirect_uris`, `client_name` and host as an existing dynamic public client gets that client back, so hosted clients that register on every connection do not grow the table.
 
-Errors (RFC 7591 JSON): `400 invalid_redirect_uri`, `400 invalid_client_metadata`, `403 invalid_client_metadata` with `error_description` "host is not allowed on this deployment", `404` while DCR is off or the server is disabled, `429` with `Retry-After`.
+A `application_type` left out defaults to `native` when every redirect URI is loopback, else `web`. Errors (RFC 7591 JSON): `400 invalid_redirect_uri`, `400 invalid_client_metadata` (also for a body that is not `application/json`), `403 invalid_client_metadata` with `error_description` "The client host is not allowed on this deployment.", `404` while DCR is off or the server is disabled, `429` with `Retry-After`.
 
 #### `POST /api/oauth/revoke`
 
-Request (form): `token`, `token_type_hint` (optional), client authentication as for `/token`. Revoking a refresh token revokes its grant. Revoking an access token revokes that token. Success: always `200` with an empty body, including for an unknown token (RFC 7009). Errors: `401 invalid_client` for a confidential client that fails authentication; `429`.
+Request (form): `token`, `token_type_hint` (optional), client authentication as for `/token`. Revoking a refresh token revokes its grant. Revoking an access token revokes that token. Success: always `200` with an empty body, including for an unknown token (RFC 7009). Errors: `401 invalid_client` for a confidential client that fails authentication; `429`. Unlike `/token`, `/revoke` does not apply the host trust policy: a client removed from the allowlist can still revoke.
 
 #### `GET /api/oauth/grants` and `DELETE /api/oauth/grants/:id`
 
 `GET` returns the caller's active grants: id, client `{ name, host, logoUri }`, resource name, scopes with titles, `createdAt`, `lastUsedAt`, organization. Never a token. `DELETE` revokes one grant (`revoked_reason: user`), audits it and emits `identity.oauth.grant.revoked`; success `204`. Errors: `401`; `403` for an `oauth` credential; `404` for an id that is not the caller's.
+
+#### `GET /api/admin/oauth/refused-hosts` and `GET /api/admin/oauth/policy`
+
+Both are served by `OAuthAdminHintsController` (`packages/platform-api/src/identity/oauth-server/clients/oauth-clients-admin.controller.ts`), require `oauth_clients:read` and answer in the `{ data }` envelope.
+
+- `refused-hosts` returns `[{ host, count, lastSeenAt }]`: the client hosts turned away in the last 30 days, read from the `oauth:client.refused` audit rows (no extra table), newest first, at most 100 hosts. `count` is the number of audit rows for the host, which is at most one per host per hour. The admin page offers "Allow this host" from it.
+- `policy` returns `{ suggestedHosts }`: the app's `IdentityModule.forRoot({ oauthServer: { defaultAllowedClientHosts } })`. The admin page offers them with "Add". The page's `suggestedHosts` prop wins; without it the page uses this route.
 
 #### `/api/admin/oauth/clients`
 
@@ -354,7 +362,7 @@ From check 4 on, a redirect carries `error`, `error_description`, `state` (when 
 
 ### 2.11 Validation at token
 
-Body limit 16 KiB. A JSON body is `400 invalid_request`. The client is authenticated first: `none` (public, `client_id` in the body), `client_secret_post` or `client_secret_basic`, as the client's `token_endpoint_auth_method` says. A confidential client that fails is `401 invalid_client`.
+Body limit 16 KiB. A JSON body is `400 invalid_request`. The client is authenticated first: `none` (public, `client_id` in the body), `client_secret_post` or `client_secret_basic`, as the client's `token_endpoint_auth_method` says. A confidential client that fails is `401 invalid_client`. Then the host trust policy runs on the stored client (no fetch): a client the policy no longer admits is `400 unauthorized_client`.
 
 `grant_type=authorization_code` (`code`, `redirect_uri`, `code_verifier`, `client_id`, `resource` optional):
 
@@ -373,9 +381,9 @@ Body limit 16 KiB. A JSON body is `400 invalid_request`. The client is authentic
 | 1 | The token exists, is not expired, belongs to this client, its grant is not revoked, its client is not disabled | `invalid_grant` (exactly this code: clients treat it as "reconnect") |
 | 2 | The token is not rotated; if it is, outside the 10-second grace window | The grant and every token of it are revoked (`reuse_detected`), audit `oauth:token.reuse_detected`, `invalid_grant` |
 | 3 | `scope`, when sent, is a subset of the token's scopes | `invalid_scope` |
-| 4 | One transaction: rotate, insert the new refresh token and access token | none |
+| 4 | One transaction: rotate, insert the new refresh token and access token. A narrower `scope` narrows only the new access token; the new refresh token keeps the grant's full scope, so a client may narrow one access token and widen the next | none |
 
-Any other `grant_type` is `unsupported_grant_type`. The token endpoint makes no outbound call and at most 6 queries, because hosted clients abandon token calls after 10 seconds.
+A missing `grant_type` is `invalid_request`; any other value is `unsupported_grant_type`. The token endpoint makes no outbound call and runs five data statements on each hot path (the client row, the code or refresh token, its grant, then in one transaction the conditional update that consumes or rotates and one insert of both tokens; `BEGIN` and `COMMIT` are not counted), because hosted clients abandon token calls after 10 seconds. `oauth-authorization-server.db.spec.ts` pins the count.
 
 ### 2.12 Redirect URI matching
 
@@ -421,9 +429,9 @@ A deployment decides which clients may exist at all. The default is closed.
 
 **Host of a client.** The host of the `client_id` URL (CIMD). For DCR and pre-registered clients: the one host shared by all non-loopback redirect URIs (mixed hosts are refused at registration), or `loopback` when every redirect URI is loopback.
 
-**Admission rule.** Admit when the client is `registered` (an administrator made it), or `allowAnyClientHost` is on, or the host is in `allowedClientHosts`, or the host is `loopback` and `allowLoopbackClients` is on. A CIMD client also needs every non-loopback redirect URI on the `client_id` host or on a host in `allowedClientHosts`. A refusal shows the error page `client_not_allowed` with the host, and writes `oauth:client.refused` to the audit log, at most one row per host per hour. The admin page lists refused hosts from those rows and offers "Allow this host".
+**Admission rule.** Admit when the client is `registered` (an administrator made it), or `allowAnyClientHost` is on, or the host is in `allowedClientHosts`, or the host is `loopback` and `allowLoopbackClients` is on. A CIMD client also needs every non-loopback redirect URI on the `client_id` host or on a host in `allowedClientHosts`. The policy (`evaluateClientTrust`, `ClientTrustPolicy`) runs at `/authorize`, at registration and at `/token` (stored data only, no fetch), so a host removed from the allowlist stops refreshing; `/revoke` is not gated. A refusal at `/authorize` shows the error page `client_not_allowed&host=<host>` and writes `oauth:client.refused` to the audit log, at most one row per host per hour. The admin page lists refused hosts from those rows and offers "Allow this host".
 
-**CIMD.** A `client_id` is a CIMD URL when it is an `https:` URL with a path, no fragment, no userinfo and no dot segments. Anything else is an opaque id. The fetch happens at `/authorize` only, through the webhooks egress guard and its pinned transport ([webhooks §2.7](webhooks.md#27-the-ssrf-guard)): HTTPS only, public addresses only, no redirects, 5-second timeout, 64 KiB cap, `Accept: application/json`. The document must be JSON, `client_id` must equal the URL exactly, `client_name` and a non-empty `redirect_uris` array must be present, and `token_endpoint_auth_method` must be absent or `none`. The row is cached by HTTP cache headers, clamped to between 5 minutes and 24 hours. A failed refetch uses the cached copy; with no copy the error page is `client_metadata_unavailable`. Fetched text is never rendered as HTML. `logo_uri` is shown only when it is `https:` and on the client's host.
+**CIMD.** A `client_id` is a CIMD URL when it is an `https:` URL with a path, no fragment, no userinfo and no dot segments. Anything else is an opaque id. The fetch happens at `/authorize` only, through the egress guard and the pinned GET transport in `packages/platform-api/src/core/egress/` (the guard webhooks use too, [webhooks §2.7](webhooks.md#27-the-ssrf-guard)): HTTPS only, public addresses only, no redirects, 5-second timeout and 8-second overall deadline, 64 KiB cap, `Accept: application/json`. The document must be JSON, `client_id` must equal the URL exactly, `client_name` and a non-empty `redirect_uris` array must be present, and `token_endpoint_auth_method` must be absent or `none` (a document asking for a secret is refused with the internal reason `confidential_not_supported`). The row is cached by HTTP cache headers, clamped to between 5 minutes and 24 hours. A failed refetch uses the cached copy; with no copy the error page is `client_metadata_unavailable`. Fetched text is never rendered as HTML. `logo_uri` is shown only when it is `https:` and on the client's host.
 
 **DCR.** Off with `dynamicClientRegistration`. Redirect URIs are `https:` or loopback `http:`, with no fragment. A custom scheme is allowed only for `application_type: native` and a reverse-domain scheme. The trust policy runs at registration too.
 
@@ -494,7 +502,7 @@ The consent page is `/oauth/consent?request=<id>` in the signed-in web app, outs
 - `Allow` is disabled for one second after render and while submitting. A signed-out user logs in and returns to the same URL.
 - Consent is never skipped for a returning public client. The page may pre-tick and say "already connected".
 - Only a session credential may approve. A PAT, device token or `oat_` token cannot.
-- The page is not framable (`frame-ancestors 'none'`).
+- The page is not framable. `csp.conf` and `csp.dev.conf` (`@marinoscar/platform-infra`) add `map $uri $frame_deny` (`1` for `^/oauth/(consent|error)(/|$)`), `$x_frame_options` (`DENY` or `SAMEORIGIN`) and `$csp_header`, which rewrites only `frame-ancestors 'self'` to `'none'` for those paths and keeps every other directive, the app's `app.d/csp/` additions included. `platform/security-headers.conf` sends `X-Frame-Options $x_frame_options` and `Content-Security-Policy $csp_header`; every other path is unchanged.
 
 ### 2.20 Data model
 
@@ -525,20 +533,22 @@ Names only. Every audit row carries the actor and target id, never a secret.
 
 | Kind | Names |
 |---|---|
-| Audit actions | `oauth:grant.create`, `oauth:grant.update`, `oauth:grant.revoke`, `oauth:consent.deny`, `oauth:token.reuse_detected`, `oauth:client.create`, `oauth:client.update`, `oauth:client.disable`, `oauth:client.enable`, `oauth:client.delete`, `oauth:client.rotate_secret`, `oauth:client.refused`, `oauth:settings.update` |
-| Events (after commit) | `identity.oauth.grant.created`, `identity.oauth.grant.revoked`, each `{ userId, grantId, clientId, resourceId, reason }`. The platform sends no notification itself; an app listens and notifies |
-| Metrics | `app.oauth.authorizations` (`outcome`: approved, denied, error), `app.oauth.tokens.issued` (`grant_type`), `app.oauth.token.refusals` (`reason`), `app.oauth.client.registrations` (`kind`). Labels are low-cardinality: never a client id, host or user |
-| Spans | `@Trace()` on authorize, decision and token, with `oauth.client.kind` and `oauth.resource.id`. Never a token |
+| Audit actions | `oauth:grant.create`, `oauth:grant.update`, `oauth:grant.revoke`, `oauth:consent.deny`, `oauth:token.reuse_detected`, `oauth:client.create`, `oauth:client.update`, `oauth:client.disable`, `oauth:client.enable`, `oauth:client.delete`, `oauth:client.rotate_secret`, `oauth:client.refused`, `oauth:settings.update` (target `oauth_settings`, id `oauthServer`; the meta lists the changed field names, each field's `<field>From` and `<field>To` for scalars, and `allowedClientHostsAdded` / `allowedClientHostsRemoved` for the host list) |
+| Events (after commit) | `identity.oauth.grant.created`, `identity.oauth.grant.revoked`, each `{ userId, grantId, clientId, resourceId, reason }`. The platform sends no notification itself; an app listens and notifies ([README recipe](../../packages/platform-api/src/identity/README.md#oauth-server)) |
+| Metrics | `OAUTH_APP_METRICS` (an app registers it with `registerPlatformHostAppMetrics`): `app.oauth.authorizations` (`outcome`: approved, denied, error), `app.oauth.tokens.issued` (`grant_type`), `app.oauth.token.refusals` (`reason`: an OAuth error code), `app.oauth.client.registrations` (`kind`: dynamic, cimd, registered). Labels are low-cardinality: never a client id, host or user. Without the registration or an `IDENTITY_METRICS` binding nothing is recorded and nothing fails |
+| Spans | `oauth.authorize`, `oauth.decision` and `oauth.token`, with `oauth.client.kind`, `oauth.resource.id` and, on `oauth.token`, `oauth.grant_type`. Never a token |
 | Log fields | Token id or 8-character prefix, grant id, client id, resource id, outcome. Never a token, code, secret, verifier or fetched document body |
 
 ### 2.22 Housekeeping jobs
 
 Both are server-only queue jobs enqueued by a `@Cron` through `enqueueHousekeepingJob` with `orgId: null` ([job queue spec](job-queue.md#all-long-running-work-is-a-job)). A job type string is permanent once jobs of that type exist.
 
-| Job type | Runs | Deletes |
+| Job type | Cron | Deletes |
 |---|---|---|
-| `oauth.token.cleanup` | Hourly | Expired or decided authorization requests; consumed or expired codes older than 1 hour; access tokens expired over 24 hours ago; refresh tokens expired or rotated over 7 days ago; tokens of grants revoked over 30 days ago; revoked grants after 90 days. Batched |
-| `oauth.client.cleanup` | Daily | `dynamic` clients with no grant and no use for `dynamicClientUnusedDays` |
+| `oauth.token.cleanup` | Hourly, `7 * * * *` | Expired or decided authorization requests; authorization codes consumed or expired more than 1 hour ago; access tokens expired more than 24 hours ago; refresh tokens expired or rotated more than 7 days ago; the tokens of grants revoked more than 30 days ago; revoked grants after 90 days. Batches of 500 rows, at most 200 batches per table per run |
+| `oauth.client.cleanup` | Daily, `17 4 * * *` | `dynamic` clients with no grant and no use for `dynamicClientUnusedDays` |
+
+The retention numbers are `OAUTH_TOKEN_RETENTION` (exported). The Doctor check `oauth.token_cleanup` warns when a token that expired more than 7 days ago is still stored.
 
 ### 2.23 Threat model
 
@@ -584,6 +594,8 @@ Common to all: a real HTTP `401` with `WWW-Authenticate` starts sign-in (a `200`
 | `oauthServer.defaultAllowedClientHosts` | none | Hosts the admin UI offers as suggestions. The platform ships none |
 | Protected resources and scopes | none | Registered with `registerOAuthProtectedResource` and `registerOAuthScope` at import time, not through options |
 | `OAUTH_RATE_LIMITER` | in-memory fixed window | Injection token. An app with several replicas replaces it with a shared store |
+| `OAUTH_CLIENT_RESOLVER` | the stored-client resolver with CIMD and the trust policy | Injection token. Says where a `client_id` comes from |
+| `OAUTH_CIMD_TRANSPORT`, `OAUTH_CIMD_HOST_RESOLVER` | the pinned GET transport and the system resolver | Injection tokens for the metadata-document fetch. Tests script them so nothing touches the network |
 
 There is no environment variable. The server is runtime-configured.
 
@@ -603,16 +615,18 @@ There is no environment variable. The server is runtime-configured.
 | `allowLoopbackClients` | boolean | `true` | Native clients whose redirect URIs are all loopback |
 | `dynamicClientUnusedDays` | integer, 1 to 90 | 7 | A DCR client never used to complete an authorization is deleted after this |
 
+The settings slice registers the `oauthServer` namespace only while the sub-slice is mounted (`isOAuthServerMounted()`); the namespace is declared by identity's zod schema and read through the `IDENTITY_OAUTH_SETTINGS` port, so an unbound port reads as off. Changes are audited as `oauth:settings.update`.
+
 Fixed in code, not settings: authorization code life (60 s), pending request life (10 min), refresh grace window (10 s), CIMD fetch limits (5 s, 64 KiB, cache 5 minutes to 24 hours).
 
 **Permissions.** A route enforces exactly one string.
 
 | Permission | Scope | Default grants | Gates |
 |---|---|---|---|
-| `oauth_clients:read` | system | `admin` | `GET /api/admin/oauth/clients` and the admin card |
+| `oauth_clients:read` | system | `admin` | `GET /api/admin/oauth/clients`, `GET /api/admin/oauth/refused-hosts`, `GET /api/admin/oauth/policy` and the admin card |
 | `oauth_clients:write` | system | `admin` | `POST`, `PATCH`, `DELETE` and rotate on `/api/admin/oauth/clients`; the settings controls inside the page |
 
-The consent API and grants API need no permission: any signed-in user manages their own grants. The full matrix goes into [ARCHITECTURE.md §7.2](../ARCHITECTURE.md#72-permission-matrix) when the permissions are built.
+The consent API and grants API need no permission: any signed-in user manages their own grants. The full matrix is in [ARCHITECTURE.md §7.2](../ARCHITECTURE.md#72-permission-matrix).
 
 **Rate limits** (in-memory fixed window, `429` with `Retry-After` and body `{ "error": "temporarily_unavailable", "error_description": "Too many requests." }`):
 
@@ -623,13 +637,49 @@ The consent API and grants API need no permission: any signed-in user manages th
 | `/api/oauth/revoke` | 60 per minute per client id |
 | `/api/oauth/register` | 10 per hour per source address |
 
-**Edge and headers.** nginx proxies `/.well-known/oauth-authorization-server` (and a path-suffixed form), `/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/<path>` to the API, and answers `/.well-known/openid-configuration` with a JSON `404`, from `packages/platform-infra/nginx/platform/oauth-server.conf` (as `/.well-known/assetlinks.json` is served today). They always answer JSON, never the SPA. The two metadata documents, `/token`, `/register` and `/revoke` send `Access-Control-Allow-Origin: *` with no credentials, and `/token`, `/register` and `/revoke` answer `OPTIONS` with `Access-Control-Allow-Headers: content-type, authorization`. The wildcard is safe because these endpoints take no cookie. It is set in the OAuth controllers, not in the global CORS options.
+**Edge and headers.** nginx proxies `/.well-known/oauth-authorization-server` (and a path-suffixed form), `/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/<path>` to the API, and answers `/.well-known/openid-configuration` with a JSON `404`, from `packages/platform-infra/nginx/platform/oauth-server.conf` (as `/.well-known/assetlinks.json` is served today); an app opts in with `include /etc/nginx/platform/oauth-server.conf;` in `infra/nginx/app.d/locations/oauth-server.conf`. In development the Vite dev server maps the same paths (`apps/web/build-config/oauth-well-known.ts`). They always answer JSON, never the SPA. The two metadata documents, `/token`, `/register` and `/revoke` send `Access-Control-Allow-Origin: *` with no credentials, and `/token`, `/register` and `/revoke` answer `OPTIONS` with `Access-Control-Allow-Headers: content-type, authorization`. The wildcard is safe because these endpoints take no cookie and no credential is ever sent with the request. The controllers set the headers and answer `OPTIONS`. That is enough while `CORS_ORIGIN` is unset (the default). When `CORS_ORIGIN` lists an allowlist, the CORS plugin answers every preflight in an `onRequest` hook before any route handler runs, so the allowlist would answer these endpoints too. The app therefore passes `buildCorsOptions(process.env.CORS_ORIGIN, { openPaths: OAUTH_PUBLIC_CORS_PATHS })` (`apps/api/src/main.ts`): the plugin's per-request options delegate answers `*` without credentials for exactly the token, register and revoke endpoints and `/api/oauth/.well-known/`, and every other route, `/api/oauth/authorize` and the consent routes included, keeps the allowlist. `buildCorsOptions` itself is not loosened for the rest of the API.
 
-**Settings cards** (declared as data, appended to the app registries): `Connected apps` in the user hub (`/settings/connected-apps`, `feature: 'oauthServer'`, no permission) and `OAuth clients` in the admin hub (`/admin/settings/oauth-clients`, `permission: 'oauth_clients:read'`, no `feature`, because it is where the server is switched on). See [settings-ui.md](settings-ui.md).
+**Source address behind a proxy.** The per-address rate limits (`/authorize`, `/register`) key on `request.ip`. Neither the reference app nor the platform host sets Fastify's `trustProxy`, so behind nginx every caller shares the proxy's address and one bucket. A deployment that needs per-caller limits sets `trustProxy` on its `FastifyAdapter` (to the proxy's address, never `true` on an exposed listener) or replaces `OAUTH_RATE_LIMITER`.
+
+**Doctor checks** (category `auth`, read-only, registered only while the sub-slice is mounted; [doctor spec](doctor.md)). While the server is off, all of them except `oauth.token_cleanup` report `skip`.
+
+| Id | Verdicts | Settings path |
+|---|---|---|
+| `oauth.public_url` | `warn` when `APP_URL` is unset, not `https:` or a loopback or private host (hosted clients cannot reach it); else `pass` | `/admin/settings/oauth-clients` |
+| `oauth.well_known` | Requests the authorization server document and each registered resource's document (at most 5) through the public URL, with the egress guard. `fail` when one does not answer JSON with the expected `issuer` or `resource` (a proxy, CDN or the SPA is answering); `warn` when one cannot be requested; `skip` on a private or non-https address; else `pass`. Depends on `oauth.public_url`; 12 s budget | `/admin/settings/oauth-clients` |
+| `oauth.client_policy` | `warn` when `allowAnyClientHost` is on; else `pass`, listing the allowed hosts | `/admin/settings/oauth-clients` |
+| `oauth.resources` | `warn` when enabled with no protected resource; else `pass`, listing resources and scope counts | `/admin/settings/oauth-clients` |
+| `oauth.token_cleanup` | `warn` when a token that expired more than 7 days ago is still stored (the cleanup job is not running); else `pass`. Depends on `db.connection` | `/admin/settings/jobs` |
+
+**Settings cards** (opt-in data an app spreads into its registries: `identityUserSettingsSections.connectedApps` and `identityAdminSections.oauthClients`): `Connected apps` in the user hub (`/settings/connected-apps`, `feature: 'oauthServer'`, no permission) and `OAuth clients` in the admin hub (`/admin/settings/oauth-clients`, `permission: 'oauth_clients:read'`, no `feature`, because it is where the server is switched on; the settings sections need `system_settings:read`, editing needs `system_settings:write` and `oauth_clients:write`). The `oauthServer` feature is probed by `OAuthServerStatusProvider` through `GET /api/oauth/.well-known/authorization-server`. See [settings-ui.md](settings-ui.md).
 
 ## 4. Extending it in a fork
 
-Offer a resource to third-party clients with two registrations and no guard code. Put them in one file the app owns:
+The package README owns the extension-point catalog: [identity README, OAuth server](../../packages/platform-api/src/identity/README.md#oauth-server). Each recipe below has a tested counterpart; the reference flow is `apps/api/test/identity/oauth/oauth-e2e.db.spec.ts`, and the starter ships a deletable example file, `starter/apps/api/src/platform/oauth-example.ts`.
+
+### 4.1 Mount the server
+
+```ts
+IdentityModule.forRoot({
+  imports: [/* host modules */],
+  oauthServer: {},   // or { defaultAllowedClientHosts: ['client.example.test'] }
+});
+```
+
+Register the metrics next to the app's other `app.*` instruments, once, at import time:
+
+```ts
+import { registerPlatformHostAppMetrics } from '@marinoscar/platform-api/host';
+import { OAUTH_APP_METRICS } from '@marinoscar/platform-api/identity';
+
+registerPlatformHostAppMetrics(OAUTH_APP_METRICS);
+```
+
+Include `platform/oauth-server.conf` from `infra/nginx/app.d/locations/oauth-server.conf` (`include /etc/nginx/platform/oauth-server.conf;`) and pass `OAUTH_PUBLIC_CORS_PATHS` to `buildCorsOptions` in `main.ts` ([§3](#3-configuration-and-permissions)). The server stays off until an administrator enables it ([runbook](../runbooks/oauth-server.md)).
+
+### 4.2 Register a scope
+
+A scope is a named bundle of permission ids the consent page shows. Every permission must be registered, or the app does not boot.
 
 ```ts
 registerOAuthScope({
@@ -640,36 +690,94 @@ registerOAuthScope({
   id: 'notes:write', title: 'Change your notes', description: 'Create and edit notes.',
   permissions: ['notes:write'], risk: 'elevated',
 });
+```
+
+A scope narrows, never widens: a token's effective permissions are the user's own, intersected with the scopes'. Proof: `oauth-resource-server.db.spec.ts`.
+
+### 4.3 Register a protected resource
+
+```ts
 registerOAuthProtectedResource({
   id: 'notes', path: '/api/notes-agent', routePrefixes: ['/api/notes-agent'],
   scopes: ['notes:read', 'notes:write'], name: 'Notes agent',
 });
 ```
 
-- **Call your own routes from the resource.** Use `InProcessDelegation.headerFor(request)` or `InProcessDelegation.inject(request, opts)`. Never forward the `oat_` header.
-- **Answer a step-up.** Where an operation needs a scope the token lacks, `throw new InsufficientScopeException({ resourceId: 'notes', requiredScopes: ['notes:write'] })`, or call `assertOAuthScopes(principal, 'notes', ['notes:write'])` first. The refusal must be an HTTP status.
-- **Notify on connect.** Listen for `identity.oauth.grant.created` and call `notify()` yourself.
-- **Allow a host.** An administrator adds it in the admin card, or the app suggests it through `defaultAllowedClientHosts`.
-- **Run the suite.** `runPlatformConformance({ suites: { oauthServer: { ... } } })`. A scope that names a permission nobody registered, or two overlapping prefixes, fail at boot or in the suite.
+The resource identifier a client uses is `APP_URL` + `path`. A token for it is admitted only under its `routePrefixes`. A 401 under a prefix carries the `WWW-Authenticate` challenge, and `/.well-known/oauth-protected-resource/api/notes-agent` serves its metadata. A resource needs at least one `default: true` scope; two resources never share or nest prefixes; `/api/oauth`, `/api/auth` and `/api/nodes` are never a prefix.
 
-The package README owns the full recipes once built: `packages/platform-api/src/identity/oauth-server/README.md`.
+### 4.4 Call your own routes from the resource
+
+A resource such as an MCP endpoint reaches the app's other routes in-process. Never forward the `oat_` header: those routes are outside the resource's prefix and forwarding defeats audience binding.
+
+```ts
+@Post()
+@Auth()
+async call(@Req() request: FastifyRequest) {
+  const res = await this.delegation.inject(request, { method: 'GET', url: '/api/notes' });
+  return res.json();
+}
+```
+
+`this.delegation` is the injected `InProcessDelegation`. The delegated request keeps the caller's principal, credential kind and narrowed permissions, works for session and PAT callers too, and is refused on any request that arrived over a socket. Proof: `oauth-resource-server.db.spec.ts`.
+
+### 4.5 Answer a step-up
+
+Where an operation needs a scope the token lacks, refuse with a real HTTP `403`:
+
+```ts
+assertOAuthScopes(principal, 'notes', ['notes:write']);
+// or
+throw new InsufficientScopeException({ resourceId: 'notes', requiredScopes: ['notes:write'] });
+```
+
+The answer is `403` with `WWW-Authenticate: Bearer error="insufficient_scope", scope="<granted and required>", resource_metadata="..."`. For a session or PAT caller `assertOAuthScopes` does nothing. A route that declares a permission and is denied to an `oauth` principal becomes the same `insufficient_scope` when a registered scope of the resource grants the missing permission and the user holds it. Never answer `200` with an error result: hosted clients start sign-in only from an HTTP status. `buildBearerChallenge({ resourceId, error, scope })` builds the header for a response the app writes itself. Proof: `oauth-resource-metadata.db.spec.ts` and the step-up in `oauth-e2e.db.spec.ts`.
+
+### 4.6 Notify on connect
+
+```ts
+@OnEvent(IDENTITY_EVENTS.OAUTH_GRANT_CREATED)
+onConnected(event: IdentityOAuthGrantEvent): void {
+  // event.reason is 'created' or 'updated'; call your own notify() here, after commit.
+}
+```
+
+The platform sends nothing itself. `identity.oauth.grant.revoked` carries the revocation reason.
+
+### 4.7 Allow a host, run the suite
+
+An administrator adds a client host in the admin card, or the app suggests hosts through `defaultAllowedClientHosts`. Run the suite in the app's conformance spec:
+
+```ts
+oauthServer: {
+  rootModule: AppModule,
+  permissions: permissionRegistry.list().map((permission) => permission.id),
+  secretEgress: { skip: 'it needs a real flow and database: oauth-conformance.db.spec.ts runs it' },
+},
+```
+
+A database-tier spec runs the `secret-egress` check ([§5](#5-guardrails)). The test kit (`mintOAuthTestToken`, `createOAuthTestClient`, `pkcePair`, `runOAuthAuthorizationCodeFlow`, `exchangeOAuthCode` of `@marinoscar/platform-api/identity/testing`) builds tokens and flows for the app's own tests.
 
 ## 5. Guardrails
 
-The `oauth-server` conformance suite (`@marinoscar/platform-api/identity/testing`, run by `apps/api/test/conformance.spec.ts`) is planned with these checks:
+The `oauth-server` conformance suite (`@marinoscar/platform-api/identity/testing`; option key `oauthServer`, run by `apps/api/test/conformance.spec.ts`) discovers the app's registered scopes, resources and routes and runs ten checks. Nine need no database. Each check is an exported function, proved against a deliberately broken registration in `packages/platform-api/test/identity/oauth-server/oauth-conformance.spec.ts`; `apps/api/test/identity/oauth/oauth-conformance.db.spec.ts` runs `secret-egress` over a real flow.
 
 - `scope-permissions-registered`: a scope names an unregistered permission.
 - `resource-scopes-registered`: a resource lists an unknown scope or has no default scope.
 - `resource-prefix-exclusive`: two resources share or nest prefixes, or a prefix covers `/api/oauth`, `/api/auth` or `/api/nodes`.
 - `token-confinement`: an `oat_` token is admitted on a discovered route outside its resource.
 - `scope-narrowing`: a token without the granting scope is admitted on a route under a resource.
-- `session-only-routes`: the consent decision, grant management, PAT creation or org switch admits an `oauth` credential.
+- `session-only-routes`: the consent decision, grant management, PAT creation, device authorization or org switch admits an `oauth` credential.
 - `no-roles-only-admission`: a `@Roles`-only route admits an `oauth` credential.
 - `challenge-on-401`: a no-token call to a resource route lacks a `WWW-Authenticate` challenge whose metadata URL resolves.
 - `metadata-shape`: a document misses a required field, lists `plain`, or `resource` is not `APP_URL` + path.
-- `secret-egress`: a token, code, secret or hash appears in a grants or clients response, an audit row or a log line.
+- `secret-egress`: a token, code, secret or hash appears in a grants or clients response, an audit row or a log line. Needs evidence from a real flow: a unit-tier entry passes `secretEgress: { skip: '<reason>' }`.
 
-Also: `apps/api/test/identity/oauth/oauth-e2e.db.spec.ts` (a scripted client that knows only the resource URL: discovery from the `401`, CIMD, DCR, pre-registered, loopback, step-up, reuse detection, revoke); `pat-universality.integration.spec.ts` and the `nod_` confinement tests stay green; `cron-enqueue-only` covers both crons; `check:closed-lists` covers the scope registry; the Doctor checks `oauth.public_url`, `oauth.well_known`, `oauth.client_policy`, `oauth.resources`, `oauth.token_cleanup`.
+Also:
+
+- `apps/api/test/identity/oauth/oauth-e2e.db.spec.ts`: a scripted client that knows only the resource URL (discovery from the `401`, CIMD, DCR, pre-registered confidential with step-up and reuse detection, loopback with a different port, revoke).
+- `oauth-authorization-server.db.spec.ts` (protocol, the five-statement `/token` budget), `oauth-clients.db.spec.ts` (client identity and trust), `oauth-resource-server.db.spec.ts` (guard, narrowing, delegation), `oauth-resource-metadata.db.spec.ts` (challenges, metadata, step-up), `oauth-token-cleanup.db.spec.ts` (rows on both sides of each threshold), `oauth-schema.db.spec.ts` (schema).
+- `pat-universality.integration.spec.ts` and the `nod_` confinement tests stay green; `cron-enqueue-only` covers both crons; `job-type-snapshot.spec.ts` pins both job types; `check:closed-lists` covers the scope registry.
+- The Doctor checks `oauth.public_url`, `oauth.well_known`, `oauth.client_policy`, `oauth.resources`, `oauth.token_cleanup`.
 
 ## 6. Design decisions
 
@@ -687,16 +795,14 @@ The reasons and rejected alternatives for each rule are in [ADR 0003](../adr/000
 
 ## 7. Verification
 
-Planned commands, once built:
-
 ```bash
 npx jest --config apps/api/test/jest.config.js --rootDir apps/api test/conformance        # the oauth-server suite among the others
 npm run test:db --workspace=api -- identity/oauth                                         # real-Postgres tier, including the e2e client
-npm run openapi:dump && npm run openapi:lint                                              # the OAuth routes appear
+npm run openapi:dump && npm run openapi:lint                                              # the OAuth routes appear, protocol routes carry x-raw-response
 npm run check:package-docs && npm run check:slices-doc
 ```
 
-By hand, with the server enabled and a host allowed:
+By hand, with the server enabled, a protected resource registered and a host allowed:
 
 ```bash
 curl -i -X POST https://app.example.test/api/mcp                                          # 401 with WWW-Authenticate: Bearer resource_metadata=...
@@ -704,7 +810,7 @@ curl -s https://app.example.test/.well-known/oauth-protected-resource/api/mcp   
 curl -s https://app.example.test/.well-known/oauth-authorization-server                   # code_challenge_methods_supported is ["S256"]
 ```
 
-Then open `https://app.example.test/api/oauth/authorize?...` from a registered client: the consent page appears, naming the client's host.
+Then open `https://app.example.test/api/oauth/authorize?...` from a registered client: the consent page appears, naming the client's host. The Doctor shows the five `oauth.*` checks (`/admin/settings/doctor`). The operator procedure is [runbooks/oauth-server.md](../runbooks/oauth-server.md).
 
 ## History
 
@@ -716,4 +822,4 @@ Then open `https://app.example.test/api/oauth/authorize?...` from a registered c
 - Issue 1183: client identity (CIMD, DCR, pre-registered) and the trust policy.
 - Issue 1184: resource-server helpers, challenges and the nginx fragment.
 - Issue 1185: web UI (consent page, Connected apps, OAuth clients).
-- Issue 1186: conformance suite, e2e test, Doctor checks, audit and metrics, cleanup job, docs, starter, release.
+- Issue 1186: conformance suite, e2e test, Doctor checks, audit and metrics, token cleanup job, test kit, docs, starter, release.

@@ -19,6 +19,11 @@ import {
   useOrgInvites,
   useOrgMembers,
   useOrganizations,
+  useOAuthClients,
+  useOAuthGrants,
+  useOAuthRefusedHosts,
+  useOAuthRequest,
+  useOAuthServerSettings,
   usePersonalAccessTokens,
   useUsers,
 } from '@marinoscar/platform-web/identity/headless';
@@ -81,4 +86,37 @@ export function OrganizationsSummary() {
     void fetchOrganizations();
   }, [fetchOrganizations]);
   return <SummaryChip label={`${total} organizations`} isLoading={isLoading} error={error} />;
+}
+
+// ---- The OAuth server (#1185, PP-15.7) --------------------------------------
+
+/** The caller's connected apps, counted (`useOAuthGrants`). */
+export function ConnectedAppsSummary() {
+  const { grants, isLoading, error, unavailable } = useOAuthGrants();
+  return <SummaryChip label={unavailable ? 'OAuth is off' : `${grants.length} connected apps`} isLoading={isLoading} error={error} />;
+}
+
+/** Who is asking in a pending authorization request (`useOAuthRequest`). */
+export function PendingRequestSummary({ requestId }: { requestId: string }) {
+  const { status, request, error } = useOAuthRequest(requestId);
+  const label = status === 'expired' ? 'Request expired' : `${request?.client.host ?? ''} wants to connect`;
+  return <SummaryChip label={label} isLoading={status === 'loading'} error={error} />;
+}
+
+/** Disabled OAuth clients on this page of the list (`useOAuthClients`). */
+export function DisabledOAuthClientsSummary() {
+  const { clients, isLoading, error } = useOAuthClients();
+  return <SummaryChip label={`${clients.filter((client) => client.disabled).length} disabled clients`} isLoading={isLoading} error={error} />;
+}
+
+/** Client hosts refused in the last 30 days (`useOAuthRefusedHosts`). */
+export function RefusedHostsSummary() {
+  const { hosts, isLoading, error } = useOAuthRefusedHosts();
+  return <SummaryChip label={`${hosts.length} refused hosts`} isLoading={isLoading} error={error} />;
+}
+
+/** Whether the OAuth server is on (`useOAuthServerSettings`). */
+export function OAuthServerSwitchSummary() {
+  const { settings, isLoading, error } = useOAuthServerSettings();
+  return <SummaryChip label={settings?.enabled ? 'OAuth is on' : 'OAuth is off'} isLoading={isLoading} error={error} />;
 }

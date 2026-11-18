@@ -94,6 +94,10 @@ export const UNOWNED_ROUTES: readonly string[] = [
   '/login',
   '/auth/callback',
   '/activate',
+  // Issue #1185. The OAuth consent and error pages, outside the shell like
+  // `/activate`.
+  '/oauth/consent',
+  '/oauth/error',
   '/testing/login',
   // Issue #731. The public link page (`/s#lnk_…`): anyone holding a share
   // link, signed in or not, outside the shell.

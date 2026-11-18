@@ -24,6 +24,9 @@
  *      page reads: INSIDE the AI and telemetry providers, so the feature flags
  *      it exposes come from them, and inside `AuthProvider`, so the viewer is
  *      the signed-in user (`platform/platformHost.tsx`).
+ *   5b. `OAuthServerStatusProvider` (#1185), just outside the host: ONE probe
+ *      of the OAuth metadata document per signed-in user, the `oauthServer`
+ *      feature the hubs and the host read.
  *   6. `OnboardingProvider` (#745), innermost: one onboarding fetch per shell,
  *      through the platform host's transport.
  *
@@ -36,6 +39,7 @@ import { DbBackupWebAdaptersProvider } from '@marinoscar/platform-web/db-backup/
 import { JobsWebAdaptersProvider } from '@marinoscar/platform-web/jobs/headless';
 import { NodesWebAdaptersProvider } from '@marinoscar/platform-web/nodes/headless';
 import { NotificationProvider } from '@marinoscar/platform-web/notifications/headless';
+import { OAuthServerStatusProvider, createOAuthServerApi } from '@marinoscar/platform-web/identity/headless';
 import { OnboardingProvider } from '@marinoscar/platform-web/onboarding/headless';
 import type { ShellProvider } from '@marinoscar/platform-web/shell/headless';
 import {
@@ -81,6 +85,12 @@ function AppDbBackupAdaptersProvider({ children }: { children: ReactNode }) {
   return <DbBackupWebAdaptersProvider adapters={appDbBackupAdapters}>{children}</DbBackupWebAdaptersProvider>;
 }
 
+const appOAuthServerApi = createOAuthServerApi(appPlatformApi);
+
+function AppOAuthServerStatusProvider({ children }: { children: ReactNode }) {
+  return <OAuthServerStatusProvider api={appOAuthServerApi}>{children}</OAuthServerStatusProvider>;
+}
+
 function AppOnboardingProvider({ children }: { children: ReactNode }) {
   return <OnboardingProvider appName={APP_NAME}>{children}</OnboardingProvider>;
 }
@@ -93,6 +103,7 @@ export const APP_SHELL_PROVIDERS: readonly ShellProvider[] = [
   AppTelemetryAdaptersProvider,
   AppJobsAdaptersProvider,
   AppDbBackupAdaptersProvider,
+  AppOAuthServerStatusProvider,
   AppPlatformHostProvider,
   AppOnboardingProvider,
 ];

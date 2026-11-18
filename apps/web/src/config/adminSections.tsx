@@ -234,7 +234,9 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
     label: 'Access',
     // The identity slice's card (#727), from `@marinoscar/platform-web/identity/ui`
     // as data: `Users & Allowlist`, `/admin/settings/users`, `users:read`.
-    cards: [...identityAdminSections.access],
+    // `OAuth clients` (#1185, PP-15.7) is APPENDED: `oauth_clients:read`, no
+    // feature (it is where the OAuth server is switched on).
+    cards: [...identityAdminSections.access, ...identityAdminSections.oauthClients],
   },
   /**
    * Operations — the deployment's moving parts (issue #266, epic #254).

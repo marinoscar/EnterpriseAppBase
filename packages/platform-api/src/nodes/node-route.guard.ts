@@ -22,7 +22,8 @@ interface NodeRouteRequest {
   [NODE_ROUTE_REQUEST_KEY]?: unknown;
 }
 
-const KIND: Record<AuthCredentialInfo['kind'], NodeRouteCredential> = { node: 'nod', pat: 'pat', jwt: 'jwt' };
+// An `oauth` credential is on no node route's list (undefined: refused with a 403).
+const KIND: Partial<Record<AuthCredentialInfo['kind'], NodeRouteCredential>> = { node: 'nod', pat: 'pat', jwt: 'jwt' };
 
 /**
  * Applied by `@NodeRoute()`, after `JwtAuthGuard`: refuses a credential kind

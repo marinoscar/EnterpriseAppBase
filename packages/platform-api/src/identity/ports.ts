@@ -296,8 +296,9 @@ export interface IdentityMetrics {
    *
    * @param key - the counter's registry key.
    * @param value - the increment; 1 by default.
+   * @param attributes - the metric's declared labels (bounded by its declaration; an undeclared key is dropped).
    */
-  add(key: string, value?: number): void;
+  add(key: string, value?: number, attributes?: Record<string, string>): void;
 }
 
 /**
@@ -548,4 +549,25 @@ export interface IdentityAllowlist {
    * @returns `true` when it is.
    */
   isEmailAllowed(email: string): Promise<boolean>;
+}
+
+// ---- the OAuth server's settings (PP-15.3) --------------------------------------------
+
+/**
+ * Injection token of the OAuth server's settings reader. The settings slice
+ * binds it when mounted (identity sits below it): without it the OAuth server
+ * reads as DISABLED, so an `oat_` header is a `401`.
+ *
+ * @stability experimental
+ */
+export const IDENTITY_OAUTH_SETTINGS: unique symbol = Symbol.for('@marinoscar/platform/identity/OAUTH_SETTINGS');
+
+/**
+ * The `oauthServer` system settings namespace, as identity reads it.
+ *
+ * @stability experimental
+ */
+export interface IdentityOAuthSettings {
+  /** The current `oauthServer` value. May throw; the caller degrades to disabled. */
+  read(): Promise<import('./oauth-server/oauth-server-settings.schemas').OAuthServerSettingsValue>;
 }

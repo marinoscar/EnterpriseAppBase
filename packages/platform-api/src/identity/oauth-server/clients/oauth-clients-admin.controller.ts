@@ -1,0 +1,120 @@
+// =============================================================================
+// /api/admin/oauth/clients (PP-15.5, docs/specs/oauth-server.md §2.8)
+// =============================================================================
+//
+// Ordinary platform routes (`{ data }` envelope, standard errors). Reads need
+// `oauth_clients:read`, every write `oauth_clients:write`. Available whether or
+// not the OAuth server is switched on: this is where an administrator prepares it.
+// =============================================================================
+
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+
+import { ApiDataResponse } from '../../../core/index';
+import { Auth } from '../../auth/decorators/auth.decorator';
+import { CurrentUser } from '../../auth/decorators/current-user.decorator';
+import { PERMISSIONS } from '../../identity.constants';
+import { OAuthClientCreateRequestDto, OAuthPolicyDto, OAuthRefusedHostDto, OAuthClientPatchRequestDto, OAuthClientViewDto, OAuthClientWithSecretDto, OAuthClientsQueryDto } from '../oauth.dto';
+import { OAuthClientsAdminService } from './oauth-clients-admin.service';
+
+/**
+ * The admin API of OAuth clients.
+ *
+ * @stability experimental
+ */
+@ApiTags('OAuth clients')
+@Controller('admin/oauth/clients')
+export class OAuthClientsAdminController {
+  constructor(private readonly clients: OAuthClientsAdminService) {}
+
+  /** `GET /api/admin/oauth/clients`: a page of clients. */
+  @Get()
+  @Auth({ permissions: [PERMISSIONS.OAUTH_CLIENTS_READ] })
+  @ApiOperation({ summary: 'List OAuth clients (Admin only)', description: 'Paged: kind, name, host, redirect URIs, active grant count, last used and disabled state. Never a secret.' })
+  @ApiDataResponse(OAuthClientViewDto, { pagination: 'flat', description: 'A page of clients' })
+  list(@Query() query: OAuthClientsQueryDto) {
+    return this.clients.list(query);
+  }
+
+  /** `POST /api/admin/oauth/clients`: pre-registers a client; the secret is returned once. */
+  @Post()
+  @Auth({ permissions: [PERMISSIONS.OAUTH_CLIENTS_WRITE] })
+  @ApiOperation({ summary: 'Pre-register an OAuth client (Admin only)', description: 'Returns the client id and, for a confidential client, its secret ONCE.' })
+  @ApiDataResponse(OAuthClientWithSecretDto, { status: 201, description: 'The client and its one-time secret' })
+  @ApiResponse({ status: 400, description: 'A redirect URI rule was violated.' })
+  create(@Body() dto: OAuthClientCreateRequestDto, @CurrentUser('id') adminUserId: string) {
+    return this.clients.create(dto, adminUserId);
+  }
+
+  /** `PATCH /api/admin/oauth/clients/:id`: disables, enables or edits a client. */
+  @Patch(':id')
+  @Auth({ permissions: [PERMISSIONS.OAUTH_CLIENTS_WRITE] })
+  @ApiOperation({
+    summary: 'Disable, enable or edit an OAuth client (Admin only)',
+    description: '`disabled` for any client (disabling revokes its grants with reason `client_disabled`, so its tokens fail on the next call); name and redirect URIs for the `registered` kind only.',
+  })
+  @ApiParam({ name: 'id', type: String, format: 'uuid' })
+  @ApiDataResponse(OAuthClientViewDto, { description: 'The updated client' })
+  @ApiResponse({ status: 404, description: 'Client not found' })
+  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: OAuthClientPatchRequestDto, @CurrentUser('id') adminUserId: string) {
+    return this.clients.update(id, dto, adminUserId);
+  }
+
+  /** `POST /api/admin/oauth/clients/:id/rotate-secret`: issues a new secret, returned once. */
+  @Post(':id/rotate-secret')
+  @Auth({ permissions: [PERMISSIONS.OAUTH_CLIENTS_WRITE] })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Rotate a client secret (Admin only)', description: 'Returns the new secret ONCE; the old one stops working at once.' })
+  @ApiParam({ name: 'id', type: String, format: 'uuid' })
+  @ApiDataResponse(OAuthClientWithSecretDto, { description: 'The client and its new secret' })
+  @ApiResponse({ status: 400, description: 'A public client has no secret.' })
+  @ApiResponse({ status: 404, description: 'Client not found' })
+  rotateSecret(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('id') adminUserId: string) {
+    return this.clients.rotateSecret(id, adminUserId);
+  }
+
+  /** `DELETE /api/admin/oauth/clients/:id`: deletes a client and its grants. */
+  @Delete(':id')
+  @Auth({ permissions: [PERMISSIONS.OAUTH_CLIENTS_WRITE] })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete an OAuth client (Admin only)', description: 'Its grants, codes, tokens and pending requests are deleted with it.' })
+  @ApiParam({ name: 'id', type: String, format: 'uuid' })
+  @ApiResponse({ status: 204, description: 'Client deleted' })
+  @ApiResponse({ status: 404, description: 'Client not found' })
+  async remove(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('id') adminUserId: string) {
+    await this.clients.remove(id, adminUserId);
+  }
+}
+
+/**
+ * The read-only hints of the admin page, beside the clients: `/api/admin/oauth/refused-hosts`
+ * and `/api/admin/oauth/policy`. Same permission as the clients list.
+ *
+ * @stability experimental
+ */
+@ApiTags('OAuth clients')
+@Controller('admin/oauth')
+export class OAuthAdminHintsController {
+  constructor(private readonly clients: OAuthClientsAdminService) {}
+
+  /** `GET /api/admin/oauth/refused-hosts`: the hosts the trust policy refused in the last 30 days. */
+  @Get('refused-hosts')
+  @Auth({ permissions: [PERMISSIONS.OAUTH_CLIENTS_READ] })
+  @ApiOperation({
+    summary: 'List refused client hosts (Admin only)',
+    description: 'Hosts the client trust policy turned away in the last 30 days, from the `oauth:client.refused` audit rows: host, attempts (one row per host per hour at most) and the latest time. Newest first, at most 100.',
+  })
+  @ApiDataResponse(OAuthRefusedHostDto, { isArray: true, description: 'Refused hosts' })
+  refusedHosts() {
+    return this.clients.listRefusedHosts();
+  }
+
+  /** `GET /api/admin/oauth/policy`: the app's suggested client hosts. */
+  @Get('policy')
+  @Auth({ permissions: [PERMISSIONS.OAUTH_CLIENTS_READ] })
+  @ApiOperation({ summary: 'Read the OAuth admin policy hints (Admin only)', description: "The app's suggested client hosts (`defaultAllowedClientHosts`), offered with \"Add\" on the admin page." })
+  @ApiDataResponse(OAuthPolicyDto, { description: 'The policy hints' })
+  policy() {
+    return this.clients.getPolicy();
+  }
+}

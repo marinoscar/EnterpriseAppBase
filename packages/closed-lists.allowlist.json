@@ -425,6 +425,36 @@
       "file": "packages/platform-cli/src/engine/node/executors/index.ts",
       "symbol": "JobInputMode",
       "reason": "how the engine delivers a job's input (none, a temp file, or a presigned URL); the engine branches on each mode, so it is a protocol switch, not an implementation id"
+    },
+    {
+      "file": "packages/platform-contract/src/identity/oauth.ts",
+      "symbol": "OAUTH_CLIENT_KINDS",
+      "reason": "mirrors the Prisma enum OAuthClientKind (cimd, dynamic, registered): how a client came to exist is a storage fact the trust policy and the consent page branch on, not an extension vocabulary"
+    },
+    {
+      "file": "packages/platform-contract/src/identity/oauth.ts",
+      "symbol": "z.enum(OAUTH_CLIENT_KINDS)",
+      "reason": "the response schema of the same closed Prisma enum"
+    },
+    {
+      "file": "packages/platform-contract/src/identity/oauth.ts",
+      "symbol": "OAUTH_GRANT_TYPES",
+      "reason": "the two grant types the token endpoint implements (RFC 6749 authorization_code and refresh_token); a protocol discriminator, each with its own validation, not an implementation id"
+    },
+    {
+      "file": "packages/platform-contract/src/identity/oauth.ts",
+      "symbol": "z.enum(OAUTH_GRANT_TYPES)",
+      "reason": "the schema of the same protocol discriminator"
+    },
+    {
+      "file": "packages/platform-contract/src/identity/oauth.ts",
+      "symbol": "OAUTH_APPLICATION_TYPES",
+      "reason": "RFC 7591 application_type (web or native): a protocol discriminator that decides the redirect URI rules, not an implementation id"
+    },
+    {
+      "file": "packages/platform-contract/src/identity/oauth.ts",
+      "symbol": "z.enum(OAUTH_APPLICATION_TYPES)",
+      "reason": "RFC 7591 application_type: web or native, a protocol discriminator that decides the redirect URI rules, not an implementation id"
     }
   ]
 }

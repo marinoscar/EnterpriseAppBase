@@ -31,6 +31,50 @@ export type {
   IdentityConformanceRlsTable,
   IdentityRoute,
 } from './conformance';
+// OAuth server helpers (PP-15.4): a PKCE pair and a client row with a known secret.
+export { createOAuthTestClient, createOAuthTestPkce, exchangeOAuthCode, mintOAuthTestToken, pkcePair, runOAuthAuthorizationCodeFlow } from './oauth';
+export type {
+  MintOAuthTestTokenInput,
+  MintedOAuthTestToken,
+  OAuthCodeFlowInput,
+  OAuthCodeFlowResult,
+  OAuthExchangeResult,
+  OAuthTestApp,
+  OAuthTestClient,
+  OAuthTestClientDb,
+  OAuthTestClientCreated,
+  OAuthTestClientDelegate,
+  OAuthTestClientOptions,
+  OAuthTestPkcePair,
+  OAuthTestTokenDb,
+} from './oauth';
+// The OAuth server conformance suite (PP-15.8): importing this entry registers `oauth-server`.
+export {
+  OAUTH_CONFORMANCE_CHECKS,
+  checkChallengeOn401,
+  checkMetadataShape,
+  checkNoRolesOnlyAdmission,
+  checkOAuthSecretEgress,
+  checkOAuthTokenConfinement,
+  checkResourcePrefixExclusive,
+  checkResourceScopesRegistered,
+  checkScopeNarrowing,
+  checkScopePermissionsRegistered,
+  checkSessionOnlyRoutes,
+  defaultSessionOnlyHandlers,
+  discoverOAuthRoutes,
+  oauthServerConformanceSuite,
+  parseBearerChallenge,
+} from './oauth-server-conformance';
+export type {
+  OAuthConformanceCheck,
+  OAuthConformanceGuardClass,
+  OAuthConformanceJwtGuardClass,
+  OAuthRoute,
+  OAuthSecretEgressEvidence,
+  OAuthServerConformanceOptions,
+  OAuthSessionOnlyHandler,
+} from './oauth-server-conformance';
 export { createStubIdentityHost } from './stub-host';
 export type { StubIdentityHost, StubIdentityHostOptions, StubIdentityHostState, StubIdentityNotification } from './stub-host';
 

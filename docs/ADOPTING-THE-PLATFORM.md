@@ -37,6 +37,7 @@ Adopt a slice only after every slice it depends on. The dependency graph is `pac
 | 10 | Telemetry | core, doctor |
 | 11 | Harvested features | see step 11 |
 | 12 | CLI, infra and web shell | any time after step 3 |
+| 13 | Offer OAuth to third-party clients (optional) | identity, settings, jobs |
 
 Telemetry and the Doctor depend only on `core`, so a team may adopt them first to prove the pipeline: that is how the first adopter started. Each step below says what it deletes.
 
@@ -149,6 +150,18 @@ Each has a spec and a package README linked from [../CLAUDE.md](../CLAUDE.md).
 - **CLI.** Build your CLI with `createCli()` from `@marinoscar/platform-cli` and keep only your own commands and branding ([../packages/platform-cli/README.md](../packages/platform-cli/README.md)). An app with a forked TUI moves it onto the platform's in this order: its menu tree to `registerTuiMenuNode`, its app state to `registerTuiStateLoader`, its active selection to `registerTuiSelection`, its dashboards to a `DashboardReducer` over a `DashboardSource`, its widgets to `@marinoscar/platform-cli/tui/ui`, and its Ink test helpers to `@marinoscar/platform-cli/tui/testing`; then add the `tui` conformance suite ([the TUI README](../packages/platform-cli/src/tui/README.md#upgrade-notes)).
 - **Infra.** Run `npm run platform:infra:sync`. The Compose, nginx and env fragments become generated; your own additions move to the app-owned files (`infra/compose/app.env.example`, `app.*.compose.yml`, `infra/nginx/app.d/`). A drift between generated files and the lock fails `platform-infra sync --check` ([../packages/platform-infra/README.md](../packages/platform-infra/README.md)).
 - **Web shell.** Fill the shell slots (`ShellLayout`, app bar, rail, bottom nav) with your navigation, and keep the five breakpoint gates untouched ([../packages/platform-web/src/shell/README.md](../packages/platform-web/src/shell/README.md)).
+
+### Step 13: Offer OAuth to third-party clients (optional)
+
+Only when a hosted assistant or another product must act for your users without a personal access token.
+
+1. Mount it: `oauthServer: {}` in `IdentityModule.forRoot`, and `registerPlatformHostAppMetrics(OAUTH_APP_METRICS)`.
+2. Register one scope per bundle of your own permissions and one protected resource over the routes you offer, in a single file you own (`registerOAuthScope`, `registerOAuthProtectedResource`). Refuse step-up with `assertOAuthScopes` or `InsufficientScopeException`; reach your own routes from the resource with `InProcessDelegation`.
+3. Infra: include `platform/oauth-server.conf` from `infra/nginx/app.d/locations/oauth-server.conf`; pass `OAUTH_PUBLIC_CORS_PATHS` to `buildCorsOptions`; spread `identityAdminSections.oauthClients` and `identityUserSettingsSections.connectedApps` into your settings registries and add the `/oauth/consent` and `/oauth/error` routes.
+4. Add the `oauthServer` suite to your conformance spec (unit tier: `secretEgress: { skip: '<reason>' }`) and run the `secret-egress` check from a database-tier spec.
+5. Checks: the suite is green; the Doctor's five `oauth.*` checks pass after an administrator enables the server; the three discovery `curl` calls of [the runbook](runbooks/oauth-server.md#4-verify) answer; `npm run test:db --workspace=api -- identity/oauth` is green.
+
+Read: [identity README](../packages/platform-api/src/identity/README.md#oauth-server), [spec](specs/oauth-server.md), [runbook](runbooks/oauth-server.md).
 
 ## 4. Checks to run
 

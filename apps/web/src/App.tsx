@@ -140,6 +140,21 @@ const AboutPage = lazy(() => import('./pages/Admin/AboutPage'));
 const AdminUsersPage = lazy(() =>
   import('@marinoscar/platform-web/identity/ui').then((m) => ({ default: m.UsersPage })),
 );
+// Issue #1185 (PP-15.7) — the OAuth server's pages: the consent and error
+// routes outside the shell, the user's Connected apps and the admin OAuth
+// clients page.
+const OAuthConsentPage = lazy(() =>
+  import('@marinoscar/platform-web/identity/ui').then((m) => ({ default: m.OAuthConsentPage })),
+);
+const OAuthErrorPage = lazy(() =>
+  import('@marinoscar/platform-web/identity/ui').then((m) => ({ default: m.OAuthErrorPage })),
+);
+const ConnectedAppsPage = lazy(() =>
+  import('@marinoscar/platform-web/identity/ui').then((m) => ({ default: m.ConnectedAppsPage })),
+);
+const OAuthClientsPage = lazy(() =>
+  import('@marinoscar/platform-web/identity/ui').then((m) => ({ default: m.OAuthClientsPage })),
+);
 // Issue #425, epic #419 — placeholders, filled in by #429, #430 and #434.
 const AiConfigPage = lazy(() => import('@marinoscar/platform-web/ai/ui/config-page'));
 const AiModelsPage = lazy(() => import('@marinoscar/platform-web/ai/ui/models-page'));
@@ -259,6 +274,11 @@ function AppRoutes() {
               {/* Public routes */}
               <Route path="/login" element={<LoginPage />} />
               <Route path="/auth/callback" element={<AuthCallbackPage />} />
+              {/* Issue #1185 (PP-15.7). Where `/api/oauth/authorize` sends a
+                  PERSON it cannot send back to the client (server off, unknown
+                  or refused client, ...). Public: the visitor may not be
+                  signed in, and the page calls no API. */}
+              <Route path="/oauth/error" element={<OAuthErrorPage />} />
               {/* Issue #731. The public link page (`/s#lnk_…`), OUTSIDE
                   `RequireAuth`: anyone holding a share link opens it,
                   signed in or not, and no shell (no bell, no SSE stream, no
@@ -280,6 +300,12 @@ function AppRoutes() {
               <Route element={<RequireAuth loading={<LoadingSpinner fullScreen />} />}>
                 {/* Device activation page - without layout for full-screen experience */}
                 <Route path="/activate" element={<ActivateDevicePage returnUriSchemes={[ANDROID_IDENTITY.deepLinkScheme]} />} />
+                {/* Issue #1185 (PP-15.7). The OAuth consent page, outside the
+                    shell like `/activate`, inside `RequireAuth`: a signed-out
+                    visitor logs in and returns here with the same
+                    `?request=`. Only a session may approve (the API refuses
+                    every other credential). */}
+                <Route path="/oauth/consent" element={<OAuthConsentPage />} />
 
                 {/* The providers around the signed-in shell (#868): one
                     ordered list in `platform/shellProviders.tsx`, outermost
@@ -328,6 +354,11 @@ function AppRoutes() {
                       itself `@Auth()` with no permission for the same reason. */}
                   <Route path="/settings/notifications" element={<UserNotificationsPage />} />
                   <Route path="/settings/tokens" element={<UserTokensPage />} />
+                  {/* Issue #1185 (PP-15.7). Ungated like Access Tokens: the
+                      caller's own grants, behind `@Auth()` only. The card is
+                      hidden while the OAuth server is off; the page says so
+                      itself if reached then. */}
+                  <Route path="/settings/connected-apps" element={<ConnectedAppsPage />} />
                   {/* Issue #731 (PP-7.4). The `Groups` card's destination and
                       its detail page, gated on `groups:read`: the string the
                       card declares (`groupsSettingsPage.card`) and the
@@ -926,6 +957,21 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <AdminUsersPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #1185 (PP-15.7). `oauth_clients:read`, the string
+                      `oauth-clients-admin.controller.ts` enforces and the card
+                      declares. Not feature-gated: this is where the OAuth
+                      server is switched on. */}
+                  <Route
+                    path="/admin/settings/oauth-clients"
+                    element={
+                      <RequirePermission
+                        permission="oauth_clients:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <OAuthClientsPage />
                       </RequirePermission>
                     }
                   />

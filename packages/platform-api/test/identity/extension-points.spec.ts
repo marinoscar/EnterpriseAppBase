@@ -84,13 +84,15 @@ describe('registerAuthProvider (rung 2)', () => {
 });
 
 describe('identity events (rung 4)', () => {
-  it('names the five events', () => {
+  it('names the seven events (the OAuth grant pair joined in PP-15.4)', () => {
     expect(IDENTITY_EVENTS).toEqual({
       USER_CREATED: 'identity.user.created',
       MEMBERSHIP_CHANGED: 'identity.membership.changed',
       ORG_SWITCHED: 'identity.org.switched',
       LOGIN_SUCCEEDED: 'identity.login.succeeded',
       ORG_CREATED: 'identity.org.created',
+      OAUTH_GRANT_CREATED: 'identity.oauth.grant.created',
+      OAUTH_GRANT_REVOKED: 'identity.oauth.grant.revoked',
     });
   });
 
