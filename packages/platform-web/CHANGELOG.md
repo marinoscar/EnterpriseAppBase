@@ -1,5 +1,19 @@
 # @marinoscar/platform-web
 
+## 0.1.0-next.35
+
+### Minor Changes
+
+- cbf4877: OAuth server gap closure (epic #1178). API: `GET /api/admin/oauth/refused-hosts` (`oauth_clients:read`) returns `[{ host, count, lastSeenAt }]` aggregated from the `oauth:client.refused` audit rows of the last 30 days, newest first, at most 100 hosts; `GET /api/admin/oauth/policy` (`oauth_clients:read`) returns `{ suggestedHosts }`, the app's `IdentityModule.forRoot({ oauthServer: { defaultAllowedClientHosts } })`. Both are served by the new `OAuthAdminHintsController`. The consent read (`GET /api/oauth/requests/:id`) adds `client.isNewToDeployment`: `true` when the client was first seen under 24 hours ago or no OTHER user holds an active grant with it (one indexed lookup, only for a client older than a day). Contract: `OAuthRefusedHost`, `OAuthPolicy` (and their schemas), `OAuthConsentRequest.client.isNewToDeployment` (required), `OAUTH_APPLICATION_TYPES`. Web: `createOAuthServerApi` gains `getPolicy()`, `/identity/headless` gains `useOAuthPolicy`, and `OAuthClientsPage` uses the API's suggested hosts when its `suggestedHosts` prop is absent (the prop still wins; a `404` from either route keeps the page working); the consent page shows its first-time notice from `isNewToDeployment` (the client-side 24-hour guess and `isNewClient` are gone). Infra: `csp.conf` and `csp.dev.conf` add `$frame_deny`, `$x_frame_options` and `$csp_header`; `platform/security-headers.conf` now sends `X-Frame-Options $x_frame_options` and `Content-Security-Policy $csp_header`, so `/oauth/consent` and `/oauth/error` answer `X-Frame-Options: DENY` and `frame-ancestors 'none'` with the rest of the policy (the app's `app.d/csp/` additions included) unchanged, and every other path is byte-for-byte as before. Run `platform-infra sync` after upgrading. TSDoc: exported OAuth symbols are documented and tagged so TypeDoc is warning-free.
+- cbf4877: Identity: the OAuth server's web side (PP-15.7). `/identity/ui` gains `OAuthConsentPage` (`/oauth/consent`: the client's host leads, the self-asserted name and logo second, the return host, a loopback warning, a first-time notice, scopes grouped by risk with `elevated` and `high` unticked, `Allow` disabled for one second and while submitting, slots `Header`, `Footer` and `scopeIcon`), `OAuthErrorPage` (`/oauth/error`, the closed code list, nothing echoed from the query), `ConnectedAppsPage` (`/settings/connected-apps`, disconnect with a confirmation) and `OAuthClientsPage` (`/admin/settings/oauth-clients`: the switch and issuer, the allowed client hosts with suggestions and refused hosts, the client list with add, disable, rotate and delete, the token lifetimes). New opt-in registry keys `identityAdminSections.oauthClients` (`oauth_clients:read`, no feature) and `identityUserSettingsSections.connectedApps` (no permission, `feature: 'oauthServer'`); existing keys are unchanged. `/identity/headless` gains `createOAuthServerApi`, `useOAuthServerApi`, `OAuthServerStatusProvider`, `useOAuthServerStatus`, `useOAuthServerFeature` and the hooks `useOAuthRequest`, `useOAuthGrants`, `useOAuthClients`, `useOAuthRefusedHosts` and `useOAuthServerSettings`; `IdentityWebAdapters` gains an optional `oauthApi`. The settings slice declares the `oauthServer` key in `SettingsFeatureRegistry`.
+
+### Patch Changes
+
+- Updated dependencies [cbf4877]
+- Updated dependencies [cbf4877]
+- Updated dependencies [cbf4877]
+  - @marinoscar/platform-contract@0.1.0-next.35
+
 ## 0.1.0-next.34
 
 ### Patch Changes
