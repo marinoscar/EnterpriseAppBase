@@ -10,7 +10,8 @@
  * so they carry the app's bearer token, refresh and maintenance handling,
  * and the API enforces the same permissions it enforces for the packaged
  * pages (`users:read`, `allowlist:read`, `org_members:read`,
- * `org_invites:read`, `organizations:read`; tokens are the caller's own).
+ * `org_invites:read`, `organizations:read`, `oauth_clients:read`; tokens are
+ * the caller's own).
  */
 import { useEffect } from 'react';
 import { Chip } from '@mui/material';
@@ -19,6 +20,7 @@ import {
   useOrgInvites,
   useOrgMembers,
   useOrganizations,
+  useOAuthAdminGrants,
   useOAuthClients,
   useOAuthGrants,
   useOAuthRefusedHosts,
@@ -119,4 +121,10 @@ export function RefusedHostsSummary() {
 export function OAuthServerSwitchSummary() {
   const { settings, isLoading, error } = useOAuthServerSettings();
   return <SummaryChip label={settings?.enabled ? 'OAuth is on' : 'OAuth is off'} isLoading={isLoading} error={error} />;
+}
+
+/** One user's active OAuth connections, across clients (`useOAuthAdminGrants`). */
+export function UserOAuthConnectionsSummary({ userId }: { userId: string }) {
+  const { total, isLoading, error } = useOAuthAdminGrants({ userId });
+  return <SummaryChip label={`${total} active OAuth connections`} isLoading={isLoading} error={error} />;
 }

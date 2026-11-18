@@ -98,6 +98,7 @@ export type { DeviceCredentialKind } from './device-credential.js';
 // behind the `oauthServer` settings feature, and the three page hooks.
 export { OAUTH_SERVER_SETTING_BOUNDS, createOAuthServerApi } from './oauth-api.js';
 export type {
+  OAuthAdminGrantListParams,
   OAuthClientCreateInput,
   OAuthClientListParams,
   OAuthRefusedHost,
@@ -113,6 +114,8 @@ export type { OAuthServerStatus } from './oauth-server-status.js';
 export { useOAuthRequest } from './hooks/use-oauth-request.js';
 export type { OAuthRequestStatus, UseOAuthRequestReturn } from './hooks/use-oauth-request.js';
 export { useOAuthGrants } from './hooks/use-oauth-grants.js';
+export { useOAuthAdminGrants } from './hooks/use-oauth-admin-grants.js';
+export type { OAuthAdminGrantFilter, UseOAuthAdminGrantsReturn } from './hooks/use-oauth-admin-grants.js';
 export type { UseOAuthGrantsReturn } from './hooks/use-oauth-grants.js';
 export type { UseOAuthPolicyReturn } from './hooks/use-oauth-clients.js';
 export { useOAuthClients, useOAuthPolicy, useOAuthRefusedHosts, useOAuthServerSettings } from './hooks/use-oauth-clients.js';

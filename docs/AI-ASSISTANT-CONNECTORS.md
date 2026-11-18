@@ -17,7 +17,7 @@ This guide has two parts. [Part A](#part-a-enable-it) is for the team that build
 | Tokens | `oat_` access tokens (60 minutes) and `ort_` refresh tokens (30 days, rotated, reuse revokes the grant), limited to one resource and the approved scopes |
 | Step-up | A call that needs a wider scope answers `403 insufficient_scope`; the assistant sends the user back to the consent page |
 | Connected apps | Every user lists and disconnects their own connections |
-| Admin control | Allow or refuse hosts, pre-register or disable clients, and (API only) list and revoke any user's grant |
+| Admin control | Allow or refuse hosts, pre-register or disable clients, and list and revoke any user's grant to a client |
 
 ## Part A: Enable it
 
@@ -198,9 +198,11 @@ Open `/settings/connected-apps` (Settings, Security, Connected apps). It appears
 | Disable a client (revokes all its grants) or delete it | Same page, Clients | `oauth_clients:write` |
 | Cut a user off at once | Deactivate the user at `/admin/settings/users`; every `oat_` token re-checks the user on each call | `users:write` |
 | Switch everything off | Turn off "Let other apps connect with OAuth"; tokens are `401`, grants are kept | `oauth_clients:write` |
-| List every user's grants, revoke one | API only: `GET /api/admin/oauth/grants`, `DELETE /api/admin/oauth/grants/:id` | `oauth_clients:read`, `oauth_clients:write` |
+| List the users connected to a client, revoke one connection | Same page, Clients: Details on the client, Connections (or the API: `GET /api/admin/oauth/grants`, `DELETE /api/admin/oauth/grants/:id`) | `oauth_clients:read` to see, `oauth_clients:write` to revoke |
 
-**Per-user grants are API only.** The packaged web UI has no page for the admin grants routes; Connected apps shows the signed-in user's own grants only. Use the generated reference at `/api/docs` or `appctl api`:
+**Revoke one user's connection.** Open `/admin/settings/oauth-clients`, find the client under Clients and choose Details. The drawer's Connections section lists each user who connected it: their email, the scopes they granted, the organization, when they connected and when it was last used. Switch on "Include revoked" to see revoked connections too, with the reason. Choose Revoke on a connection and confirm: its tokens stop working at once and the user must connect again. Revoke appears only with `oauth_clients:write`. Connected apps (B2) shows the signed-in user's own connections only.
+
+To list one user's connections across every client, or to script it, use the API (the generated reference at `/api/docs`, or `appctl api`):
 
 ```bash
 appctl api GET '/api/admin/oauth/grants?userId=<user id>'

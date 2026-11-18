@@ -6,7 +6,7 @@ import type { RenderResult } from '@testing-library/react';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import type { ReactElement, ReactNode } from 'react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import type { OAuthClientView, OAuthConsentRequest, OAuthGrantView } from '@marinoscar/platform-contract/identity';
+import type { OAuthAdminGrantView, OAuthClientView, OAuthConsentRequest, OAuthGrantView } from '@marinoscar/platform-contract/identity';
 
 import { PlatformHostProvider } from '../../src/core/index.js';
 import { AuthContext, IdentityWebAdaptersProvider } from '../../src/identity/headless/index.js';
@@ -79,6 +79,23 @@ export function client(overrides: Partial<OAuthClientView> = {}): OAuthClientVie
     disabledAt: null,
     disabled: false,
     createdAt: OLD,
+    ...overrides,
+  };
+}
+
+/** A user's grant to {@link client} as an administrator sees it (`GET /api/admin/oauth/grants`). */
+export function adminGrant(overrides: Partial<OAuthAdminGrantView> = {}): OAuthAdminGrantView {
+  return {
+    id: '77777777-7777-4777-8777-777777777777',
+    user: { id: '88888888-8888-4888-8888-888888888888', email: 'person.a@example.test' },
+    client: { id: '55555555-5555-4555-8555-555555555555', name: 'Example Desk', host: 'desk.example.test' },
+    resource: { id: 'runs', name: 'Runs' },
+    scopes: ['runs:read', 'runs:write'],
+    organization: { id: ORG_A, name: 'Org Alpha' },
+    createdAt: OLD,
+    lastUsedAt: null,
+    revokedAt: null,
+    revokedReason: null,
     ...overrides,
   };
 }
