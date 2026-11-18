@@ -208,8 +208,8 @@ export interface OAuthServerApi {
   /** `GET /api/system-settings` (`system_settings:read`), narrowed to the `oauthServer` namespace. */
   getServerSettings(): Promise<VersionedOAuthServerSettings>;
   /**
-   * `PATCH /api/system-settings` with `{ oauthServer: patch }` and `If-Match:
-   * version` (`system_settings:write`). A `409` means another administrator
+   * `PATCH /api/system-settings` with `{ oauthServer: patch }` and the
+   * `If-Match: version` header (`system_settings:write`). A `409` means another administrator
    * saved first.
    */
   updateServerSettings(patch: Partial<OAuthServerSettings>, version: number): Promise<VersionedOAuthServerSettings>;

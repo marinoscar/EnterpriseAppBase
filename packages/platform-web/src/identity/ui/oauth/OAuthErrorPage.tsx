@@ -44,7 +44,7 @@ export interface OAuthErrorPageProps {
   slots?: OAuthErrorPageSlots;
   /** The product name. Default the identity adapters' `appName`, else `'this app'`. */
   appName?: string;
-  /** Where "Go to {appName}" leads. Default `'/'`. */
+  /** Where "Go to \{appName\}" leads. Default `'/'`. */
   homePath?: string;
 }
 

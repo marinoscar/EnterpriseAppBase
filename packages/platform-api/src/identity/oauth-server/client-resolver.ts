@@ -150,14 +150,14 @@ export function toClientRecord(row: IdentityOAuthClientRow): OAuthClientRecord {
 export class StoredClientResolver implements ClientResolver {
   constructor(@Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma) {}
 
-  /** @inheritdoc */
+  /** Implements the interface method of the same name. */
   async resolveForAuthorization(clientId: string): Promise<ClientResolution> {
     const client = await this.resolveStored(clientId);
     if (!client || client.disabledAt !== null) return { ok: false, code: 'unknown_client' };
     return { ok: true, client };
   }
 
-  /** @inheritdoc */
+  /** Implements the interface method of the same name. */
   async resolveStored(clientId: string): Promise<OAuthClientRecord | null> {
     const row = await this.prisma.oAuthClient.findUnique({ where: { clientId } });
     return row ? toClientRecord(row) : null;

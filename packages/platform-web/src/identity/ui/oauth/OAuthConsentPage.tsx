@@ -85,7 +85,7 @@ export interface OAuthConsentPageProps {
   /** Brand or extend the page without a fork. */
   slots?: OAuthConsentPageSlots;
   /**
-   * The product name the page uses ("wants to connect to {appName}").
+   * The product name the page uses ("wants to connect to \{appName\}").
    * Default the identity adapters' `appName`, else `'this app'`.
    */
   appName?: string;

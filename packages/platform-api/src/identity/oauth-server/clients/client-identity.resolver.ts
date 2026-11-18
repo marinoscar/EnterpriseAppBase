@@ -45,7 +45,7 @@ export class ClientIdentityResolver implements ClientResolver {
     @Optional() @Inject(IDENTITY_METRICS) private readonly metrics: IdentityMetrics = NOOP_IDENTITY_METRICS,
   ) {}
 
-  /** @inheritdoc */
+  /** Implements the interface method of the same name. */
   async resolveForAuthorization(clientId: string): Promise<ClientResolution> {
     const url = parseCimdClientId(clientId);
     const row = url ? await this.resolveMetadataDocument(clientId, url) : await this.prisma.oAuthClient.findUnique({ where: { clientId } });
@@ -62,7 +62,7 @@ export class ClientIdentityResolver implements ClientResolver {
     return { ok: true, client: record };
   }
 
-  /** @inheritdoc */
+  /** Implements the interface method of the same name. */
   async resolveStored(clientId: string): Promise<OAuthClientRecord | null> {
     const row = await this.prisma.oAuthClient.findUnique({ where: { clientId } });
     return row ? toClientRecord(row) : null;

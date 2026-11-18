@@ -15,8 +15,8 @@ import {
   oauthServerSettingsPatchSchema,
   oauthServerSettingsSchema,
   type OAuthServerSettingsValue,
-} from '../identity/oauth-server/oauth-server-settings.schemas';
-import { OAUTH_AUDIT_ACTIONS } from '../identity/oauth-server/oauth-grant.service';
+  OAUTH_AUDIT_ACTIONS,
+} from '../identity';
 import type { SystemSettingsNamespace } from './registry/system-settings-namespace';
 import type { SettingsWriteHook } from './write-hooks';
 

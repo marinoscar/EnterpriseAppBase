@@ -9,11 +9,11 @@
 // `@marinoscar/platform-api/webhooks` surface are unchanged.
 // =============================================================================
 
-export { WebhookEgressError, hostForLog, parseWebhookUrl, resolveWebhookTarget, systemHostResolver } from '../../core/egress/egress-guard';
+export { WebhookEgressError, hostForLog, parseWebhookUrl, resolveWebhookTarget, systemHostResolver } from '../../core';
 export type {
   HostResolver,
   ResolvedAddress,
   ResolvedWebhookTarget,
   WebhookEgressErrorCode,
   WebhookEgressPolicy,
-} from '../../core/egress/egress-guard';
+} from '../../core';

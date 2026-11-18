@@ -64,7 +64,7 @@ export class InMemoryOAuthRateLimiter implements OAuthRateLimiter {
    */
   constructor(private readonly now: () => number = Date.now) {}
 
-  /** @inheritdoc */
+  /** Implements the interface method of the same name. */
   consume(key: string, limit: number, windowMs: number): OAuthRateLimitVerdict {
     const at = this.now();
     if (this.buckets.size >= SWEEP_AT) {
@@ -96,7 +96,7 @@ export class OAuthRateLimitService implements OAuthRateLimiter {
     this.limiter = bound ?? new InMemoryOAuthRateLimiter();
   }
 
-  /** @inheritdoc */
+  /** Implements the interface method of the same name. */
   consume(key: string, limit: number, windowMs: number): Promise<OAuthRateLimitVerdict> | OAuthRateLimitVerdict {
     return this.limiter.consume(key, limit, windowMs);
   }
