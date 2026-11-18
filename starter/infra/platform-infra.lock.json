@@ -1,5 +1,5 @@
 {
-  "version": "0.1.0-next.3",
+  "version": "0.1.0-next.34",
   "identity": {
     "cliName": "appctl",
     "envPrefix": "APPCTL_",
@@ -32,7 +32,8 @@
         "infra/nginx/csp.dev.conf": "36d6d4ac04e950e53a990ef445cd5fd080646836f364d8d8ff4a6c7f89563f85",
         "infra/nginx/platform/security-headers.conf": "1a390bbd1562e92f7a73b3c8b55387a3a73de3fa1a35907b3bd1f6bda88011ca",
         "infra/nginx/platform/sse-proxy.conf": "09d146b21acf14a29c8b5b4341b764d23c9be8319ff5d02359bd2c6d0d1cabe0",
-        "infra/nginx/platform/android-app.conf": "f8afebca96460e907d25586cb3fa7754adf82e6e1088cfc1c4a3ac099fe1962e"
+        "infra/nginx/platform/android-app.conf": "f8afebca96460e907d25586cb3fa7754adf82e6e1088cfc1c4a3ac099fe1962e",
+        "infra/nginx/platform/oauth-server.conf": "fc534625b15271b3fc309dbcd678c9bd44874bbbac3f9c1895838c90e1f9c74c"
       }
     },
     "env": {

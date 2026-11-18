@@ -13,9 +13,18 @@
 //   - `org_members:read`   -> org-members.controller.ts (an ORG permission;
 //                             the Invites tab gates `org_invites:read`)
 //   - `organizations:read` -> organizations-admin.controller.ts (SYSTEM)
-// The Access Tokens card has none: every signed-in user manages their own.
+//   - `oauth_clients:read` -> oauth-server/clients/oauth-clients-admin.controller.ts
+//                             (SYSTEM; writes gate `oauth_clients:write` inside
+//                             the page). No `feature`: this card is where the
+//                             OAuth server is switched on, like the admin `AI` card.
+// The Access Tokens and Connected apps cards have none: every signed-in user
+// manages their own tokens and grants (the `/api/pat` and `/api/oauth/grants`
+// routes are `@Auth()` only). Connected apps carries `feature: 'oauthServer'`:
+// it exists only while the OAuth server is on.
 
+import AppsOutlinedIcon from '@mui/icons-material/AppsOutlined';
 import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined';
+import HubOutlinedIcon from '@mui/icons-material/HubOutlined';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
 import PeopleIcon from '@mui/icons-material/People';
 import VpnKeyIcon from '@mui/icons-material/VpnKey';
@@ -28,7 +37,7 @@ import type { PlatformSettingsPage } from '../../core/index.js';
  *
  * @stability experimental
  */
-export type IdentitySettingsCard = PlatformSettingsPage<'orgs'>['card'] & {
+export type IdentitySettingsCard = PlatformSettingsPage<'orgs' | 'oauthServer'>['card'] & {
   /** The card and rail icon (an MUI SvgIcon). */
   Icon: PlatformSettingsPage['Icon'];
 };
@@ -36,7 +45,9 @@ export type IdentitySettingsCard = PlatformSettingsPage<'orgs'>['card'] & {
 /**
  * The identity admin cards, by the admin section they belong to:
  *
- * - `access`: `Users & Allowlist` (`/admin/settings/users`, `users:read`).
+ * - `access`: `Users & Allowlist` (`/admin/settings/users`, `users:read`), then
+ *   `OAuth clients` (`/admin/settings/oauth-clients`, `oauth_clients:read`, no
+ *   `feature`: it is where the OAuth server is switched on), appended.
  * - `organizations`: `Organization` (`/admin/settings/organization`,
  *   `org_members:read`) and `Organizations` (`/admin/settings/organizations`,
  *   `organizations:read`), both `feature: 'orgs'` (multi-org deployments only).
@@ -63,6 +74,14 @@ export const identityAdminSections: {
       Icon: PeopleIcon,
       path: '/admin/settings/users',
       permission: 'users:read',
+    },
+    {
+      title: 'OAuth clients',
+      description:
+        'Let other apps connect with OAuth: switch the server on, choose which client hosts may connect, and manage clients and token lifetimes.',
+      Icon: HubOutlinedIcon,
+      path: '/admin/settings/oauth-clients',
+      permission: 'oauth_clients:read',
     },
   ]),
   organizations: Object.freeze([
@@ -91,11 +110,16 @@ export const identityAdminSections: {
  * The identity per-user settings cards, by section:
  *
  * - `security`: `Access Tokens` (`/settings/tokens`, no permission).
+ * - `connectedApps`: `Connected apps` (`/settings/connected-apps`, no
+ *   permission: any signed-in user manages their own grants;
+ *   `feature: 'oauthServer'`, hidden while the OAuth server is off). Its own
+ *   key so an app APPENDS it after its existing Security cards instead of the
+ *   package inserting it between them.
  *
  * @example
  * ```tsx
  * // apps/web/src/config/userSettingsSections.tsx
- * { label: 'Security', cards: [...identityUserSettingsSections.security, aiKeysCard] },
+ * { label: 'Security', cards: [...identityUserSettingsSections.security, aiKeysCard, ...identityUserSettingsSections.connectedApps] },
  * ```
  *
  * @extensionPoint component
@@ -104,6 +128,8 @@ export const identityAdminSections: {
 export const identityUserSettingsSections: {
   /** The Security section's cards. */
   readonly security: readonly IdentitySettingsCard[];
+  /** The `Connected apps` card (PP-15.7), appended to the app's Security section. */
+  readonly connectedApps: readonly IdentitySettingsCard[];
 } = Object.freeze({
   security: Object.freeze([
     {
@@ -111,6 +137,15 @@ export const identityUserSettingsSections: {
       description: 'Create and revoke personal access tokens for API and CLI access.',
       Icon: VpnKeyIcon,
       path: '/settings/tokens',
+    },
+  ]),
+  connectedApps: Object.freeze([
+    {
+      title: 'Connected apps',
+      description: 'See the apps you connected to your account with OAuth, what each may do, and disconnect them.',
+      Icon: AppsOutlinedIcon,
+      path: '/settings/connected-apps',
+      feature: 'oauthServer' as const,
     },
   ]),
 });

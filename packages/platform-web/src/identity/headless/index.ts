@@ -61,7 +61,7 @@ export type {
   UserSortField,
   UsersResponse,
 } from './api.js';
-export { IdentityWebAdaptersProvider, useIdentityApi, useIdentityWebAdapters } from './adapters.js';
+export { IdentityWebAdaptersProvider, useIdentityApi, useIdentityWebAdapters, useOAuthServerApi } from './adapters.js';
 export type { IdentitySpinnerProps, IdentityWebAdapters } from './adapters.js';
 export type {
   IdentityDataTableComponent,
@@ -94,3 +94,27 @@ export {
   sanitizeDeviceText,
 } from './device-credential.js';
 export type { DeviceCredentialKind } from './device-credential.js';
+// The OAuth server's web side (PP-15.7, #1185): the client, the status probe
+// behind the `oauthServer` settings feature, and the three page hooks.
+export { OAUTH_SERVER_SETTING_BOUNDS, createOAuthServerApi } from './oauth-api.js';
+export type {
+  OAuthClientCreateInput,
+  OAuthClientListParams,
+  OAuthRefusedHost,
+  OAuthServerApi,
+  OAuthServerMetadata,
+  OAuthServerSettings,
+  VersionedOAuthServerSettings,
+} from './oauth-api.js';
+export { OAuthServerStatusProvider, useOAuthServerFeature, useOAuthServerStatus } from './oauth-server-status.js';
+export type { OAuthServerStatus } from './oauth-server-status.js';
+export { useOAuthRequest } from './hooks/use-oauth-request.js';
+export type { OAuthRequestStatus, UseOAuthRequestReturn } from './hooks/use-oauth-request.js';
+export { useOAuthGrants } from './hooks/use-oauth-grants.js';
+export type { UseOAuthGrantsReturn } from './hooks/use-oauth-grants.js';
+export { useOAuthClients, useOAuthRefusedHosts, useOAuthServerSettings } from './hooks/use-oauth-clients.js';
+export type {
+  UseOAuthClientsReturn,
+  UseOAuthRefusedHostsReturn,
+  UseOAuthServerSettingsReturn,
+} from './hooks/use-oauth-clients.js';

@@ -14,7 +14,7 @@
 // =============================================================================
 
 import { Controller, Get, Header, NotFoundException, Req, UseFilters } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { FastifyRequest } from 'fastify';
 
 import { RawResponse } from '../../core/index';
@@ -83,6 +83,7 @@ export class OAuthResourceMetadataController {
       'The RFC 9728 document of the resource whose `path` follows `/protected-resource` (for `/api/mcp`: `/api/oauth/.well-known/protected-resource/api/mcp`). ' +
       '`resource` is `APP_URL` + the path exactly; `authorization_servers` has one entry, the issuer. `404` for a path that matches no resource, and while the server is disabled.',
   })
+  @ApiParam({ name: 'path', description: 'The resource path without its leading slash (for `/api/mcp`: `api/mcp`).' })
   @ApiResponse({ status: 200, description: 'The metadata document (not enveloped).' })
   @ApiResponse({ status: 404, description: 'The OAuth server is not enabled, or no resource has that path.' })
   async forPath(@Req() request: FastifyRequest) {
