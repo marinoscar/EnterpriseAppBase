@@ -54,7 +54,11 @@ import { displayableClientLogo, isNewClient } from './oauth-display.js';
 type ConsentScope = OAuthConsentRequest['scopes'][number];
 type ScopeRisk = ConsentScope['risk'];
 
-/** How long `Allow` stays disabled after the request renders. */
+/**
+ * How long `Allow` stays disabled after the request renders.
+ *
+ * @stability experimental
+ */
 export const CONSENT_ALLOW_DELAY_MS = 1000;
 
 /**
@@ -106,7 +110,14 @@ const RISK_HEADINGS: Record<ScopeRisk, { title: string; hint: string }> = {
 
 const UNGRANTABLE_TEXT = 'Your account cannot do this, so the app will not be able to either.';
 
-/** The scopes ticked when the request loads (docs/specs/oauth-server.md §2.19). */
+/**
+ * The scopes ticked when the request loads (docs/specs/oauth-server.md §2.19).
+ *
+ * @param scopes - the requested scopes.
+ * @returns the ids ticked by default.
+ *
+ * @stability experimental
+ */
 export function defaultConsentSelection(scopes: readonly ConsentScope[]): Set<string> {
   const selected = new Set<string>();
   for (const scope of scopes) {
@@ -182,6 +193,8 @@ export function OAuthConsentPage({
           boxShadow: { xs: 'none', sm: theme.shadows[10] },
           borderRadius: { xs: 0, sm: 1 },
           overflowWrap: 'anywhere',
+          // Visible, not MUI's hidden: the sticky action bar needs the page as its scroller.
+          overflow: 'visible',
         }}
       >
         <CardContent sx={{ p: { xs: 2, sm: 4 }, '&:last-child': { pb: { xs: 2, sm: 4 } } }}>

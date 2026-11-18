@@ -50,7 +50,7 @@ export { identityAdminSections, identityUserSettingsSections } from './settings.
 export { CONSENT_ALLOW_DELAY_MS, OAuthConsentPage, defaultConsentSelection } from './oauth/OAuthConsentPage.js';
 export type { OAuthConsentPageProps, OAuthConsentPageSlots } from './oauth/OAuthConsentPage.js';
 export { OAuthErrorPage, oauthErrorPageContent } from './oauth/OAuthErrorPage.js';
-export type { OAuthErrorPageProps, OAuthErrorPageSlots } from './oauth/OAuthErrorPage.js';
+export type { OAuthErrorPageContent, OAuthErrorPageProps, OAuthErrorPageSlots } from './oauth/OAuthErrorPage.js';
 export { CONNECTED_APPS_TABLE_ID, ConnectedAppsPage } from './oauth/ConnectedAppsPage.js';
 export type { ConnectedAppsPageProps, ConnectedAppsPageSlots } from './oauth/ConnectedAppsPage.js';
 export { OAUTH_CLIENTS_TABLE_ID, OAuthClientsPage } from './oauth/OAuthClientsPage.js';

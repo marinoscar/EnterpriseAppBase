@@ -103,6 +103,8 @@ export type {
   OAuthRefusedHost,
   OAuthServerApi,
   OAuthServerMetadata,
+  OAuthServerNumericSetting,
+  OAuthServerSettingBound,
   OAuthServerSettings,
   VersionedOAuthServerSettings,
 } from './oauth-api.js';

@@ -10,6 +10,8 @@
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
+import { oauthResourceRegistry } from '../oauth-server/oauth-resource.registry';
+
 /**
  * A PKCE pair (RFC 7636, S256).
  *
@@ -222,7 +224,6 @@ export interface MintedOAuthTestToken {
  * @stability experimental
  */
 export async function mintOAuthTestToken(db: OAuthTestTokenDb, input: MintOAuthTestTokenInput): Promise<MintedOAuthTestToken> {
-  const { oauthResourceRegistry } = await import('../oauth-server/oauth-resource.registry');
   const resource = oauthResourceRegistry.get(input.resourceId);
   if (!resource) throw new Error(`mintOAuthTestToken: unknown protected resource "${input.resourceId}"`);
   const client = input.client ?? (await createOAuthTestClient(db));

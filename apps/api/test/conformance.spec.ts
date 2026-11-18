@@ -81,6 +81,7 @@
 import { join } from 'node:path';
 
 import { aiProvidersPackageSdkDirs } from '@marinoscar/platform-api/ai/testing';
+import { registerOAuthProtectedResource, registerOAuthScope } from '@marinoscar/platform-api/identity';
 import { runPlatformConformance } from '@marinoscar/platform-api/testing';
 // Importing a slice's testing entry REGISTERS its suites with the harness.
 import '@marinoscar/platform-api/ai/testing';
@@ -92,15 +93,30 @@ import '@marinoscar/platform-api/webhooks/testing';
 import '@marinoscar/platform-api/alerts/testing';
 // The nodes slice's suite (#1076): `nodes`.
 import '@marinoscar/platform-api/nodes/testing';
+// The identity slice's OAuth server suite (#1186): `oauth-server`.
+import '@marinoscar/platform-api/identity/testing';
 import { RAW_SQL_INDEXES } from '@marinoscar/platform-db';
 // The app's own AI providers (registers `example-transcribe`): the SDK-leak suite reads
 // the registered definitions' `sdkPackages`, and each AI suite discovers its routes.
 import '../src/app-registrations/ai';
 
 import { AppModule } from '../src/app.module';
+import { permissionRegistry } from '../src/common/permissions';
 import { aiConformanceFixture } from './conformance/ai-fixture';
 import { doctorConformanceFixture } from './conformance/doctor-fixture';
 import { API_SOURCE_ROOT, CRON_SOURCE_ROOTS, JOBS_SLICE_SOURCE_ROOT, NODES_SLICE_SOURCE_ROOT } from './jobs/cron-source-roots';
+
+// The reference app mounts the OAuth server but registers no protected resource of its own (a
+// consumer does). The suite is not vacuous: it checks a conformance-only resource against every
+// route of the app, so a careless prefix or scope fails here.
+registerOAuthScope({ id: 'conformance:read', title: 'Read', description: 'Conformance scope.', permissions: ['users:read'], risk: 'low', default: true });
+registerOAuthProtectedResource({
+  id: 'conformance',
+  path: '/api/oauth-conformance',
+  routePrefixes: ['/api/oauth-conformance'],
+  scopes: ['conformance:read'],
+  name: 'Conformance resource',
+});
 
 const REPO = join(__dirname, '..', '..', '..');
 const PACKAGE_API_SRC = join(REPO, 'packages', 'platform-api', 'src');
@@ -176,6 +192,15 @@ runPlatformConformance({
     // Suite id: `doctor-read-only`. The checks are DISCOVERED from the booted app's
     // registry; the floor is a vacuity guard, not a list.
     doctorReadOnly: { fixture: doctorConformanceFixture, minChecks: 30 },
+
+    // The OAuth server (#1186): registrations, confinement, narrowing, session-only and roles-only
+    // routes, the 401 challenge and the metadata documents. The secret-egress check needs a flow
+    // against a database: oauth-conformance.db.spec.ts runs it.
+    oauthServer: {
+      rootModule: AppModule,
+      permissions: permissionRegistry.list().map((permission) => permission.id),
+      secretEgress: { skip: 'it needs a real flow and database: test/identity/oauth/oauth-conformance.db.spec.ts runs it' },
+    },
 
     // The webhooks slice (#1046): exact route permissions, signing and rotation,
     // the egress guard (private targets, DNS rebinding), secrecy, nothing sent

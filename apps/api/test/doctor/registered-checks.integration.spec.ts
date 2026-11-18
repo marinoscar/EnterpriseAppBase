@@ -30,6 +30,12 @@ const BASELINE = [
   'jobs/jobs.worker',
   'jobs/jobs.backlog',
   'auth/tenancy.mode',
+  // PP-15.8 (#1186): the OAuth server's five checks, registered by its module (after tenancy.mode, before the auth.* checks).
+  'auth/oauth.public_url',
+  'auth/oauth.well_known',
+  'auth/oauth.client_policy',
+  'auth/oauth.resources',
+  'auth/oauth.token_cleanup',
   'core/core.event-bus',
   'maintenance/maintenance.mode',
   'core/core.deployment-mode',

@@ -12,7 +12,7 @@
 // =============================================================================
 
 import { registerPlatformHostAppMetrics } from '@marinoscar/platform-api/host';
-import { ORGANIZATIONS_APP_METRICS } from '@marinoscar/platform-api/identity';
+import { OAUTH_APP_METRICS, ORGANIZATIONS_APP_METRICS } from '@marinoscar/platform-api/identity';
 import { SHARING_APP_METRICS } from '@marinoscar/platform-api/sharing';
 import { EXPORTS_APP_METRICS } from '@marinoscar/platform-api/exports';
 import { USER_DATA_APP_METRICS } from '@marinoscar/platform-api/user-data';
@@ -24,6 +24,8 @@ import { APP_METRICS } from '../../app-registrations/telemetry';
 registerPlatformHostAppMetrics(
   // Organization administration (#726, PP-6.7).
   ORGANIZATIONS_APP_METRICS,
+  // The OAuth server's four counters (PP-15.8, #1186).
+  OAUTH_APP_METRICS,
   SHARING_APP_METRICS,
   EXPORTS_APP_METRICS,
   USER_DATA_APP_METRICS,

@@ -30,7 +30,11 @@ import { relativeTime } from './oauth-display.js';
 const PAGE_TITLE = 'Connected apps';
 const PAGE_DESCRIPTION = 'See the apps you connected to your account with OAuth, what each may do, and disconnect them.';
 
-/** Persistence key for `user_settings.dataTables`. */
+/**
+ * Persistence key for `user_settings.dataTables`.
+ *
+ * @stability experimental
+ */
 export const CONNECTED_APPS_TABLE_ID = 'settings-connected-apps';
 
 /**

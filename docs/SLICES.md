@@ -326,9 +326,11 @@ A capability an app mounts: its routes, jobs, settings, Doctor checks and, in th
 
 | Card | Route | Permission | Feature gate | Declared by |
 |---|---|---|---|---|
+| OAuth clients | `/admin/settings/oauth-clients` | `oauth_clients:read` | none | the package (data the app spreads into its registry) |
 | Organization | `/admin/settings/organization` | `org_members:read` | `orgs` | the package (data the app spreads into its registry) |
 | Organizations | `/admin/settings/organizations` | `organizations:read` | `orgs` | the package (data the app spreads into its registry) |
 | Users & Allowlist | `/admin/settings/users` | `users:read` | none | the package (data the app spreads into its registry) |
+| Connected apps | `/settings/connected-apps` | none | `oauthServer` | the package (data the app spreads into its registry) |
 | Access Tokens | `/settings/tokens` | none | none | the package (data the app spreads into its registry) |
 
 **Permissions it adds.** `allowlist:{read,write}`, `oauth_clients:{read,write}`, `org_members:{read,write}` (org), `org_invites:{read,write}` (org), `organizations:{read,write}`, `users:{read,write}`, `rbac:manage`

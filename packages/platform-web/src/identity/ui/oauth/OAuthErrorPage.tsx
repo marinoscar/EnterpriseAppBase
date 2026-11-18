@@ -49,6 +49,18 @@ export interface OAuthErrorPageProps {
 }
 
 /**
+ * What the error page shows for one code.
+ *
+ * @stability experimental
+ */
+export interface OAuthErrorPageContent {
+  /** The heading. */
+  title: string;
+  /** The one sentence under it. */
+  message: string;
+}
+
+/**
  * The sentence for one error-page code (`host` only for `client_not_allowed`,
  * already checked to be a host name).
  *
@@ -56,12 +68,14 @@ export interface OAuthErrorPageProps {
  * @param appName - the product name.
  * @param host - the refused client host, or `null`.
  * @returns the title and the sentence.
+ *
+ * @stability experimental
  */
 export function oauthErrorPageContent(
   code: OAuthErrorPageCode | null,
   appName: string,
   host: string | null,
-): { title: string; message: string } {
+): OAuthErrorPageContent {
   switch (code) {
     case 'server_disabled':
       return {

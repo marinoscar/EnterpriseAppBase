@@ -473,7 +473,7 @@ export async function checkOAuthTokenConfinement(options: OAuthServerConformance
     const inside = `${resource.routePrefixes[0]}/probe`;
     const request: ProbeRequest = { headers: { authorization: `Bearer oat_${resource.id}` }, url: inside, originalUrl: inside };
     const outcome = await tryGuard(guard, probeContext(request, handler, ConfinementProbe));
-    if (!outcome.admitted) out.push({ file, message: `refuses a valid oat_ token of resource "${resource.id}" on its own route ${inside}.` });
+    if (!outcome.admitted) out.push({ file, message: `refuses a valid oat_ token of resource "${resource.id}" on its own route ${inside} (${String((outcome.error as Error)?.message)}).` });
     // A query string cannot smuggle a path through.
     for (const prefix of resource.routePrefixes) {
       const smuggled = `/api/users?next=${prefix}`;

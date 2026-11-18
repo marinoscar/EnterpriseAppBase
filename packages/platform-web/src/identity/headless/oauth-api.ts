@@ -57,12 +57,35 @@ export interface OAuthServerSettings {
 }
 
 /**
+ * The numeric fields of {@link OAuthServerSettings}.
+ *
+ * @stability experimental
+ */
+export type OAuthServerNumericSetting =
+  | 'accessTokenTtlMinutes'
+  | 'refreshTokenTtlDays'
+  | 'refreshTokenMaxAgeDays'
+  | 'dynamicClientUnusedDays';
+
+/**
+ * The inclusive range of one numeric setting.
+ *
+ * @stability experimental
+ */
+export interface OAuthServerSettingBound {
+  /** The smallest accepted value. */
+  readonly min: number;
+  /** The largest accepted value. */
+  readonly max: number;
+}
+
+/**
  * The bounds the API enforces on the numeric settings (the `oauthServer`
  * settings schema). The page uses them for its inputs; the API is the check.
  *
  * @stability experimental
  */
-export const OAUTH_SERVER_SETTING_BOUNDS = Object.freeze({
+export const OAUTH_SERVER_SETTING_BOUNDS: Readonly<Record<OAuthServerNumericSetting, OAuthServerSettingBound>> = Object.freeze({
   accessTokenTtlMinutes: Object.freeze({ min: 5, max: 1440 }),
   refreshTokenTtlDays: Object.freeze({ min: 1, max: 365 }),
   refreshTokenMaxAgeDays: Object.freeze({ min: 0, max: 3650 }),

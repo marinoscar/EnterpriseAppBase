@@ -88,7 +88,11 @@ const PAGE_TITLE = 'OAuth clients';
 const PAGE_DESCRIPTION =
   'Let other apps connect with OAuth: switch the server on, choose which client hosts may connect, and manage clients and token lifetimes.';
 
-/** Persistence key for `user_settings.dataTables`. */
+/**
+ * Persistence key for `user_settings.dataTables`.
+ *
+ * @stability experimental
+ */
 export const OAUTH_CLIENTS_TABLE_ID = 'admin-oauth-clients';
 
 const KIND_LABELS: Record<OAuthClientView['kind'], string> = {

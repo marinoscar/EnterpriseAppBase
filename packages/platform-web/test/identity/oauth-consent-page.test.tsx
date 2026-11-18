@@ -57,7 +57,7 @@ describe('OAuthConsentPage: who is asking and where you go', () => {
   it('starts focus on the heading block, not on Allow', async () => {
     mountConsent();
     await screen.findByRole('heading', { level: 1 });
-    expect(screen.getByTestId('oauth-consent-heading')).toHaveFocus();
+    await waitFor(() => expect(screen.getByTestId('oauth-consent-heading')).toHaveFocus());
     expect(screen.getByRole('button', { name: 'Allow' })).not.toHaveFocus();
   });
 
