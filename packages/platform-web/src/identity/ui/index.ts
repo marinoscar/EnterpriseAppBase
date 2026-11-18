@@ -45,4 +45,14 @@ export type { OrgMembersPanelProps, OrgMembersPanelSlots } from './org/OrgMember
 export { OrgInvitesPanel } from './org/OrgInvitesPanel.js';
 export type { OrgInvitesPanelProps } from './org/OrgInvitesPanel.js';
 export { identityAdminSections, identityUserSettingsSections } from './settings.js';
+// The OAuth server's pages (PP-15.7, #1185): the consent and error routes
+// (outside the shell), the user's Connected apps and the admin OAuth clients.
+export { CONSENT_ALLOW_DELAY_MS, OAuthConsentPage, defaultConsentSelection } from './oauth/OAuthConsentPage.js';
+export type { OAuthConsentPageProps, OAuthConsentPageSlots } from './oauth/OAuthConsentPage.js';
+export { OAuthErrorPage, oauthErrorPageContent } from './oauth/OAuthErrorPage.js';
+export type { OAuthErrorPageProps, OAuthErrorPageSlots } from './oauth/OAuthErrorPage.js';
+export { CONNECTED_APPS_TABLE_ID, ConnectedAppsPage } from './oauth/ConnectedAppsPage.js';
+export type { ConnectedAppsPageProps, ConnectedAppsPageSlots } from './oauth/ConnectedAppsPage.js';
+export { OAUTH_CLIENTS_TABLE_ID, OAuthClientsPage } from './oauth/OAuthClientsPage.js';
+export type { OAuthClientsPageProps, OAuthClientsPageSlots } from './oauth/OAuthClientsPage.js';
 export type { IdentitySettingsCard } from './settings.js';

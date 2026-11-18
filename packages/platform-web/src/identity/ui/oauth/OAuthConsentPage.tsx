@@ -42,7 +42,7 @@ import {
   Typography,
   useTheme,
 } from '@mui/material';
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutlineOutlined';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import type { OAuthConsentRequest } from '@marinoscar/platform-contract/identity';
 
