@@ -106,7 +106,7 @@ export function ConnectedAppsPage({ slots, api }: ConnectedAppsPageProps = {}): 
         flex: 1,
         value: (grant) => grant.scopes.map((scope) => scope.title).join(', '),
         render: (grant) => (
-          <Stack direction="row" useFlexGap flexWrap="wrap" spacing={0.5}>
+          <Stack sx={{ flexWrap: 'wrap' }} direction="row" useFlexGap spacing={0.5}>
             {grant.scopes.map((scope) => (
               <Chip key={scope.id} label={scope.title} size="small" variant="outlined" />
             ))}

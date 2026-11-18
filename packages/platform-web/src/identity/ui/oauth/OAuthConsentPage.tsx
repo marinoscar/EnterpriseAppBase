@@ -319,7 +319,7 @@ function ConsentForm({
         {Header ? (
           <Header title={titleNode} description={`It calls itself: ${request.client.name}`} actions={null} />
         ) : (
-          <Stack direction="row" spacing={2} alignItems="center">
+          <Stack sx={{ alignItems: 'center' }} direction="row" spacing={2}>
             {logo && !logoFailed && (
               <Box
                 sx={{
@@ -445,7 +445,7 @@ function ConsentForm({
             </Box>
           ))}
           {request.offlineAccess && (
-            <Stack direction="row" spacing={1} alignItems="flex-start">
+            <Stack sx={{ alignItems: 'flex-start' }} direction="row" spacing={1}>
               <CheckCircleOutlineIcon fontSize="small" color="success" sx={{ mt: 0.25 }} aria-hidden />
               <Typography variant="body2">Stay connected without asking again.</Typography>
             </Stack>
@@ -477,7 +477,7 @@ function ConsentForm({
             Tick at least one thing the app may do, or cancel.
           </Typography>
         )}
-        <Stack direction={{ xs: 'column-reverse', sm: 'row' }} spacing={1} justifyContent="flex-end">
+        <Stack sx={{ justifyContent: 'flex-end' }} direction={{ xs: 'column-reverse', sm: 'row' }} spacing={1}>
           <Button
             variant="outlined"
             size="large"
@@ -515,7 +515,7 @@ function ScopeRow({ scope, checked, disabled, icon, onChange }: ScopeRowProps): 
   const descriptionId = `oauth-scope-${scope.id.replace(/[^a-zA-Z0-9_-]/g, '_')}-description`;
   const label = (
     <Box sx={{ py: 0.75 }}>
-      <Stack direction="row" spacing={1} alignItems="center">
+      <Stack sx={{ alignItems: 'center' }} direction="row" spacing={1}>
         {icon}
         <Typography variant="body2" sx={{ fontWeight: 500 }}>
           {scope.title}
@@ -537,7 +537,7 @@ function ScopeRow({ scope, checked, disabled, icon, onChange }: ScopeRowProps): 
             {UNGRANTABLE_TEXT}
           </Typography>
         ) : scope.risk === 'high' ? (
-          <Stack direction="row" spacing={0.5} alignItems="flex-start">
+          <Stack sx={{ alignItems: 'flex-start' }} direction="row" spacing={0.5}>
             <WarningAmberIcon fontSize="small" color="warning" sx={{ mt: 0.25 }} aria-hidden />
             <Typography variant="caption" component="p" sx={{ color: 'warning.main' }}>
               Warning: {scope.description}
@@ -555,7 +555,7 @@ function ScopeRow({ scope, checked, disabled, icon, onChange }: ScopeRowProps): 
   // A required scope the account can use: listed with a check, not a checkbox.
   if (scope.required && scope.grantable) {
     return (
-      <Stack direction="row" spacing={1.5} alignItems="flex-start" sx={{ pl: 1.25 }}>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start', pl: 1.25 }}>
         <CheckCircleOutlineIcon color="success" sx={{ mt: 1 }} aria-hidden />
         {label}
       </Stack>

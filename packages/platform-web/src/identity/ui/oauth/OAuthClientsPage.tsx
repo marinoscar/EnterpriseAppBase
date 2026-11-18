@@ -190,7 +190,7 @@ function PageSection({ id, title, description, children, action }: { id: string;
   return (
     <Card component="section" aria-labelledby={id}>
       <CardContent>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ sm: 'flex-start' }} sx={{ mb: 2 }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ justifyContent: 'space-between', alignItems: { sm: 'flex-start' }, mb: 2 }}>
           <Box>
             <Typography id={id} variant="h6" component="h2">
               {title}
@@ -359,7 +359,7 @@ function SettingsSections({
                 No hosts are allowed yet.
               </Typography>
             ) : (
-              <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1} component="ul" sx={{ listStyle: 'none', p: 0, m: 0 }}>
+              <Stack direction="row" useFlexGap spacing={1} component="ul" sx={{ flexWrap: 'wrap', listStyle: 'none', p: 0, m: 0 }}>
                 {allowed.map((host) => (
                   <Box component="li" key={host}>
                     <Chip
@@ -373,11 +373,11 @@ function SettingsSections({
             )}
           </Box>
           {canWrite && (
-            <Stack
+            <Stack sx={{ alignItems: { sm: 'flex-start' } }}
               component="form"
               direction={{ xs: 'column', sm: 'row' }}
               spacing={1}
-              alignItems={{ sm: 'flex-start' }}
+             
               onSubmit={(event) => {
                 event.preventDefault();
                 setHostTouched(true);
@@ -410,7 +410,7 @@ function SettingsSections({
               </Typography>
               <Stack spacing={1}>
                 {suggestions.map((host) => (
-                  <Stack key={host} direction="row" spacing={1} alignItems="center">
+                  <Stack sx={{ alignItems: 'center' }} key={host} direction="row" spacing={1}>
                     <Typography variant="body2" sx={{ flex: 1, minWidth: 0 }}>
                       {host}
                     </Typography>
@@ -771,7 +771,7 @@ function ClientsSection({ api, canWrite }: { api: OAuthServerApi | undefined; ca
       >
         {details && (
           <Box sx={{ p: 2 }} role="region" aria-labelledby="oauth-client-details-title">
-            <Stack direction="row" alignItems="center" justifyContent="space-between">
+            <Stack sx={{ alignItems: 'center', justifyContent: 'space-between' }} direction="row">
               <Typography id="oauth-client-details-title" variant="h6" component="h2" sx={{ overflowWrap: 'anywhere' }}>
                 {details.name}
               </Typography>
