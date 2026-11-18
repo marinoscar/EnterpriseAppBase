@@ -115,7 +115,7 @@ export const OAUTH_SERVER_SYSTEM_SETTINGS = {
   requiredOnPut: false,
   /** The PATCH merge ({@link mergeOAuthServerSettings}). */
   merge: mergeOAuthServerSettings,
-  /** The `oauth:settings.update` audit row, in the write's transaction ({@link auditOAuthServerSettingsWrite}). */
+  /** The `oauth:settings.update` audit row, in the write's transaction (`auditOAuthServerSettingsWrite`). */
   onWrite: auditOAuthServerSettingsWrite,
 } satisfies SystemSettingsNamespace<'oauthServer', OAuthServerSettingsValue, OAuthServerPatch>;
 

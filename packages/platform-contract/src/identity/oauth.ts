@@ -142,6 +142,20 @@ export type OAuthDecisionEnum = { [K in (typeof OAUTH_DECISIONS)[number]]: K };
  */
 export type OAuthGrantTypeEnum = { [K in (typeof OAUTH_GRANT_TYPES)[number]]: K };
 
+/**
+ * The `application_type` values of dynamic registration (RFC 7591).
+ *
+ * @stability experimental
+ */
+export const OAUTH_APPLICATION_TYPES = ['web', 'native'] as const;
+
+/**
+ * The entries of {@link OAUTH_APPLICATION_TYPES} as an object type.
+ *
+ * @stability experimental
+ */
+export type OAuthApplicationTypeEnum = { [K in (typeof OAUTH_APPLICATION_TYPES)[number]]: K };
+
 // Factories, not shared instances: every field gets its own enum.
 const errorCodeSchema = (): z.ZodEnum<OAuthErrorCodeEnum> => z.enum(OAUTH_ERROR_CODES);
 const scopeRiskSchema = (): z.ZodEnum<OAuthScopeRiskEnum> => z.enum(OAUTH_SCOPE_RISKS);
@@ -428,6 +442,7 @@ export const OAUTH_CLIENT_AUTH_METHODS = ['none', 'client_secret_post', 'client_
  */
 export type OAuthClientAuthMethodEnum = { [K in (typeof OAUTH_CLIENT_AUTH_METHODS)[number]]: K };
 
+const applicationTypeSchema = (): z.ZodEnum<OAuthApplicationTypeEnum> => z.enum(OAUTH_APPLICATION_TYPES);
 const authMethodSchema = (): z.ZodEnum<OAuthClientAuthMethodEnum> => z.enum(OAUTH_CLIENT_AUTH_METHODS);
 
 /**
@@ -453,7 +468,7 @@ export const oauthRegistrationRequestSchema = z.object({
   /** Must be `code`. */
   response_types: z.array(z.string()).optional(),
   /** `native` permits loopback and reverse-domain redirect URIs. */
-  application_type: z.enum(['web', 'native']).optional(),
+  application_type: applicationTypeSchema().optional(),
   /** Requested scopes (informational). */
   scope: z.string().max(2000).optional(),
 });
@@ -490,7 +505,7 @@ export const oauthRegistrationResponseSchema = z.object({
   /** `code`. */
   response_types: z.array(z.string()),
   /** `web` or `native`. */
-  application_type: z.enum(['web', 'native']),
+  application_type: applicationTypeSchema(),
   /** The stored home page. */
   client_uri: z.string().optional(),
   /** The stored logo. */

@@ -193,6 +193,7 @@ export { assertAnyRoleAssignable, assertRoleAssignable, describeRole, isAppManag
 export { USERS_PERMISSIONS } from './users/users.permissions';
 export { ALLOWLIST_PERMISSIONS } from './allowlist/allowlist.permissions';
 export { ORGANIZATIONS_PERMISSIONS } from './organizations/organizations.permissions';
+export { OAuthClientCreateRequestDto, OAuthClientPatchRequestDto, OAuthClientsQueryDto } from './oauth-server/oauth.dto';
 export { OAUTH_CLIENTS_PERMISSIONS } from './oauth-server/oauth-clients.permissions';
 export { ORGANIZATIONS_APP_METRICS } from './organizations/organizations.metrics';
 export type { IdentityAppMetricDef } from './organizations/organizations.metrics';
@@ -296,7 +297,7 @@ export {
   parseCimdClientId,
   validateCimdDocument,
 } from './oauth-server/clients/index';
-export type { CimdFailureCode, CimdFetchResult, CimdMetadata, TrustRefusalReason, TrustSettings, TrustSubject, TrustVerdict } from './oauth-server/clients/index';
+export type { CimdFailureCode, CimdFetchResult, CimdMetadata, OAuthClientViewPage, TrustRefusalReason, TrustSettings, TrustSubject, TrustVerdict } from './oauth-server/clients/index';
 export type { AuthCredentialInfo, RequestWithAuthCredential } from './auth/decorators/auth-credential.decorator';
 export { JwtAuthGuard, NODE_ROUTE_PREFIX } from './auth/guards/jwt-auth.guard';
 export { RolesGuard } from './auth/guards/roles.guard';

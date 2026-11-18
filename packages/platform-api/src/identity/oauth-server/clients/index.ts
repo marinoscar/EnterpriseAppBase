@@ -36,3 +36,4 @@ export { OAUTH_CLIENT_CLEANUP_TYPE, OAuthClientCleanupHandler } from './oauth-cl
 export { OAuthClientCleanupTask } from './oauth-client-cleanup.task';
 export { OAuthAdminHintsController, OAuthClientsAdminController } from './oauth-clients-admin.controller';
 export { OAuthClientsAdminService } from './oauth-clients-admin.service';
+export type { OAuthClientViewPage } from './oauth-clients-admin.service';

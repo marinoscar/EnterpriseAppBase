@@ -38,6 +38,24 @@ export const REFUSED_HOSTS_MAX = 100;
 /** Most audit rows one refused-hosts read scans (one row per host per hour at most). */
 const REFUSED_ROWS_SCAN_MAX = 20_000;
 
+/**
+ * One page of the admin client list.
+ *
+ * @stability experimental
+ */
+export interface OAuthClientViewPage {
+  /** The clients of this page, newest first. */
+  items: OAuthClientView[];
+  /** All clients matching the filter. */
+  total: number;
+  /** The 1-based page. */
+  page: number;
+  /** The page size. */
+  pageSize: number;
+  /** The number of pages. */
+  totalPages: number;
+}
+
 type ClientWithCount = IdentityOAuthClientRow & { _count: { grants: number } };
 
 /** `native` when a registered client uses a custom scheme or a loopback URI. */
@@ -101,7 +119,7 @@ export class OAuthClientsAdminService {
    *
    * @param query - the page, kind and search.
    */
-  async list(query: OAuthClientsQuery) {
+  async list(query: OAuthClientsQuery): Promise<OAuthClientViewPage> {
     const { page, pageSize, kind, search } = query;
     const where: Record<string, unknown> = {};
     if (kind) where.kind = kind;

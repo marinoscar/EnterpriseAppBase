@@ -47,7 +47,11 @@ import type { OAuthServerSettingsValue } from '../oauth-server-settings.schemas'
 import { OAUTH_TOKEN_RETENTION } from '../oauth-token-cleanup.handler';
 import { oauthResourceIdentifier } from '../oauth-token.resolver';
 
-/** Where an administrator fixes the problems these checks find. */
+/**
+ * Where an administrator fixes the problems these checks find.
+ *
+ * @stability experimental
+ */
 export const OAUTH_SETTINGS_PATH = '/admin/settings/oauth-clients';
 
 const CATEGORY = 'auth';
@@ -105,7 +109,11 @@ export function decideOAuthPublicUrl(input: { enabled: boolean; appUrl: string |
   return { status: 'pass', detail: `APP_URL is ${url.origin}`, data };
 }
 
-/** `auth` / `oauth.public_url`. */
+/**
+ * `auth` / `oauth.public_url`.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class OAuthPublicUrlDoctorCheck implements DoctorCheck, OnModuleInit {
   readonly id = 'oauth.public_url';
@@ -119,6 +127,7 @@ export class OAuthPublicUrlDoctorCheck implements DoctorCheck, OnModuleInit {
     @Optional() private readonly config?: ConfigService,
   ) {}
 
+  /** Registers the check with the Doctor registry. */
   onModuleInit(): void {
     this.registry.register(this);
   }
@@ -131,7 +140,11 @@ export class OAuthPublicUrlDoctorCheck implements DoctorCheck, OnModuleInit {
 
 // ---- oauth.well_known --------------------------------------------------------------------
 
-/** What one discovery request found. */
+/**
+ * What one discovery request found.
+ *
+ * @stability experimental
+ */
 export interface WellKnownProbe {
   /** A label for the line: `authorization server` or `resource <id>`. */
   readonly what: string;
@@ -183,7 +196,11 @@ const PROBE_MAX_BYTES = 64 * 1024;
 /** Most protected resources probed (the check stays inside its deadline). */
 const MAX_RESOURCES_PROBED = 5;
 
-/** `auth` / `oauth.well_known`. */
+/**
+ * `auth` / `oauth.well_known`.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class OAuthWellKnownDoctorCheck implements DoctorCheck, OnModuleInit {
   readonly id = 'oauth.well_known';
@@ -207,6 +224,7 @@ export class OAuthWellKnownDoctorCheck implements DoctorCheck, OnModuleInit {
     this.resolver = resolver ?? systemHostResolver;
   }
 
+  /** Registers the check with the Doctor registry. */
   onModuleInit(): void {
     this.registry.register(this);
   }
@@ -302,7 +320,11 @@ export function decideOAuthClientPolicy(settings: Pick<OAuthServerSettingsValue,
   };
 }
 
-/** `auth` / `oauth.client_policy`. */
+/**
+ * `auth` / `oauth.client_policy`.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class OAuthClientPolicyDoctorCheck implements DoctorCheck, OnModuleInit {
   readonly id = 'oauth.client_policy';
@@ -315,6 +337,7 @@ export class OAuthClientPolicyDoctorCheck implements DoctorCheck, OnModuleInit {
     private readonly settings: OAuthServerSettingsReader,
   ) {}
 
+  /** Registers the check with the Doctor registry. */
   onModuleInit(): void {
     this.registry.register(this);
   }
@@ -352,7 +375,11 @@ export function decideOAuthResources(enabled: boolean, resources: ReadonlyArray<
   };
 }
 
-/** `auth` / `oauth.resources`. */
+/**
+ * `auth` / `oauth.resources`.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class OAuthResourcesDoctorCheck implements DoctorCheck, OnModuleInit {
   readonly id = 'oauth.resources';
@@ -365,6 +392,7 @@ export class OAuthResourcesDoctorCheck implements DoctorCheck, OnModuleInit {
     private readonly settings: OAuthServerSettingsReader,
   ) {}
 
+  /** Registers the check with the Doctor registry. */
   onModuleInit(): void {
     this.registry.register(this);
   }
@@ -377,7 +405,11 @@ export class OAuthResourcesDoctorCheck implements DoctorCheck, OnModuleInit {
 
 // ---- oauth.token_cleanup -----------------------------------------------------------------
 
-/** How long past expiry a token may linger before the check warns, in milliseconds (7 days). */
+/**
+ * How long past expiry a token may linger before the check warns, in milliseconds (7 days).
+ *
+ * @stability experimental
+ */
 export const OAUTH_TOKEN_CLEANUP_GRACE_MS = OAUTH_TOKEN_RETENTION.refreshTokenMs;
 
 /**
@@ -400,7 +432,11 @@ export function decideOAuthTokenCleanup(staleTokens: number): DoctorCheckOutcome
   return { status: 'pass', detail: 'No OAuth token expired more than 7 days ago is still stored', data: { staleTokens: 0 } };
 }
 
-/** `auth` / `oauth.token_cleanup`. */
+/**
+ * `auth` / `oauth.token_cleanup`.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class OAuthTokenCleanupDoctorCheck implements DoctorCheck, OnModuleInit {
   readonly id = 'oauth.token_cleanup';
@@ -414,6 +450,7 @@ export class OAuthTokenCleanupDoctorCheck implements DoctorCheck, OnModuleInit {
     @Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma,
   ) {}
 
+  /** Registers the check with the Doctor registry. */
   onModuleInit(): void {
     this.registry.register(this);
   }

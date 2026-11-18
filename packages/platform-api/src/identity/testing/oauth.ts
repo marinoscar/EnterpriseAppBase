@@ -168,9 +168,21 @@ export const pkcePair = createOAuthTestPkce;
  */
 export interface OAuthTestTokenDb extends OAuthTestClientDb {
   /** `oauth_grants`. */
-  oAuthGrant: { create(args: { data: Record<string, unknown> }): Promise<{ id: string }> };
+  oAuthGrant: {
+    /** Inserts one grant. */
+    create(args: { data: Record<string, unknown> }): Promise<{
+      /** The new row id. */
+      id: string;
+    }>;
+  };
   /** `oauth_tokens`. */
-  oAuthToken: { create(args: { data: Record<string, unknown> }): Promise<{ id: string }> };
+  oAuthToken: {
+    /** Inserts one token. */
+    create(args: { data: Record<string, unknown> }): Promise<{
+      /** The new row id. */
+      id: string;
+    }>;
+  };
 }
 
 /**
@@ -261,7 +273,14 @@ export interface OAuthTestApp {
     /** The Fastify instance. */
     getInstance(): {
       /** Fastify's `inject`. */
-      inject(options: Record<string, unknown>): Promise<{ statusCode: number; headers: Record<string, unknown>; body: string }>;
+      inject(options: Record<string, unknown>): Promise<{
+        /** The HTTP status. */
+        statusCode: number;
+        /** The response headers. */
+        headers: Record<string, unknown>;
+        /** The raw body. */
+        body: string;
+      }>;
     };
   };
 }
@@ -273,9 +292,17 @@ export interface OAuthTestApp {
  */
 export interface OAuthCodeFlowInput {
   /** The client (from {@link createOAuthTestClient}, or any `{ clientId, redirectUri }`). */
-  client: { clientId: string; redirectUri: string };
+  client: {
+    /** The public `client_id`. */
+    clientId: string;
+    /** A redirect URI the client registered. */
+    redirectUri: string;
+  };
   /** The signed-in user approving: a SESSION access token (the consent routes refuse any other credential). */
-  user: { sessionToken: string };
+  user: {
+    /** The session access token. */
+    sessionToken: string;
+  };
   /** The scopes requested. */
   scopes: readonly string[];
   /** The resource URL (`APP_URL` + the resource path). */
@@ -353,6 +380,18 @@ export async function runOAuthAuthorizationCodeFlow(app: OAuthTestApp, input: OA
 }
 
 /**
+ * What {@link exchangeOAuthCode} returns.
+ *
+ * @stability experimental
+ */
+export interface OAuthExchangeResult {
+  /** The HTTP status of the token endpoint. */
+  status: number;
+  /** The parsed JSON body. */
+  body: Record<string, unknown>;
+}
+
+/**
  * Exchanges a code at the token endpoint with a form body, as a client does.
  *
  * @param app - the booted application.
@@ -364,7 +403,7 @@ export async function runOAuthAuthorizationCodeFlow(app: OAuthTestApp, input: OA
 export async function exchangeOAuthCode(
   app: OAuthTestApp,
   input: { client: { clientId: string; redirectUri: string; secret?: string }; code: string; verifier: string },
-): Promise<{ status: number; body: Record<string, unknown> }> {
+): Promise<OAuthExchangeResult> {
   const form = new URLSearchParams({
     grant_type: 'authorization_code',
     code: input.code,

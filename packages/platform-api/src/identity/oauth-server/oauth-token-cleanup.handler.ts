@@ -122,6 +122,7 @@ export class OAuthTokenCleanupHandler implements IdentityJobHandler, OnModuleIni
 
   readonly type = OAUTH_TOKEN_CLEANUP_TYPE;
 
+  /** The name in job lists. */
   readonly label = 'OAuth token cleanup';
 
   constructor(

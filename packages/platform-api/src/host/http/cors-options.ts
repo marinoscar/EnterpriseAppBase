@@ -112,7 +112,10 @@ export type CorsDelegator = (
  * @stability experimental
  */
 export type CorsOptions = (SameOriginCorsOptions | AllowlistCorsOptions) &
-  Omit<ExtraCorsOptions, 'openPaths'> & { delegator?: CorsDelegator };
+  Omit<ExtraCorsOptions, 'openPaths'> & {
+    /** The per-request options function, set when `openPaths` is given. */
+    delegator?: CorsDelegator;
+  };
 
 /**
  * Raised for a CORS_ORIGIN value the API refuses to start with.

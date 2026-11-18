@@ -43,11 +43,23 @@ export class OAuthRegistrationRequestDto extends createZodDto(oauthRegistrationR
 export class OAuthRegistrationResponseDto extends createZodDto(oauthRegistrationResponseSchema) {}
 /** One client of `GET /api/admin/oauth/clients`. */
 export class OAuthClientViewDto extends createZodDto(oauthClientViewSchema) {}
-/** Query of `GET /api/admin/oauth/clients`. */
+/**
+ * Query of `GET /api/admin/oauth/clients`.
+ *
+ * @stability experimental
+ */
 export class OAuthClientsQueryDto extends createZodDto(oauthClientsQuerySchema) {}
-/** `POST /api/admin/oauth/clients` body. */
+/**
+ * `POST /api/admin/oauth/clients` body.
+ *
+ * @stability experimental
+ */
 export class OAuthClientCreateRequestDto extends createZodDto(oauthClientCreateRequestSchema) {}
-/** `PATCH /api/admin/oauth/clients/:id` body. */
+/**
+ * `PATCH /api/admin/oauth/clients/:id` body.
+ *
+ * @stability experimental
+ */
 export class OAuthClientPatchRequestDto extends createZodDto(oauthClientPatchRequestSchema) {}
 /** A client with its one-time secret (create and rotate). */
 export class OAuthClientWithSecretDto extends createZodDto(oauthClientWithSecretSchema) {}

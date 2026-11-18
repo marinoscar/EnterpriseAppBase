@@ -51,6 +51,7 @@ export class OAuthResourceMetadataController {
   }
 
   // PUBLIC: RFC 9728 discovery, step two of the sign-in a client starts from a 401.
+  /** `GET /api/oauth/.well-known/protected-resource`: the metadata of the only registered resource. */
   @Public()
   @Get('.well-known/protected-resource')
   @RawResponse()
@@ -72,6 +73,7 @@ export class OAuthResourceMetadataController {
   }
 
   // PUBLIC: as above, for the resource at `<path>` (for `/api/mcp`: `.../protected-resource/api/mcp`).
+  /** `GET /api/oauth/.well-known/protected-resource/<path>`: the metadata of the resource at that path. */
   @Public()
   @Get('.well-known/protected-resource/*')
   @RawResponse()

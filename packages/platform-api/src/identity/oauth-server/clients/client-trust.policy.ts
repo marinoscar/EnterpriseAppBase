@@ -40,8 +40,24 @@ export type TrustSettings = Pick<OAuthServerSettingsValue, 'allowedClientHosts' 
 /** Why a client was refused. @stability experimental */
 export type TrustRefusalReason = 'host_not_allowed' | 'loopback_not_allowed' | 'redirect_host_not_allowed';
 
-/** The policy's answer. @stability experimental */
-export type TrustVerdict = { readonly admitted: true } | { readonly admitted: false; readonly host: string; readonly reason: TrustRefusalReason };
+/**
+ * The policy's answer.
+ *
+ * @stability experimental
+ */
+export type TrustVerdict =
+  | {
+      /** The client is admitted. */
+      readonly admitted: true;
+    }
+  | {
+      /** The client is refused. */
+      readonly admitted: false;
+      /** The refused host. */
+      readonly host: string;
+      /** Why it was refused. */
+      readonly reason: TrustRefusalReason;
+    };
 
 /**
  * Whether `host` alone is admitted (the CIMD pre-fetch check): no document has

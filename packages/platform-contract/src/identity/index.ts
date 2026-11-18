@@ -138,6 +138,7 @@ export type {
 
 // The OAuth authorization server's wire shapes (PP-15.4, #1182).
 export {
+  OAUTH_APPLICATION_TYPES,
   OAUTH_CLIENT_AUTH_METHODS,
   OAUTH_CLIENT_KINDS,
   OAUTH_DECISIONS,
@@ -170,6 +171,7 @@ export type {
   OAuthClientPatchRequest,
   OAuthClientView,
   OAuthClientWithSecret,
+  OAuthApplicationTypeEnum,
   OAuthClientsQuery,
   OAuthPolicy,
   OAuthRefusedHost,

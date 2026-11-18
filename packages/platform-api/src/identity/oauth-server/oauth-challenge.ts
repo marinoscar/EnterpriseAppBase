@@ -12,7 +12,11 @@
 
 import { oauthResourceRegistry } from './oauth-resource.registry';
 
-/** The OAuth errors a resource challenge carries (RFC 6750 §3.1). */
+/**
+ * The OAuth errors a resource challenge carries (RFC 6750 §3.1).
+ *
+ * @stability experimental
+ */
 export type OAuthChallengeError = 'invalid_token' | 'insufficient_scope' | 'invalid_request';
 
 /**

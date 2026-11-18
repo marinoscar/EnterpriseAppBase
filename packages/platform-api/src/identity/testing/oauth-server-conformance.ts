@@ -77,7 +77,11 @@ declare module '../../testing/index' {
   }
 }
 
-/** The check ids, in the order the suite reports them. */
+/**
+ * The check ids, in the order the suite reports them.
+ *
+ * @stability experimental
+ */
 export const OAUTH_CONFORMANCE_CHECKS = [
   'scope-permissions-registered',
   'resource-scopes-registered',
@@ -147,6 +151,13 @@ export interface OAuthSessionOnlyHandler {
 }
 
 /**
+ * A guard class the suite instantiates with the framework's `Reflector`.
+ *
+ * @stability experimental
+ */
+export type OAuthConformanceGuardClass = new (reflector: Reflector) => CanActivate;
+
+/**
  * What an app passes as `suites.oauthServer` to `runPlatformConformance()`.
  *
  * @example
@@ -176,7 +187,10 @@ export interface OAuthServerConformanceOptions {
    * database, so a unit-tier entry skips it with a written reason and a
    * database-tier spec runs it ({@link checkOAuthSecretEgress}).
    */
-  readonly secretEgress: (() => Promise<OAuthSecretEgressEvidence>) | { readonly skip: string };
+  readonly secretEgress: (() => Promise<OAuthSecretEgressEvidence>) | {
+        /** Why the check is skipped here. */
+        readonly skip: string;
+      };
   /** Fewest protected resources the registry must hold (a vacuity guard); 1 by default. Use 0 only for an app that mounts the server with none. */
   readonly minResources?: number;
   /** The global route prefix the app serves under; `api` by default. */
@@ -184,13 +198,18 @@ export interface OAuthServerConformanceOptions {
   /** The authentication guard to exercise; the slice's `JwtAuthGuard` by default. */
   readonly guard?: OAuthConformanceJwtGuardClass;
   /** The permissions guard to exercise; the slice's `PermissionsGuard` by default. */
-  readonly permissionsGuard?: new (reflector: Reflector) => CanActivate;
+  readonly permissionsGuard?: OAuthConformanceGuardClass;
   /** The roles guard to exercise; the slice's `RolesGuard` by default. */
-  readonly rolesGuard?: new (reflector: Reflector) => CanActivate;
+  readonly rolesGuard?: OAuthConformanceGuardClass;
   /** The handlers that must refuse an `oauth` credential; the platform's by default (consent, grants, PAT, device, org switch). */
   readonly sessionOnlyHandlers?: readonly OAuthSessionOnlyHandler[];
   /** The registries to check; the live OAuth registries by default (a test seam). */
-  readonly registry?: { readonly scopes: readonly OAuthScopeDefinition[]; readonly resources: readonly OAuthProtectedResourceDefinition[] };
+  readonly registry?: {
+    /** The scope definitions. */
+    readonly scopes: readonly OAuthScopeDefinition[];
+    /** The protected resource definitions. */
+    readonly resources: readonly OAuthProtectedResourceDefinition[];
+  };
 }
 
 // ---- discovery ---------------------------------------------------------------------------
@@ -533,7 +552,13 @@ export async function checkScopeNarrowing(options: OAuthServerConformanceOptions
 
 // ---- check 6: session-only-routes ----------------------------------------------------------
 
-/** The platform's handlers that only a browser session may use. */
+/**
+ * The platform's handlers that only a browser session may use.
+ *
+ * @returns the handlers the suite checks by default.
+ *
+ * @stability experimental
+ */
 export function defaultSessionOnlyHandlers(): OAuthSessionOnlyHandler[] {
   const authService = Object.create(AuthService.prototype) as unknown;
   return [

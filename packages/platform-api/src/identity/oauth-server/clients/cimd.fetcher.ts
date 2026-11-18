@@ -39,7 +39,11 @@ export const OAUTH_CIMD_HOST_RESOLVER: unique symbol = Symbol.for('@marinoscar/p
 
 /** The fetch deadline, in milliseconds. */
 export const CIMD_FETCH_TIMEOUT_MS = 5_000;
-/** The response cap, in bytes (64 KiB). */
+/**
+ * The response cap, in bytes (64 KiB).
+ *
+ * @stability experimental
+ */
 export const CIMD_MAX_BYTES = 64 * 1024;
 /** The shortest cache life, in milliseconds (5 minutes). */
 export const CIMD_MIN_CACHE_MS = 5 * 60_000;

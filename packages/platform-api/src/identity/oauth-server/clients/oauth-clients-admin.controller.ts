@@ -27,6 +27,7 @@ import { OAuthClientsAdminService } from './oauth-clients-admin.service';
 export class OAuthClientsAdminController {
   constructor(private readonly clients: OAuthClientsAdminService) {}
 
+  /** `GET /api/admin/oauth/clients`: a page of clients. */
   @Get()
   @Auth({ permissions: [PERMISSIONS.OAUTH_CLIENTS_READ] })
   @ApiOperation({ summary: 'List OAuth clients (Admin only)', description: 'Paged: kind, name, host, redirect URIs, active grant count, last used and disabled state. Never a secret.' })
@@ -35,6 +36,7 @@ export class OAuthClientsAdminController {
     return this.clients.list(query);
   }
 
+  /** `POST /api/admin/oauth/clients`: pre-registers a client; the secret is returned once. */
   @Post()
   @Auth({ permissions: [PERMISSIONS.OAUTH_CLIENTS_WRITE] })
   @ApiOperation({ summary: 'Pre-register an OAuth client (Admin only)', description: 'Returns the client id and, for a confidential client, its secret ONCE.' })
@@ -44,6 +46,7 @@ export class OAuthClientsAdminController {
     return this.clients.create(dto, adminUserId);
   }
 
+  /** `PATCH /api/admin/oauth/clients/:id`: disables, enables or edits a client. */
   @Patch(':id')
   @Auth({ permissions: [PERMISSIONS.OAUTH_CLIENTS_WRITE] })
   @ApiOperation({
@@ -57,6 +60,7 @@ export class OAuthClientsAdminController {
     return this.clients.update(id, dto, adminUserId);
   }
 
+  /** `POST /api/admin/oauth/clients/:id/rotate-secret`: issues a new secret, returned once. */
   @Post(':id/rotate-secret')
   @Auth({ permissions: [PERMISSIONS.OAUTH_CLIENTS_WRITE] })
   @HttpCode(HttpStatus.OK)
@@ -69,6 +73,7 @@ export class OAuthClientsAdminController {
     return this.clients.rotateSecret(id, adminUserId);
   }
 
+  /** `DELETE /api/admin/oauth/clients/:id`: deletes a client and its grants. */
   @Delete(':id')
   @Auth({ permissions: [PERMISSIONS.OAUTH_CLIENTS_WRITE] })
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -92,6 +97,7 @@ export class OAuthClientsAdminController {
 export class OAuthAdminHintsController {
   constructor(private readonly clients: OAuthClientsAdminService) {}
 
+  /** `GET /api/admin/oauth/refused-hosts`: the hosts the trust policy refused in the last 30 days. */
   @Get('refused-hosts')
   @Auth({ permissions: [PERMISSIONS.OAUTH_CLIENTS_READ] })
   @ApiOperation({
@@ -103,6 +109,7 @@ export class OAuthAdminHintsController {
     return this.clients.listRefusedHosts();
   }
 
+  /** `GET /api/admin/oauth/policy`: the app's suggested client hosts. */
   @Get('policy')
   @Auth({ permissions: [PERMISSIONS.OAUTH_CLIENTS_READ] })
   @ApiOperation({ summary: 'Read the OAuth admin policy hints (Admin only)', description: "The app's suggested client hosts (`defaultAllowedClientHosts`), offered with \"Add\" on the admin page." })

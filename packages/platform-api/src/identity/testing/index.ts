@@ -38,6 +38,7 @@ export type {
   MintedOAuthTestToken,
   OAuthCodeFlowInput,
   OAuthCodeFlowResult,
+  OAuthExchangeResult,
   OAuthTestApp,
   OAuthTestClient,
   OAuthTestClientDb,
@@ -67,6 +68,7 @@ export {
 } from './oauth-server-conformance';
 export type {
   OAuthConformanceCheck,
+  OAuthConformanceGuardClass,
   OAuthConformanceJwtGuardClass,
   OAuthRoute,
   OAuthSecretEgressEvidence,

@@ -12,6 +12,11 @@ import { Cron } from '@nestjs/schedule';
 import { IDENTITY_JOBS, type IdentityJobsPort } from '../../ports';
 import { OAUTH_CLIENT_CLEANUP_TYPE } from './oauth-client-cleanup.handler';
 
+/**
+ * Enqueues the daily OAuth client cleanup job (a cron only decides and enqueues).
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class OAuthClientCleanupTask {
   private readonly logger = new Logger(OAuthClientCleanupTask.name);
