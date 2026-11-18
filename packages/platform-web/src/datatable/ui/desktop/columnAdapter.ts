@@ -1,0 +1,129 @@
+/**
+ * DataTable — desktop column adapter.
+ *
+ * Maps the renderer-agnostic {@link DataTableColumn} contract onto MUI X
+ * `GridColDef`. This is the ONLY place that knows about DataGrid's column
+ * shape: the mobile card renderer (#253) reads the same `DataTableColumn`
+ * objects directly and never sees a `GridColDef`.
+ *
+ * Deliberately JSX-free (`createElement`) so it stays a `.ts` mapping module —
+ * cell components live in `./cells.tsx`.
+ */
+
+import { createElement } from 'react';
+import type { ReactNode } from 'react';
+import type { GridColDef, GridColumnVisibilityModel } from '@mui/x-data-grid';
+import type { DataTableColumn } from '../../headless/types.js';
+import { extractColumnValue, formatColumnValue } from '../../headless/columns.js';
+import { TruncatedCell } from './cells.js';
+
+/**
+ * Minimum width applied to a flexing column that declares no `minWidth`.
+ *
+ * @stability experimental
+ */
+export const DEFAULT_COLUMN_MIN_WIDTH = 120;
+
+/** @deprecated internal alias kept for readability inside this module. */
+const displayText = formatColumnValue;
+
+/**
+ * Map one {@link DataTableColumn} to a `GridColDef`.
+ *
+ * Notable mapping decisions:
+ * - `render` becomes `renderCell`, `value` becomes `valueGetter`, so DataGrid's
+ *   own machinery (sort indicators, aria, copy-to-clipboard) sees the scalar
+ *   while the user sees the rich cell.
+ * - `sortable` defaults to **false**. Sorting is server-side, so an interactive
+ *   header that nobody wired up would silently do nothing.
+ * - `filterable` is hard-set to `false` on the grid side: DataGrid's built-in
+ *   filtering is client-side and would only ever filter the current page. The
+ *   `DataTableColumn.filterable` declaration is consumed by the server-backed
+ *   filter UI in issue #254.
+ *
+ * @stability experimental
+ */
+export function toGridColDef<Row>(column: DataTableColumn<Row>): GridColDef {
+  const align = column.align ?? 'left';
+
+  const def: GridColDef = {
+    field: column.id,
+    headerName: column.label,
+    align,
+    headerAlign: align,
+    sortable: column.sortable ?? false,
+    hideable: column.hideable ?? true,
+    // Grid-side (client) filtering is intentionally off — see #254.
+    filterable: false,
+    disableColumnMenu: true,
+    valueGetter: (_value: unknown, row: unknown) =>
+      extractColumnValue(column, row as Row),
+  };
+
+  // Sizing: an explicit width wins; otherwise the column flexes.
+  if (column.width != null) {
+    def.width = column.width;
+    if (column.minWidth != null) def.minWidth = column.minWidth;
+  } else {
+    def.flex = column.flex ?? 1;
+    def.minWidth = column.minWidth ?? DEFAULT_COLUMN_MIN_WIDTH;
+  }
+
+  const needsCustomCell = Boolean(column.render) || Boolean(column.truncate);
+  if (needsCustomCell) {
+    def.renderCell = (params) => {
+      const row = params.row as Row;
+      const scalar = extractColumnValue(column, row);
+      const content: ReactNode = column.render ? column.render(row) : displayText(scalar);
+      if (!column.truncate) return content;
+      return createElement(TruncatedCell, {
+        title: scalar === null ? undefined : String(scalar),
+        children: content,
+      });
+    };
+  }
+
+  return def;
+}
+
+/**
+ * Map a whole column set, preserving declaration order.
+ *
+ * @stability experimental
+ */
+export function toGridColumns<Row>(columns: DataTableColumn<Row>[]): GridColDef[] {
+  return columns.map((column) => toGridColDef(column));
+}
+
+/**
+ * Column visibility for the grid.
+ *
+ * Two modes, and the difference is which question has already been answered:
+ *
+ * - `hideDetailColumns` — the LAYOUT baseline derived from `priority`: `detail`
+ *   columns fold away once the grid is too narrow to show everything
+ *   comfortably (they stay reachable through the row expander), while
+ *   `primary`/`secondary` always stay.
+ * - `visibleColumns` — the USER's persisted choice (#255), layout-independent.
+ *   Omitted means "the user has hidden nothing", which is what a renderer used
+ *   directly, outside `DataTable`, gets.
+ *
+ * The two are AND-ed, never overridden one by the other. A user's "hide this"
+ * must win at every width; the tablet fold must survive a stored layout made on
+ * a desktop, or a `detail` column marked visible there would reintroduce at
+ * 800px exactly the horizontal scroll the fold exists to remove.
+ *
+ * @stability experimental
+ */
+export function buildColumnVisibilityModel<Row>(
+  columns: DataTableColumn<Row>[],
+  options: { hideDetailColumns: boolean; visibleColumns?: ReadonlySet<string> },
+): GridColumnVisibilityModel {
+  const model: GridColumnVisibilityModel = {};
+  for (const column of columns) {
+    const layoutShows = !(options.hideDetailColumns && column.priority === 'detail');
+    const userShows = options.visibleColumns ? options.visibleColumns.has(column.id) : true;
+    model[column.id] = layoutShows && userShows;
+  }
+  return model;
+}

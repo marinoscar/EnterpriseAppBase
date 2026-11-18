@@ -1,0 +1,1939 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`DataTable builtin markup > desktop: filters, quick search, selection, bulk and row actions 1`] = `
+"<div class="MuiBox-root css-1h32la5" data-testid="datatable" data-renderer="desktop" data-layout="desktop" data-density="standard">
+<div class="MuiBox-root css-1vzplob" data-testid="datatable-view-bar" data-view-surface="desktop">
+<div role="group" class="MuiToggleButtonGroup-root MuiToggleButtonGroup-horizontal css-i1fker-MuiToggleButtonGroup-root" aria-label="Row density" data-testid="datatable-density-group">
+<button class="MuiButtonBase-root MuiToggleButtonGroup-grouped MuiToggleButton-root MuiToggleButton-sizeSmall MuiToggleButton-standard MuiToggleButtonGroup-firstButton css-ptpjgc-MuiButtonBase-root-MuiToggleButton-root" tabindex="0" type="button" value="compact" aria-pressed="false" aria-label="Compact density" data-testid="datatable-density-compact" data-mui-internal-clone-element="true">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeSmall css-120dh41-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="DensitySmallIcon">
+<path d="M3 2h18v2H3zm0 18h18v2H3zm0-6h18v2H3zm0-6h18v2H3z">
+</path>
+</svg>
+</button>
+<button class="MuiButtonBase-root MuiToggleButtonGroup-grouped MuiToggleButton-root Mui-selected MuiToggleButton-sizeSmall MuiToggleButton-standard MuiToggleButtonGroup-middleButton css-ptpjgc-MuiButtonBase-root-MuiToggleButton-root" tabindex="-1" type="button" value="standard" aria-pressed="true" aria-label="Standard density" data-testid="datatable-density-standard" data-mui-internal-clone-element="true">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeSmall css-120dh41-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="DensityMediumIcon">
+<path d="M3 3h18v2H3zm0 16h18v2H3zm0-8h18v2H3z">
+</path>
+</svg>
+</button>
+<button class="MuiButtonBase-root MuiToggleButtonGroup-grouped MuiToggleButton-root MuiToggleButton-sizeSmall MuiToggleButton-standard MuiToggleButtonGroup-lastButton css-ptpjgc-MuiButtonBase-root-MuiToggleButton-root" tabindex="-1" type="button" value="comfortable" aria-pressed="false" aria-label="Comfortable density" data-testid="datatable-density-comfortable" data-mui-internal-clone-element="true">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeSmall css-120dh41-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="DensityLargeIcon">
+<path d="M3 3h18v2H3zm0 16h18v2H3z">
+</path>
+</svg>
+</button>
+</div>
+<span class="MuiBadge-root css-oi7n4e-MuiBadge-root">
+<button class="MuiButtonBase-root MuiButton-root MuiButton-outlined MuiButton-sizeSmall MuiButton-colorPrimary css-9g2lvq-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Columns" data-testid="datatable-columns-button">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ViewColumnIcon">
+<path d="M14.67 5v14H9.33V5zm1 14H21V5h-5.33zm-7.34 0V5H3v14z">
+</path>
+</svg>
+</span>Columns</button>
+<span aria-hidden="true" style="--Badge-translate: 50%, -50%; --Badge-inset: 0 0 auto auto; --Badge-origin: 100% 0%;" class="MuiBadge-badge MuiBadge-standard MuiBadge-invisible MuiBadge-anchorOriginTopRight MuiBadge-anchorOriginTopRightRectangular MuiBadge-overlapRectangular MuiBadge-colorPrimary datatable-hidden-column-count css-pnxlnx-MuiBadge-badge">0</span>
+</span>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-outlined MuiButton-sizeSmall MuiButton-colorPrimary css-1g2rn80-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button" aria-label="Export CSV" data-testid="datatable-export-button">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="DownloadIcon">
+<path d="M5 20h14v-2H5zM19 9h-4V3H9v6H5l7 7z">
+</path>
+</svg>
+</span>Export</button>
+</div>
+<div class="MuiBox-root css-p3r9tk" data-testid="datatable-filter-bar" data-filter-surface="desktop">
+<div class="MuiBox-root css-1a6n7l1" aria-live="polite" role="status" data-testid="datatable-filter-live-region">Filtered to 2 results</div>
+<div class="MuiStack-root css-1lj4mru-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1f503b8-MuiFormControl-root-MuiTextField-root" data-testid="datatable-quick-search">
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiInputBase-adornedStart MuiInputBase-adornedEnd css-ommszq-MuiInputBase-root-MuiOutlinedInput-root">
+<div class="MuiInputAdornment-root MuiInputAdornment-positionStart MuiInputAdornment-outlined MuiInputAdornment-sizeSmall css-1nowbqt-MuiInputAdornment-root">
+<span class="notranslate" aria-hidden="true">​</span>
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeSmall css-120dh41-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="SearchIcon">
+<path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14">
+</path>
+</svg>
+</div>
+<input aria-invalid="false" aria-label="Search" id="_r_N_" placeholder="Search Name" class="MuiInputBase-input MuiOutlinedInput-input MuiInputBase-inputTypeSearch css-1dg7i3d-MuiInputBase-input-MuiOutlinedInput-input" type="search" value="al">
+<div class="MuiInputAdornment-root MuiInputAdornment-positionEnd MuiInputAdornment-outlined MuiInputAdornment-sizeSmall css-elo8k2-MuiInputAdornment-root">
+<button class="MuiButtonBase-root MuiIconButton-root MuiIconButton-sizeSmall css-12l4pa3-MuiButtonBase-root-MuiIconButton-root" tabindex="0" type="button" aria-label="Clear search">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeSmall css-120dh41-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="CloseIcon">
+<path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z">
+</path>
+</svg>
+</button>
+</div>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-1nf2c5d-MuiNotchedOutlined-root">
+<span class="notranslate" aria-hidden="true">​</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<form class="MuiBox-root css-1ygolya" data-testid="datatable-filter-editor">
+<div class="MuiStack-root css-13hhz3e-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1ah5sg9-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Column</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Name</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="name">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Column</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-kws3sd-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Operator</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">contains</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="contains">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Operator</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-spfbcm-MuiFormControl-root-MuiTextField-root">
+<label class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-sizeSmall MuiInputLabel-outlined css-1kfabtt-MuiFormLabel-root-MuiInputLabel-root" data-shrink="false" for="_r_N_" id="_r_N_-label">Value</label>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<input aria-invalid="false" id="_r_N_" class="MuiInputBase-input MuiOutlinedInput-input css-1pzfmz2-MuiInputBase-input-MuiOutlinedInput-input" type="text" value="">
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-1n64csd-MuiNotchedOutlined-root">
+<span>Value</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<button class="MuiButtonBase-root Mui-disabled MuiButton-root MuiButton-contained MuiButton-sizeSmall MuiButton-colorPrimary css-48llmp-MuiButtonBase-root-MuiButton-root" tabindex="-1" type="submit" disabled="" data-testid="datatable-filter-apply">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="AddIcon">
+<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z">
+</path>
+</svg>
+</span>Add</button>
+</div>
+</form>
+</div>
+<div class="MuiBox-root css-y41eiw" data-testid="datatable-filter-chips" role="list" aria-label="Active filters">
+<div class="MuiButtonBase-root MuiChip-root MuiChip-outlined MuiChip-sizeMedium MuiChip-colorPrimary MuiChip-deletable css-qn3rre-MuiButtonBase-root-MuiChip-root" tabindex="0" role="listitem" data-testid="datatable-filter-chip">
+<span class="MuiChip-label css-16cgrcw-MuiChip-label">Status is Failed</span>
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiChip-deleteIcon css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="datatable-filter-chip-remove" aria-label="Remove filter: Status is Failed">
+<path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2m5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12z">
+</path>
+</svg>
+</div>
+<div class="MuiButtonBase-root MuiChip-root MuiChip-outlined MuiChip-sizeMedium MuiChip-colorPrimary MuiChip-deletable css-qn3rre-MuiButtonBase-root-MuiChip-root" tabindex="0" role="listitem" data-testid="datatable-filter-chip">
+<span class="MuiChip-label css-16cgrcw-MuiChip-label">Attempts is between 1 and 5</span>
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiChip-deleteIcon css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="datatable-filter-chip-remove" aria-label="Remove filter: Attempts is between 1 and 5">
+<path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2m5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12z">
+</path>
+</svg>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-sizeSmall MuiButton-colorPrimary css-zyjn2-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button" data-testid="datatable-filter-clear-all">Clear all</button>
+</div>
+</div>
+<div class="MuiBox-root css-1h32la5">
+<div class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded css-1go7lya-MuiPaper-root" data-testid="datatable-bulk-action-bar" role="toolbar" aria-label="Bulk actions">
+<p class="MuiTypography-root MuiTypography-body2 css-bvuapi-MuiTypography-root" aria-live="polite" role="status">1 of 2 selected</p>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-sizeSmall MuiButton-colorPrimary css-1ccsd5i-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button" aria-label="Clear selection">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="CloseIcon">
+<path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z">
+</path>
+</svg>
+</span>Clear</button>
+<div class="MuiBox-root css-i9gxme">
+</div>
+<div class="MuiStack-root css-1sugu6g-MuiStack-root">
+<button class="MuiButtonBase-root MuiButton-root MuiButton-outlined MuiButton-sizeSmall MuiButton-colorError css-1vvreb9-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button">Delete</button>
+</div>
+</div>
+<div class="MuiBox-root css-adek63" data-testid="datatable-scroll-container" data-virtualized="false">
+<div class="MuiDataGrid-root MuiDataGrid-autoHeight MuiDataGrid-root--densityStandard MuiDataGrid-withBorderColor MuiDataGridVariables-3962610333 css-5o582y-MuiDataGrid-root" style="--DataGrid-hasScrollX: 0; --DataGrid-hasScrollY: 0; --DataGrid-scrollbarSize: 0px; --DataGrid-rowWidth: 1400px; --DataGrid-columnsTotalWidth: 1400px; --DataGrid-leftPinnedWidth: 0px; --DataGrid-rightPinnedWidth: 0px; --DataGrid-headerHeight: 56px; --DataGrid-headersTotalHeight: 56px; --DataGrid-topContainerHeight: 56px; --DataGrid-bottomContainerHeight: 0px; --DataGrid-horizontalFiller: 0px; --height: 52px;">
+<div class="MuiDataGrid-mainContent" role="none">
+<div class="MuiDataGrid-main css-1bgckiu-MuiDataGrid-main" tabindex="-1" role="grid" aria-label="Things" aria-colcount="7" aria-rowcount="3" aria-multiselectable="true">
+<div role="none" data-id="gridPanelAnchor" class="css-18l11qw">
+</div>
+<div class="MuiDataGrid-virtualScroller css-1kuhtq2-MuiDataGrid-virtualScroller" style="overflow-x: hidden; overflow-y: hidden;" role="presentation">
+<div role="presentation" class="MuiDataGrid-virtualScrollerContent css-12sjlri-MuiDataGrid-virtualScrollerContent">
+<div style="width: 1400px; height: 160px;" role="presentation" class="css-kr08np">
+<div class="MuiDataGrid-topContainer MuiDataGrid-container--top css-b1wygl" role="none">
+<div class="MuiDataGrid-columnHeaders css-1gtv474-MuiDataGrid-columnHeaders" role="none">
+<div role="row" aria-rowindex="1" class="MuiDataGrid-row--borderBottom css-yseucu-MuiDataGrid-columnHeaderRow" style="height: 56px; --height: 56px;">
+<div role="none" style="width: 0px;">
+</div>
+<div class="MuiDataGrid-columnHeader MuiDataGrid-columnHeader--alignCenter MuiDataGrid-withBorderColor MuiDataGrid-columnHeaderCheckbox" style="width: 50px;" role="columnheader" tabindex="0" aria-colindex="1" aria-sort="none" data-field="__check__">
+<div class="MuiDataGrid-columnHeaderDraggableContainer" draggable="false" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainer" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainerContent">
+<span class="MuiButtonBase-root MuiCheckbox-root MuiCheckbox-indeterminate MuiCheckbox-colorPrimary MuiCheckbox-sizeMedium PrivateSwitchBase-root MuiCheckbox-root MuiCheckbox-indeterminate MuiCheckbox-colorPrimary MuiCheckbox-sizeMedium MuiCheckbox-root MuiCheckbox-indeterminate MuiCheckbox-colorPrimary MuiCheckbox-sizeMedium MuiDataGrid-checkboxInput css-vuhw6e-MuiButtonBase-root-MuiSwitchBase-root-MuiCheckbox-root">
+<input tabindex="-1" data-indeterminate="true" aria-checked="mixed" aria-label="Select all rows" class="PrivateSwitchBase-input css-12xagqm-MuiSwitchBase-root" type="checkbox" name="select_all_rows">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="IndeterminateCheckBoxIcon">
+<path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10H7v-2h10v2z">
+</path>
+</svg>
+</span>
+</div>
+</div>
+</div>
+<div class="MuiDataGrid-columnSeparator MuiDataGrid-columnSeparator--sideRight" style="min-height: 56px;">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiDataGrid-iconSeparator css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="SeparatorIcon">
+<rect width="1" height="24" x="11.5" rx="0.5">
+</rect>
+</svg>
+</div>
+</div>
+<div class="MuiDataGrid-columnHeader MuiDataGrid-columnHeader--alignLeft MuiDataGrid-columnHeader--sortable MuiDataGrid-columnHeader--sorted MuiDataGrid-withBorderColor" style="width: 255.6px;" role="columnheader" tabindex="-1" aria-colindex="2" aria-sort="ascending" data-field="name">
+<div class="MuiDataGrid-columnHeaderDraggableContainer" draggable="false" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainer" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainerContent">
+<div class="MuiDataGrid-columnHeaderTitle css-1gqmilo-MuiDataGrid-columnHeaderTitle" data-mui-internal-clone-element="true">Name</div>
+</div>
+<div class="MuiDataGrid-iconButtonContainer css-ltf0zy-MuiDataGrid-iconButtonContainer">
+<span aria-label="Sort" class="" data-mui-internal-clone-element="true">
+<button class="MuiButtonBase-root MuiIconButton-root MuiIconButton-sizeSmall MuiDataGrid-sortButton css-1vkrt00-MuiButtonBase-root-MuiIconButton-root-MuiDataGrid-sortButton" tabindex="-1" type="button" aria-label="Sort" field="name">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeSmall MuiDataGrid-sortIcon css-120dh41-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowUpwardIcon">
+<path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z">
+</path>
+</svg>
+</button>
+</span>
+</div>
+</div>
+</div>
+<div class="MuiDataGrid-columnSeparator MuiDataGrid-columnSeparator--resizable MuiDataGrid-columnSeparator--sideRight" style="min-height: 56px;">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiDataGrid-iconSeparator css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="SeparatorIcon">
+<rect width="1" height="24" x="11.5" rx="0.5">
+</rect>
+</svg>
+</div>
+</div>
+<div class="MuiDataGrid-columnHeader MuiDataGrid-columnHeader--alignLeft MuiDataGrid-withBorderColor" style="width: 255.6px;" role="columnheader" tabindex="-1" aria-colindex="3" aria-sort="none" data-field="attempts">
+<div class="MuiDataGrid-columnHeaderDraggableContainer" draggable="false" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainer" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainerContent">
+<div class="MuiDataGrid-columnHeaderTitle css-1gqmilo-MuiDataGrid-columnHeaderTitle" data-mui-internal-clone-element="true">Attempts</div>
+</div>
+</div>
+</div>
+<div class="MuiDataGrid-columnSeparator MuiDataGrid-columnSeparator--resizable MuiDataGrid-columnSeparator--sideRight" style="min-height: 56px;">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiDataGrid-iconSeparator css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="SeparatorIcon">
+<rect width="1" height="24" x="11.5" rx="0.5">
+</rect>
+</svg>
+</div>
+</div>
+<div class="MuiDataGrid-columnHeader MuiDataGrid-columnHeader--alignLeft MuiDataGrid-withBorderColor" style="width: 255.6px;" role="columnheader" tabindex="-1" aria-colindex="4" aria-sort="none" data-field="status">
+<div class="MuiDataGrid-columnHeaderDraggableContainer" draggable="false" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainer" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainerContent">
+<div class="MuiDataGrid-columnHeaderTitle css-1gqmilo-MuiDataGrid-columnHeaderTitle" data-mui-internal-clone-element="true">Status</div>
+</div>
+</div>
+</div>
+<div class="MuiDataGrid-columnSeparator MuiDataGrid-columnSeparator--resizable MuiDataGrid-columnSeparator--sideRight" style="min-height: 56px;">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiDataGrid-iconSeparator css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="SeparatorIcon">
+<rect width="1" height="24" x="11.5" rx="0.5">
+</rect>
+</svg>
+</div>
+</div>
+<div class="MuiDataGrid-columnHeader MuiDataGrid-columnHeader--alignLeft MuiDataGrid-withBorderColor" style="width: 255.6px;" role="columnheader" tabindex="-1" aria-colindex="5" aria-sort="none" data-field="active">
+<div class="MuiDataGrid-columnHeaderDraggableContainer" draggable="false" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainer" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainerContent">
+<div class="MuiDataGrid-columnHeaderTitle css-1gqmilo-MuiDataGrid-columnHeaderTitle" data-mui-internal-clone-element="true">Active</div>
+</div>
+</div>
+</div>
+<div class="MuiDataGrid-columnSeparator MuiDataGrid-columnSeparator--resizable MuiDataGrid-columnSeparator--sideRight" style="min-height: 56px;">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiDataGrid-iconSeparator css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="SeparatorIcon">
+<rect width="1" height="24" x="11.5" rx="0.5">
+</rect>
+</svg>
+</div>
+</div>
+<div class="MuiDataGrid-columnHeader MuiDataGrid-columnHeader--alignLeft MuiDataGrid-withBorderColor" style="width: 255.6px;" role="columnheader" tabindex="-1" aria-colindex="6" aria-sort="none" data-field="created">
+<div class="MuiDataGrid-columnHeaderDraggableContainer" draggable="false" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainer" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainerContent">
+<div class="MuiDataGrid-columnHeaderTitle css-1gqmilo-MuiDataGrid-columnHeaderTitle" data-mui-internal-clone-element="true">Created</div>
+</div>
+</div>
+</div>
+<div class="MuiDataGrid-columnSeparator MuiDataGrid-columnSeparator--resizable MuiDataGrid-columnSeparator--sideRight" style="min-height: 56px;">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiDataGrid-iconSeparator css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="SeparatorIcon">
+<rect width="1" height="24" x="11.5" rx="0.5">
+</rect>
+</svg>
+</div>
+</div>
+<div class="MuiDataGrid-columnHeader MuiDataGrid-columnHeader--alignRight MuiDataGrid-withBorderColor MuiDataGrid-columnHeader--last" style="width: 72px;" role="columnheader" tabindex="-1" aria-colindex="7" aria-sort="none" data-field="__datatable_actions__">
+<div class="MuiDataGrid-columnHeaderDraggableContainer" draggable="false" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainer" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainerContent">
+<div class="MuiDataGrid-columnHeaderTitle css-1gqmilo-MuiDataGrid-columnHeaderTitle" data-mui-internal-clone-element="true">Actions</div>
+</div>
+</div>
+</div>
+<div class="MuiDataGrid-columnSeparator MuiDataGrid-columnSeparator--resizable MuiDataGrid-columnSeparator--sideRight" style="min-height: 56px;">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiDataGrid-iconSeparator css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="SeparatorIcon">
+<rect width="1" height="24" x="11.5" rx="0.5">
+</rect>
+</svg>
+</div>
+</div>
+<div role="none" class="MuiDataGrid-filler MuiDataGrid-filler--horizontal">
+</div>
+<div role="none" class="MuiDataGrid-scrollbarFiller" style="right: 0px;">
+</div>
+</div>
+</div>
+</div>
+<div role="rowgroup" style="transform: translate3d(0, 56px, 0);" class="MuiDataGrid-virtualScrollerRenderZone css-11dqcl8-MuiDataGrid-virtualScrollerRenderZone">
+<div data-id="r1" data-rowindex="0" role="row" class="MuiDataGrid-row Mui-selected MuiDataGrid-row--firstVisible" style="max-height: 52px; min-height: 52px; --height: 52px;" aria-rowindex="2" aria-selected="true">
+<div role="none" class="MuiDataGrid-cellOffsetLeft" style="width: 0px;">
+</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textCenter MuiDataGrid-cellCheckbox MuiDataGrid-cell--flex" role="gridcell" data-field="__check__" data-colindex="0" aria-colindex="1" aria-colspan="1" aria-rowspan="1" style="--width: 50px;" tabindex="-1">
+<span class="MuiButtonBase-root MuiCheckbox-root MuiCheckbox-colorPrimary MuiCheckbox-sizeMedium PrivateSwitchBase-root MuiCheckbox-root MuiCheckbox-colorPrimary MuiCheckbox-sizeMedium Mui-checked MuiCheckbox-root MuiCheckbox-colorPrimary MuiCheckbox-sizeMedium css-vuhw6e-MuiButtonBase-root-MuiSwitchBase-root-MuiCheckbox-root">
+<input tabindex="-1" data-indeterminate="false" aria-label="Select Alpha" class="PrivateSwitchBase-input css-12xagqm-MuiSwitchBase-root" type="checkbox" checked="" name="select_row">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="CheckBoxIcon">
+<path d="M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.11 0 2-.9 2-2V5c0-1.1-.89-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z">
+</path>
+</svg>
+</span>
+</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textLeft" role="gridcell" data-field="name" data-colindex="1" aria-colindex="2" aria-colspan="1" aria-rowspan="1" style="--width: 255.6px;" title="Alpha" tabindex="-1">Alpha</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textLeft" role="gridcell" data-field="attempts" data-colindex="2" aria-colindex="3" aria-colspan="1" aria-rowspan="1" style="--width: 255.6px;" title="1" tabindex="-1">1</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textLeft" role="gridcell" data-field="status" data-colindex="3" aria-colindex="4" aria-colspan="1" aria-rowspan="1" style="--width: 255.6px;" title="ok" tabindex="-1">ok</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textLeft" role="gridcell" data-field="active" data-colindex="4" aria-colindex="5" aria-colspan="1" aria-rowspan="1" style="--width: 255.6px;" title="yes" tabindex="-1">yes</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textLeft" role="gridcell" data-field="created" data-colindex="5" aria-colindex="6" aria-colspan="1" aria-rowspan="1" style="--width: 255.6px;" title="2026-01-02" tabindex="-1">2026-01-02</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textRight" role="gridcell" data-field="__datatable_actions__" data-colindex="6" aria-colindex="7" aria-colspan="1" aria-rowspan="1" style="--width: 72px;" tabindex="-1">
+<div class="MuiStack-root css-1ae1vka-MuiStack-root">
+<span aria-label="Open" class="" data-mui-internal-clone-element="true">
+<button class="MuiButtonBase-root MuiIconButton-root MuiIconButton-sizeSmall css-155wbr6-MuiButtonBase-root-MuiIconButton-root" tabindex="0" type="button" aria-label="Open for Alpha">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeSmall css-120dh41-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="MoreVertIcon">
+<path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2m0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2m0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2">
+</path>
+</svg>
+</button>
+</span>
+</div>
+</div>
+<div role="none" class="MuiDataGrid-cell MuiDataGrid-cellEmpty">
+</div>
+</div>
+<div data-id="r2" data-rowindex="1" role="row" class="MuiDataGrid-row MuiDataGrid-row--lastVisible" style="max-height: 52px; min-height: 52px; --height: 52px;" aria-rowindex="3" aria-selected="false">
+<div role="none" class="MuiDataGrid-cellOffsetLeft" style="width: 0px;">
+</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textCenter MuiDataGrid-cellCheckbox MuiDataGrid-cell--flex" role="gridcell" data-field="__check__" data-colindex="0" aria-colindex="1" aria-colspan="1" aria-rowspan="1" style="--width: 50px;" tabindex="-1">
+<span class="MuiButtonBase-root MuiCheckbox-root MuiCheckbox-colorPrimary MuiCheckbox-sizeMedium PrivateSwitchBase-root MuiCheckbox-root MuiCheckbox-colorPrimary MuiCheckbox-sizeMedium MuiCheckbox-root MuiCheckbox-colorPrimary MuiCheckbox-sizeMedium css-vuhw6e-MuiButtonBase-root-MuiSwitchBase-root-MuiCheckbox-root">
+<input tabindex="-1" data-indeterminate="false" aria-label="Select Beta" class="PrivateSwitchBase-input css-12xagqm-MuiSwitchBase-root" type="checkbox" name="select_row">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="CheckBoxOutlineBlankIcon">
+<path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z">
+</path>
+</svg>
+</span>
+</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textLeft" role="gridcell" data-field="name" data-colindex="1" aria-colindex="2" aria-colspan="1" aria-rowspan="1" style="--width: 255.6px;" title="Beta" tabindex="-1">Beta</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textLeft" role="gridcell" data-field="attempts" data-colindex="2" aria-colindex="3" aria-colspan="1" aria-rowspan="1" style="--width: 255.6px;" title="4" tabindex="-1">4</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textLeft" role="gridcell" data-field="status" data-colindex="3" aria-colindex="4" aria-colspan="1" aria-rowspan="1" style="--width: 255.6px;" title="failed" tabindex="-1">failed</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textLeft" role="gridcell" data-field="active" data-colindex="4" aria-colindex="5" aria-colspan="1" aria-rowspan="1" style="--width: 255.6px;" title="no" tabindex="-1">no</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textLeft" role="gridcell" data-field="created" data-colindex="5" aria-colindex="6" aria-colspan="1" aria-rowspan="1" style="--width: 255.6px;" title="2026-02-03" tabindex="-1">2026-02-03</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textRight" role="gridcell" data-field="__datatable_actions__" data-colindex="6" aria-colindex="7" aria-colspan="1" aria-rowspan="1" style="--width: 72px;" tabindex="-1">
+<div class="MuiStack-root css-1ae1vka-MuiStack-root">
+<span aria-label="Open" class="" data-mui-internal-clone-element="true">
+<button class="MuiButtonBase-root MuiIconButton-root MuiIconButton-sizeSmall css-155wbr6-MuiButtonBase-root-MuiIconButton-root" tabindex="0" type="button" aria-label="Open for Beta">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeSmall css-120dh41-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="MoreVertIcon">
+<path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2m0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2m0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2">
+</path>
+</svg>
+</button>
+</span>
+</div>
+</div>
+<div role="none" class="MuiDataGrid-cell MuiDataGrid-cellEmpty">
+</div>
+</div>
+</div>
+<div class="MuiDataGrid-contentFiller" style="width: auto; height: 104px; flex: 0 0 auto;" role="presentation">
+</div>
+<div class="MuiDataGrid-bottomContainer MuiDataGrid-container--bottom css-ov7qw3" role="none">
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="MuiDataGrid-footerContainer MuiDataGrid-withBorderColor css-15lx25q-MuiDataGrid-footerContainer">
+<div class="MuiDataGrid-selectedRowCount css-ptw7dq-MuiDataGrid-selectedRowCount">1 row selected</div>
+<div class="MuiTablePagination-root css-y1ejz4-MuiTablePagination-root">
+<div class="MuiToolbar-root MuiToolbar-gutters MuiToolbar-regular MuiTablePagination-toolbar css-1gak8h1-MuiToolbar-root-MuiTablePagination-toolbar">
+<div class="MuiTablePagination-spacer css-1wtxofq-MuiTablePagination-spacer">
+</div>
+<p id="_r_N_" class="MuiTablePagination-selectLabel css-s09cke-MuiTablePagination-selectLabel">Rows per page:</p>
+<div class="MuiInputBase-root MuiInputBase-colorPrimary MuiTablePagination-select MuiSelect-root MuiTablePagination-input css-1bw1xoo-MuiInputBase-root-MuiTablePagination-select">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_" id="_r_N_" class="MuiSelect-select MuiTablePagination-select MuiSelect-standard MuiInputBase-input css-gxx9cp-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input">25</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="25">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon MuiTablePagination-selectIcon css-ug7h84-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+</div>
+<p class="MuiTablePagination-displayedRows css-11cfq65-MuiTablePagination-displayedRows">1–2 of 2</p>
+<div class="MuiTablePaginationActions-root MuiTablePagination-actions css-sjsoon-MuiTablePaginationActions-root">
+<button class="MuiButtonBase-root Mui-disabled MuiIconButton-root Mui-disabled MuiIconButton-colorInherit MuiIconButton-sizeMedium css-h7cjts-MuiButtonBase-root-MuiIconButton-root" tabindex="-1" type="button" disabled="" aria-label="Go to previous page" title="Go to previous page">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="KeyboardArrowLeftIcon">
+<path d="M15.41 16.09l-4.58-4.59 4.58-4.59L14 5.5l-6 6 6 6z">
+</path>
+</svg>
+</button>
+<button class="MuiButtonBase-root Mui-disabled MuiIconButton-root Mui-disabled MuiIconButton-colorInherit MuiIconButton-sizeMedium css-h7cjts-MuiButtonBase-root-MuiIconButton-root" tabindex="-1" type="button" disabled="" aria-label="Go to next page" title="Go to next page">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="KeyboardArrowRightIcon">
+<path d="M8.59 16.34l4.58-4.59-4.58-4.59L10 5.75l6 6-6 6z">
+</path>
+</svg>
+</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<style href="/MuiDataGridVariables-3962610333">.MuiDataGridVariables-3962610333{--DataGrid-t-spacing-unit:8px;--DataGrid-t-color-border-base:rgba(224, 224, 224, 1);--DataGrid-t-color-background-base:#fff;--DataGrid-t-color-background-overlay:#fff;--DataGrid-t-color-background-backdrop:rgba(255, 255, 255, 0.38);--DataGrid-t-color-foreground-base:rgba(0, 0, 0, 0.87);--DataGrid-t-color-foreground-muted:rgba(0, 0, 0, 0.6);--DataGrid-t-color-foreground-accent:#1565c0;--DataGrid-t-color-foreground-disabled:rgba(0, 0, 0, 0.38);--DataGrid-t-color-foreground-error:#c62828;--DataGrid-t-color-interactive-hover:#f5f5f5;--DataGrid-t-color-interactive-hover-opacity:0.04;--DataGrid-t-color-interactive-focus:rgba(from #1976d2 r g b / 1);--DataGrid-t-color-interactive-focus-opacity:0.12;--DataGrid-t-color-interactive-disabled:rgba(from rgba(0, 0, 0, 0.26) r g b / 1);--DataGrid-t-color-interactive-disabled-opacity:0.38;--DataGrid-t-color-interactive-selected:#eeeeee;--DataGrid-t-color-interactive-selected-opacity:0.08;--DataGrid-t-header-background-base:#fff;--DataGrid-t-cell-background-pinned:#fff;--DataGrid-t-radius-base:4px;--DataGrid-t-typography-font-family-base:"Roboto", "Helvetica", "Arial", sans-serif;--DataGrid-t-typography-font-weight-light:300;--DataGrid-t-typography-font-weight-regular:400;--DataGrid-t-typography-font-weight-medium:500;--DataGrid-t-typography-font-weight-bold:700;--DataGrid-t-typography-font-body:400 0.875rem / 1.43 "Roboto", "Helvetica", "Arial", sans-serif;--DataGrid-t-typography-font-small:400 0.75rem / 1.66 "Roboto", "Helvetica", "Arial", sans-serif;--DataGrid-t-typography-font-large:400 1rem / 1.5 "Roboto", "Helvetica", "Arial", sans-serif;--DataGrid-t-transition-easing-ease-in:cubic-bezier(0.4, 0, 1, 1);--DataGrid-t-transition-easing-ease-out:cubic-bezier(0.0, 0, 0.2, 1);--DataGrid-t-transition-easing-ease-in-out:cubic-bezier(0.4, 0, 0.2, 1);--DataGrid-t-transition-duration-short:200ms;--DataGrid-t-transition-duration-base:250ms;--DataGrid-t-transition-duration-long:300ms;--DataGrid-t-shadow-base:0px 3px 1px -2px rgba(0,0,0,0.2),0px 2px 2px 0px rgba(0,0,0,0.14),0px 1px 5px 0px rgba(0,0,0,0.12);--DataGrid-t-shadow-overlay:0px 5px 5px -3px rgba(0,0,0,0.2),0px 8px 10px 1px rgba(0,0,0,0.14),0px 3px 14px 2px rgba(0,0,0,0.12);--DataGrid-t-z-index-panel:1300;--DataGrid-t-z-index-menu:1300;--DataGrid-t-z-index-modal:1300;}</style>
+</div>
+</div>
+</div>
+</div>"
+`;
+
+exports[`DataTable builtin markup > mobile: card list with the same state 1`] = `
+"<div class="MuiBox-root css-1h32la5" data-testid="datatable" data-renderer="mobile" data-layout="mobile" data-density="standard">
+<div class="MuiBox-root css-1vzplob" data-testid="datatable-view-bar" data-view-surface="mobile">
+<button class="MuiButtonBase-root MuiButton-root MuiButton-outlined MuiButton-sizeSmall MuiButton-colorPrimary css-9g2lvq-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="View options" data-testid="datatable-view-button">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="TuneIcon">
+<path d="M3 17v2h6v-2zM3 5v2h10V5zm10 16v-2h8v-2h-8v-2h-2v6zM7 9v2H3v2h4v2h2V9zm14 4v-2H11v2zm-6-4h2V7h4V5h-4V3h-2z">
+</path>
+</svg>
+</span>View</button>
+<span aria-label="Table actions" class="" data-mui-internal-clone-element="true">
+<button class="MuiButtonBase-root MuiIconButton-root MuiIconButton-sizeSmall css-12l4pa3-MuiButtonBase-root-MuiIconButton-root" tabindex="0" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Table actions" data-testid="datatable-overflow-button">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="MoreVertIcon">
+<path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2m0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2m0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2">
+</path>
+</svg>
+</button>
+</span>
+</div>
+<div class="MuiBox-root css-p3r9tk" data-testid="datatable-filter-bar" data-filter-surface="mobile">
+<div class="MuiBox-root css-1a6n7l1" aria-live="polite" role="status" data-testid="datatable-filter-live-region">Filtered to 2 results</div>
+<div class="MuiStack-root css-1ukpx5v-MuiStack-root">
+<div class="MuiFormControl-root MuiFormControl-fullWidth MuiTextField-root css-d6dfh4-MuiFormControl-root-MuiTextField-root" data-testid="datatable-quick-search">
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-fullWidth MuiInputBase-formControl MuiInputBase-sizeSmall MuiInputBase-adornedStart css-ot336b-MuiInputBase-root-MuiOutlinedInput-root">
+<div class="MuiInputAdornment-root MuiInputAdornment-positionStart MuiInputAdornment-outlined MuiInputAdornment-sizeSmall css-1nowbqt-MuiInputAdornment-root">
+<span class="notranslate" aria-hidden="true">​</span>
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeSmall css-120dh41-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="SearchIcon">
+<path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14">
+</path>
+</svg>
+</div>
+<input aria-invalid="false" aria-label="Search" id="_r_N_" placeholder="Search Name" class="MuiInputBase-input MuiOutlinedInput-input MuiInputBase-inputTypeSearch css-vnfkv6-MuiInputBase-input-MuiOutlinedInput-input" type="search" value="">
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-1nf2c5d-MuiNotchedOutlined-root">
+<span class="notranslate" aria-hidden="true">​</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<span class="MuiBadge-root css-oi7n4e-MuiBadge-root">
+<button class="MuiButtonBase-root MuiButton-root MuiButton-outlined MuiButton-sizeSmall MuiButton-colorPrimary css-9g2lvq-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button" aria-expanded="false" aria-haspopup="dialog" aria-label="Filters (1 active)" data-testid="datatable-filter-toggle">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="FilterListIcon">
+<path d="M10 18h4v-2h-4zM3 6v2h18V6zm3 7h12v-2H6z">
+</path>
+</svg>
+</span>Filters</button>
+<span aria-hidden="true" style="--Badge-translate: 50%, -50%; --Badge-inset: 0 0 auto auto; --Badge-origin: 100% 0%;" class="MuiBadge-badge MuiBadge-standard MuiBadge-anchorOriginTopRight MuiBadge-anchorOriginTopRightRectangular MuiBadge-overlapRectangular MuiBadge-colorPrimary datatable-filter-count css-13qvwy0-MuiBadge-badge">1</span>
+</span>
+</div>
+<div class="MuiBox-root css-1wwzstl" data-testid="datatable-filter-chip-strip" role="list" aria-label="Active filters">
+<div class="MuiButtonBase-root MuiChip-root MuiChip-outlined MuiChip-sizeMedium MuiChip-colorPrimary MuiChip-deletable css-1e8gnfd-MuiButtonBase-root-MuiChip-root" tabindex="0" role="listitem" data-testid="datatable-filter-chip">
+<span class="MuiChip-label css-16cgrcw-MuiChip-label">Name contains a</span>
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiChip-deleteIcon css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="datatable-filter-chip-remove" aria-label="Remove filter: Name contains a">
+<path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2m5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12z">
+</path>
+</svg>
+</div>
+</div>
+</div>
+<div class="MuiBox-root css-1h32la5" data-testid="datatable-card-list" data-density="standard">
+<div class="MuiBox-root css-jn0ksx" data-testid="datatable-card-sort">
+<div class="MuiFormControl-root MuiTextField-root css-gujfhz-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Sort by</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-label="Sort by" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Default</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="__default__">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Sort by</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<span aria-label="Sort ascending" class="" data-mui-internal-clone-element="true">
+<button class="MuiButtonBase-root Mui-disabled MuiIconButton-root Mui-disabled MuiIconButton-sizeMedium css-tekuir-MuiButtonBase-root-MuiIconButton-root" tabindex="-1" type="button" disabled="" aria-label="Sorted ascending, switch to descending">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowUpwardIcon">
+<path d="m4 12 1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8z">
+</path>
+</svg>
+</button>
+</span>
+</div>
+<div class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded css-1go7lya-MuiPaper-root" data-testid="datatable-bulk-action-bar" role="toolbar" aria-label="Bulk actions">
+<p class="MuiTypography-root MuiTypography-body2 css-bvuapi-MuiTypography-root" aria-live="polite" role="status">1 of 2 selected</p>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-sizeSmall MuiButton-colorPrimary css-1ccsd5i-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button" aria-label="Clear selection">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="CloseIcon">
+<path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z">
+</path>
+</svg>
+</span>Clear</button>
+<div class="MuiBox-root css-i9gxme">
+</div>
+<div class="MuiStack-root css-1sugu6g-MuiStack-root">
+<button class="MuiButtonBase-root MuiButton-root MuiButton-outlined MuiButton-sizeSmall MuiButton-colorPrimary css-wyro15-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button">Delete</button>
+</div>
+</div>
+<label class="MuiFormControlLabel-root MuiFormControlLabel-labelPlacementEnd css-wrcere-MuiFormControlLabel-root">
+<span class="MuiButtonBase-root MuiCheckbox-root MuiCheckbox-indeterminate MuiCheckbox-colorPrimary MuiCheckbox-sizeMedium PrivateSwitchBase-root MuiCheckbox-root MuiCheckbox-indeterminate MuiCheckbox-colorPrimary MuiCheckbox-sizeMedium MuiCheckbox-root MuiCheckbox-indeterminate MuiCheckbox-colorPrimary MuiCheckbox-sizeMedium css-1xp19oh-MuiButtonBase-root-MuiSwitchBase-root-MuiCheckbox-root">
+<input data-indeterminate="true" aria-checked="mixed" aria-label="Select all rows" class="PrivateSwitchBase-input css-12xagqm-MuiSwitchBase-root" type="checkbox">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="IndeterminateCheckBoxIcon">
+<path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10H7v-2h10v2z">
+</path>
+</svg>
+</span>
+<span class="MuiTypography-root MuiTypography-body1 MuiFormControlLabel-label css-rizt0-MuiTypography-root">Select all rows</span>
+</label>
+<div class="MuiBox-root css-meikcj">
+<ul class="MuiStack-root css-1hj6zdt-MuiStack-root" role="list" aria-label="Things">
+<li class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-1wfw7mw-MuiPaper-root-MuiCard-root" aria-label="Alpha" data-testid="datatable-card" data-row-id="r1" data-density="standard" data-selected="false" data-skip-offscreen="false">
+<div class="MuiBox-root css-onlkjd" data-testid="datatable-card-header">
+<span class="MuiButtonBase-root MuiCheckbox-root MuiCheckbox-colorPrimary MuiCheckbox-sizeMedium PrivateSwitchBase-root MuiCheckbox-root MuiCheckbox-colorPrimary MuiCheckbox-sizeMedium MuiCheckbox-root MuiCheckbox-colorPrimary MuiCheckbox-sizeMedium css-1apnjkm-MuiButtonBase-root-MuiSwitchBase-root-MuiCheckbox-root">
+<input data-indeterminate="false" aria-label="Select Alpha" class="PrivateSwitchBase-input css-12xagqm-MuiSwitchBase-root" type="checkbox">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="CheckBoxOutlineBlankIcon">
+<path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z">
+</path>
+</svg>
+</span>
+<div class="MuiBox-root css-15ync0s">
+<div class="MuiTypography-root MuiTypography-subtitle2 css-1onc33i-MuiTypography-root" data-testid="datatable-card-headline-name">Alpha</div>
+</div>
+</div>
+<hr class="MuiDivider-root MuiDivider-fullWidth css-1jpc804-MuiDivider-root">
+<div class="MuiStack-root css-lvpjqg-MuiStack-root" data-testid="datatable-card-body">
+<div class="MuiBox-root css-31l7gp" data-testid="datatable-card-field-attempts">
+<div class="MuiTypography-root MuiTypography-caption css-190s8zj-MuiTypography-root">Attempts</div>
+<div class="MuiTypography-root MuiTypography-body2 css-1lbup7w-MuiTypography-root">1</div>
+</div>
+<div class="MuiBox-root css-31l7gp" data-testid="datatable-card-field-status">
+<div class="MuiTypography-root MuiTypography-caption css-190s8zj-MuiTypography-root">Status</div>
+<div class="MuiTypography-root MuiTypography-body2 css-1lbup7w-MuiTypography-root">ok</div>
+</div>
+</div>
+<hr class="MuiDivider-root MuiDivider-fullWidth css-1jpc804-MuiDivider-root">
+<button class="MuiButtonBase-root css-1pyzzr3-MuiButtonBase-root" tabindex="0" type="button" data-testid="datatable-card-detail-toggle" aria-expanded="false" aria-controls="_r_N_" aria-label="More details for Alpha">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeSmall css-120dh41-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ExpandMoreIcon">
+<path d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z">
+</path>
+</svg>More details</button>
+</li>
+<li class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-1h0vbh2-MuiPaper-root-MuiCard-root" aria-label="Beta" data-testid="datatable-card" data-row-id="r2" data-density="standard" data-selected="true" data-skip-offscreen="false">
+<div class="MuiBox-root css-onlkjd" data-testid="datatable-card-header">
+<span class="MuiButtonBase-root MuiCheckbox-root MuiCheckbox-colorPrimary MuiCheckbox-sizeMedium PrivateSwitchBase-root MuiCheckbox-root MuiCheckbox-colorPrimary MuiCheckbox-sizeMedium Mui-checked MuiCheckbox-root MuiCheckbox-colorPrimary MuiCheckbox-sizeMedium css-1apnjkm-MuiButtonBase-root-MuiSwitchBase-root-MuiCheckbox-root">
+<input data-indeterminate="false" aria-label="Select Beta" class="PrivateSwitchBase-input css-12xagqm-MuiSwitchBase-root" type="checkbox" checked="">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="CheckBoxIcon">
+<path d="M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.11 0 2-.9 2-2V5c0-1.1-.89-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z">
+</path>
+</svg>
+</span>
+<div class="MuiBox-root css-15ync0s">
+<div class="MuiTypography-root MuiTypography-subtitle2 css-1onc33i-MuiTypography-root" data-testid="datatable-card-headline-name">Beta</div>
+</div>
+</div>
+<hr class="MuiDivider-root MuiDivider-fullWidth css-1jpc804-MuiDivider-root">
+<div class="MuiStack-root css-lvpjqg-MuiStack-root" data-testid="datatable-card-body">
+<div class="MuiBox-root css-31l7gp" data-testid="datatable-card-field-attempts">
+<div class="MuiTypography-root MuiTypography-caption css-190s8zj-MuiTypography-root">Attempts</div>
+<div class="MuiTypography-root MuiTypography-body2 css-1lbup7w-MuiTypography-root">4</div>
+</div>
+<div class="MuiBox-root css-31l7gp" data-testid="datatable-card-field-status">
+<div class="MuiTypography-root MuiTypography-caption css-190s8zj-MuiTypography-root">Status</div>
+<div class="MuiTypography-root MuiTypography-body2 css-1lbup7w-MuiTypography-root">failed</div>
+</div>
+</div>
+<hr class="MuiDivider-root MuiDivider-fullWidth css-1jpc804-MuiDivider-root">
+<button class="MuiButtonBase-root css-1pyzzr3-MuiButtonBase-root" tabindex="0" type="button" data-testid="datatable-card-detail-toggle" aria-expanded="false" aria-controls="_r_N_" aria-label="More details for Beta">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeSmall css-120dh41-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ExpandMoreIcon">
+<path d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z">
+</path>
+</svg>More details</button>
+</li>
+</ul>
+</div>
+<div class="MuiBox-root css-p69bx2" data-testid="datatable-compact-pagination">
+<button class="MuiButtonBase-root Mui-disabled MuiIconButton-root Mui-disabled MuiIconButton-sizeMedium css-tekuir-MuiButtonBase-root-MuiIconButton-root" tabindex="-1" type="button" disabled="" aria-label="Go to previous page">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ChevronLeftIcon">
+<path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z">
+</path>
+</svg>
+</button>
+<p class="MuiTypography-root MuiTypography-body2 css-1d7ea9c-MuiTypography-root" aria-live="polite">1–2 of 2</p>
+<button class="MuiButtonBase-root Mui-disabled MuiIconButton-root Mui-disabled MuiIconButton-sizeMedium css-tekuir-MuiButtonBase-root-MuiIconButton-root" tabindex="-1" type="button" disabled="" aria-label="Go to next page">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ChevronRightIcon">
+<path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z">
+</path>
+</svg>
+</button>
+</div>
+</div>
+</div>"
+`;
+
+exports[`DataTable builtin markup > the filter panel open on desktop 1`] = `
+"<div class="MuiBox-root css-1h32la5" data-testid="datatable" data-renderer="desktop" data-layout="desktop" data-density="standard">
+<div class="MuiBox-root css-1vzplob" data-testid="datatable-view-bar" data-view-surface="desktop">
+<div role="group" class="MuiToggleButtonGroup-root MuiToggleButtonGroup-horizontal css-i1fker-MuiToggleButtonGroup-root" aria-label="Row density" data-testid="datatable-density-group">
+<button class="MuiButtonBase-root MuiToggleButtonGroup-grouped MuiToggleButton-root MuiToggleButton-sizeSmall MuiToggleButton-standard MuiToggleButtonGroup-firstButton css-ptpjgc-MuiButtonBase-root-MuiToggleButton-root" tabindex="0" type="button" value="compact" aria-pressed="false" aria-label="Compact density" data-testid="datatable-density-compact" data-mui-internal-clone-element="true">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeSmall css-120dh41-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="DensitySmallIcon">
+<path d="M3 2h18v2H3zm0 18h18v2H3zm0-6h18v2H3zm0-6h18v2H3z">
+</path>
+</svg>
+</button>
+<button class="MuiButtonBase-root MuiToggleButtonGroup-grouped MuiToggleButton-root Mui-selected MuiToggleButton-sizeSmall MuiToggleButton-standard MuiToggleButtonGroup-middleButton css-ptpjgc-MuiButtonBase-root-MuiToggleButton-root" tabindex="-1" type="button" value="standard" aria-pressed="true" aria-label="Standard density" data-testid="datatable-density-standard" data-mui-internal-clone-element="true">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeSmall css-120dh41-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="DensityMediumIcon">
+<path d="M3 3h18v2H3zm0 16h18v2H3zm0-8h18v2H3z">
+</path>
+</svg>
+</button>
+<button class="MuiButtonBase-root MuiToggleButtonGroup-grouped MuiToggleButton-root MuiToggleButton-sizeSmall MuiToggleButton-standard MuiToggleButtonGroup-lastButton css-ptpjgc-MuiButtonBase-root-MuiToggleButton-root" tabindex="-1" type="button" value="comfortable" aria-pressed="false" aria-label="Comfortable density" data-testid="datatable-density-comfortable" data-mui-internal-clone-element="true">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeSmall css-120dh41-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="DensityLargeIcon">
+<path d="M3 3h18v2H3zm0 16h18v2H3z">
+</path>
+</svg>
+</button>
+</div>
+<span class="MuiBadge-root css-oi7n4e-MuiBadge-root">
+<button class="MuiButtonBase-root MuiButton-root MuiButton-outlined MuiButton-sizeSmall MuiButton-colorPrimary css-9g2lvq-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Columns" data-testid="datatable-columns-button">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ViewColumnIcon">
+<path d="M14.67 5v14H9.33V5zm1 14H21V5h-5.33zm-7.34 0V5H3v14z">
+</path>
+</svg>
+</span>Columns</button>
+<span aria-hidden="true" style="--Badge-translate: 50%, -50%; --Badge-inset: 0 0 auto auto; --Badge-origin: 100% 0%;" class="MuiBadge-badge MuiBadge-standard MuiBadge-invisible MuiBadge-anchorOriginTopRight MuiBadge-anchorOriginTopRightRectangular MuiBadge-overlapRectangular MuiBadge-colorPrimary datatable-hidden-column-count css-pnxlnx-MuiBadge-badge">0</span>
+</span>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-outlined MuiButton-sizeSmall MuiButton-colorPrimary css-1g2rn80-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button" aria-label="Export CSV" data-testid="datatable-export-button">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="DownloadIcon">
+<path d="M5 20h14v-2H5zM19 9h-4V3H9v6H5l7 7z">
+</path>
+</svg>
+</span>Export</button>
+</div>
+<div class="MuiBox-root css-p3r9tk" data-testid="datatable-filter-bar" data-filter-surface="desktop">
+<div class="MuiBox-root css-1a6n7l1" aria-live="polite" role="status" data-testid="datatable-filter-live-region">
+</div>
+<div class="MuiStack-root css-1lj4mru-MuiStack-root">
+<form class="MuiBox-root css-1ygolya" data-testid="datatable-filter-editor">
+<div class="MuiStack-root css-13hhz3e-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1ah5sg9-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Column</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Name</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="name">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Column</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-kws3sd-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Operator</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">contains</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="contains">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Operator</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-spfbcm-MuiFormControl-root-MuiTextField-root">
+<label class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-sizeSmall MuiInputLabel-outlined css-1kfabtt-MuiFormLabel-root-MuiInputLabel-root" data-shrink="false" for="_r_N_" id="_r_N_-label">Value</label>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<input aria-invalid="false" id="_r_N_" class="MuiInputBase-input MuiOutlinedInput-input css-1pzfmz2-MuiInputBase-input-MuiOutlinedInput-input" type="text" value="">
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-1n64csd-MuiNotchedOutlined-root">
+<span>Value</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<button class="MuiButtonBase-root Mui-disabled MuiButton-root MuiButton-contained MuiButton-sizeSmall MuiButton-colorPrimary css-48llmp-MuiButtonBase-root-MuiButton-root" tabindex="-1" type="submit" disabled="" data-testid="datatable-filter-apply">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="AddIcon">
+<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z">
+</path>
+</svg>
+</span>Add</button>
+</div>
+</form>
+</div>
+</div>
+<div class="MuiBox-root css-1h32la5">
+<div class="MuiBox-root css-adek63" data-testid="datatable-scroll-container" data-virtualized="false">
+<div class="MuiDataGrid-root MuiDataGrid-autoHeight MuiDataGrid-root--densityStandard MuiDataGrid-withBorderColor MuiDataGridVariables-3962610333 css-5o582y-MuiDataGrid-root" style="--DataGrid-hasScrollX: 0; --DataGrid-hasScrollY: 0; --DataGrid-scrollbarSize: 0px; --DataGrid-rowWidth: 1400px; --DataGrid-columnsTotalWidth: 1400px; --DataGrid-leftPinnedWidth: 0px; --DataGrid-rightPinnedWidth: 0px; --DataGrid-headerHeight: 56px; --DataGrid-headersTotalHeight: 56px; --DataGrid-topContainerHeight: 56px; --DataGrid-bottomContainerHeight: 0px; --DataGrid-horizontalFiller: 0px; --height: 52px;">
+<div class="MuiDataGrid-mainContent" role="none">
+<div class="MuiDataGrid-main css-1bgckiu-MuiDataGrid-main" tabindex="-1" role="grid" aria-label="Things" aria-colcount="5" aria-rowcount="3" aria-multiselectable="false">
+<div role="none" data-id="gridPanelAnchor" class="css-18l11qw">
+</div>
+<div class="MuiDataGrid-virtualScroller css-1kuhtq2-MuiDataGrid-virtualScroller" style="overflow-x: hidden; overflow-y: hidden;" role="presentation">
+<div role="presentation" class="MuiDataGrid-virtualScrollerContent css-12sjlri-MuiDataGrid-virtualScrollerContent">
+<div style="width: 1400px; height: 160px;" role="presentation" class="css-kr08np">
+<div class="MuiDataGrid-topContainer MuiDataGrid-container--top css-b1wygl" role="none">
+<div class="MuiDataGrid-columnHeaders css-1gtv474-MuiDataGrid-columnHeaders" role="none">
+<div role="row" aria-rowindex="1" class="MuiDataGrid-row--borderBottom css-yseucu-MuiDataGrid-columnHeaderRow" style="height: 56px; --height: 56px;">
+<div role="none" style="width: 0px;">
+</div>
+<div class="MuiDataGrid-columnHeader MuiDataGrid-columnHeader--alignLeft MuiDataGrid-columnHeader--sortable MuiDataGrid-withBorderColor" style="width: 280px;" role="columnheader" tabindex="0" aria-colindex="1" aria-sort="none" data-field="name">
+<div class="MuiDataGrid-columnHeaderDraggableContainer" draggable="false" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainer" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainerContent">
+<div class="MuiDataGrid-columnHeaderTitle css-1gqmilo-MuiDataGrid-columnHeaderTitle" data-mui-internal-clone-element="true">Name</div>
+</div>
+<div class="MuiDataGrid-iconButtonContainer css-ltf0zy-MuiDataGrid-iconButtonContainer">
+<span aria-label="Sort" class="" data-mui-internal-clone-element="true">
+<button class="MuiButtonBase-root MuiIconButton-root MuiIconButton-sizeSmall MuiDataGrid-sortButton css-1vkrt00-MuiButtonBase-root-MuiIconButton-root-MuiDataGrid-sortButton" tabindex="-1" type="button" aria-label="Sort" field="name">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeSmall MuiDataGrid-sortIcon css-120dh41-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowUpwardIcon">
+<path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z">
+</path>
+</svg>
+</button>
+</span>
+</div>
+</div>
+</div>
+<div class="MuiDataGrid-columnSeparator MuiDataGrid-columnSeparator--resizable MuiDataGrid-columnSeparator--sideRight" style="min-height: 56px;">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiDataGrid-iconSeparator css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="SeparatorIcon">
+<rect width="1" height="24" x="11.5" rx="0.5">
+</rect>
+</svg>
+</div>
+</div>
+<div class="MuiDataGrid-columnHeader MuiDataGrid-columnHeader--alignLeft MuiDataGrid-withBorderColor" style="width: 280px;" role="columnheader" tabindex="-1" aria-colindex="2" aria-sort="none" data-field="attempts">
+<div class="MuiDataGrid-columnHeaderDraggableContainer" draggable="false" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainer" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainerContent">
+<div class="MuiDataGrid-columnHeaderTitle css-1gqmilo-MuiDataGrid-columnHeaderTitle" data-mui-internal-clone-element="true">Attempts</div>
+</div>
+</div>
+</div>
+<div class="MuiDataGrid-columnSeparator MuiDataGrid-columnSeparator--resizable MuiDataGrid-columnSeparator--sideRight" style="min-height: 56px;">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiDataGrid-iconSeparator css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="SeparatorIcon">
+<rect width="1" height="24" x="11.5" rx="0.5">
+</rect>
+</svg>
+</div>
+</div>
+<div class="MuiDataGrid-columnHeader MuiDataGrid-columnHeader--alignLeft MuiDataGrid-withBorderColor" style="width: 280px;" role="columnheader" tabindex="-1" aria-colindex="3" aria-sort="none" data-field="status">
+<div class="MuiDataGrid-columnHeaderDraggableContainer" draggable="false" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainer" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainerContent">
+<div class="MuiDataGrid-columnHeaderTitle css-1gqmilo-MuiDataGrid-columnHeaderTitle" data-mui-internal-clone-element="true">Status</div>
+</div>
+</div>
+</div>
+<div class="MuiDataGrid-columnSeparator MuiDataGrid-columnSeparator--resizable MuiDataGrid-columnSeparator--sideRight" style="min-height: 56px;">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiDataGrid-iconSeparator css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="SeparatorIcon">
+<rect width="1" height="24" x="11.5" rx="0.5">
+</rect>
+</svg>
+</div>
+</div>
+<div class="MuiDataGrid-columnHeader MuiDataGrid-columnHeader--alignLeft MuiDataGrid-withBorderColor" style="width: 280px;" role="columnheader" tabindex="-1" aria-colindex="4" aria-sort="none" data-field="active">
+<div class="MuiDataGrid-columnHeaderDraggableContainer" draggable="false" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainer" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainerContent">
+<div class="MuiDataGrid-columnHeaderTitle css-1gqmilo-MuiDataGrid-columnHeaderTitle" data-mui-internal-clone-element="true">Active</div>
+</div>
+</div>
+</div>
+<div class="MuiDataGrid-columnSeparator MuiDataGrid-columnSeparator--resizable MuiDataGrid-columnSeparator--sideRight" style="min-height: 56px;">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiDataGrid-iconSeparator css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="SeparatorIcon">
+<rect width="1" height="24" x="11.5" rx="0.5">
+</rect>
+</svg>
+</div>
+</div>
+<div class="MuiDataGrid-columnHeader MuiDataGrid-columnHeader--alignLeft MuiDataGrid-withBorderColor MuiDataGrid-columnHeader--last" style="width: 280px;" role="columnheader" tabindex="-1" aria-colindex="5" aria-sort="none" data-field="created">
+<div class="MuiDataGrid-columnHeaderDraggableContainer" draggable="false" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainer" role="none">
+<div class="MuiDataGrid-columnHeaderTitleContainerContent">
+<div class="MuiDataGrid-columnHeaderTitle css-1gqmilo-MuiDataGrid-columnHeaderTitle" data-mui-internal-clone-element="true">Created</div>
+</div>
+</div>
+</div>
+<div class="MuiDataGrid-columnSeparator MuiDataGrid-columnSeparator--resizable MuiDataGrid-columnSeparator--sideRight" style="min-height: 56px;">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiDataGrid-iconSeparator css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="SeparatorIcon">
+<rect width="1" height="24" x="11.5" rx="0.5">
+</rect>
+</svg>
+</div>
+</div>
+<div role="none" class="MuiDataGrid-filler MuiDataGrid-filler--horizontal">
+</div>
+<div role="none" class="MuiDataGrid-scrollbarFiller" style="right: 0px;">
+</div>
+</div>
+</div>
+</div>
+<div role="rowgroup" style="transform: translate3d(0, 56px, 0);" class="MuiDataGrid-virtualScrollerRenderZone css-11dqcl8-MuiDataGrid-virtualScrollerRenderZone">
+<div data-id="r1" data-rowindex="0" role="row" class="MuiDataGrid-row MuiDataGrid-row--firstVisible" style="max-height: 52px; min-height: 52px; --height: 52px;" aria-rowindex="2" aria-selected="false">
+<div role="none" class="MuiDataGrid-cellOffsetLeft" style="width: 0px;">
+</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textLeft" role="gridcell" data-field="name" data-colindex="0" aria-colindex="1" aria-colspan="1" aria-rowspan="1" style="--width: 280px;" title="Alpha" tabindex="-1">Alpha</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textLeft" role="gridcell" data-field="attempts" data-colindex="1" aria-colindex="2" aria-colspan="1" aria-rowspan="1" style="--width: 280px;" title="1" tabindex="-1">1</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textLeft" role="gridcell" data-field="status" data-colindex="2" aria-colindex="3" aria-colspan="1" aria-rowspan="1" style="--width: 280px;" title="ok" tabindex="-1">ok</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textLeft" role="gridcell" data-field="active" data-colindex="3" aria-colindex="4" aria-colspan="1" aria-rowspan="1" style="--width: 280px;" title="yes" tabindex="-1">yes</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textLeft" role="gridcell" data-field="created" data-colindex="4" aria-colindex="5" aria-colspan="1" aria-rowspan="1" style="--width: 280px;" title="2026-01-02" tabindex="-1">2026-01-02</div>
+<div role="none" class="MuiDataGrid-cell MuiDataGrid-cellEmpty">
+</div>
+</div>
+<div data-id="r2" data-rowindex="1" role="row" class="MuiDataGrid-row MuiDataGrid-row--lastVisible" style="max-height: 52px; min-height: 52px; --height: 52px;" aria-rowindex="3" aria-selected="false">
+<div role="none" class="MuiDataGrid-cellOffsetLeft" style="width: 0px;">
+</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textLeft" role="gridcell" data-field="name" data-colindex="0" aria-colindex="1" aria-colspan="1" aria-rowspan="1" style="--width: 280px;" title="Beta" tabindex="-1">Beta</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textLeft" role="gridcell" data-field="attempts" data-colindex="1" aria-colindex="2" aria-colspan="1" aria-rowspan="1" style="--width: 280px;" title="4" tabindex="-1">4</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textLeft" role="gridcell" data-field="status" data-colindex="2" aria-colindex="3" aria-colspan="1" aria-rowspan="1" style="--width: 280px;" title="failed" tabindex="-1">failed</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textLeft" role="gridcell" data-field="active" data-colindex="3" aria-colindex="4" aria-colspan="1" aria-rowspan="1" style="--width: 280px;" title="no" tabindex="-1">no</div>
+<div class="MuiDataGrid-cell MuiDataGrid-cell--textLeft" role="gridcell" data-field="created" data-colindex="4" aria-colindex="5" aria-colspan="1" aria-rowspan="1" style="--width: 280px;" title="2026-02-03" tabindex="-1">2026-02-03</div>
+<div role="none" class="MuiDataGrid-cell MuiDataGrid-cellEmpty">
+</div>
+</div>
+</div>
+<div class="MuiDataGrid-contentFiller" style="width: auto; height: 104px; flex: 0 0 auto;" role="presentation">
+</div>
+<div class="MuiDataGrid-bottomContainer MuiDataGrid-container--bottom css-ov7qw3" role="none">
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<style href="/MuiDataGridVariables-3962610333">.MuiDataGridVariables-3962610333{--DataGrid-t-spacing-unit:8px;--DataGrid-t-color-border-base:rgba(224, 224, 224, 1);--DataGrid-t-color-background-base:#fff;--DataGrid-t-color-background-overlay:#fff;--DataGrid-t-color-background-backdrop:rgba(255, 255, 255, 0.38);--DataGrid-t-color-foreground-base:rgba(0, 0, 0, 0.87);--DataGrid-t-color-foreground-muted:rgba(0, 0, 0, 0.6);--DataGrid-t-color-foreground-accent:#1565c0;--DataGrid-t-color-foreground-disabled:rgba(0, 0, 0, 0.38);--DataGrid-t-color-foreground-error:#c62828;--DataGrid-t-color-interactive-hover:#f5f5f5;--DataGrid-t-color-interactive-hover-opacity:0.04;--DataGrid-t-color-interactive-focus:rgba(from #1976d2 r g b / 1);--DataGrid-t-color-interactive-focus-opacity:0.12;--DataGrid-t-color-interactive-disabled:rgba(from rgba(0, 0, 0, 0.26) r g b / 1);--DataGrid-t-color-interactive-disabled-opacity:0.38;--DataGrid-t-color-interactive-selected:#eeeeee;--DataGrid-t-color-interactive-selected-opacity:0.08;--DataGrid-t-header-background-base:#fff;--DataGrid-t-cell-background-pinned:#fff;--DataGrid-t-radius-base:4px;--DataGrid-t-typography-font-family-base:"Roboto", "Helvetica", "Arial", sans-serif;--DataGrid-t-typography-font-weight-light:300;--DataGrid-t-typography-font-weight-regular:400;--DataGrid-t-typography-font-weight-medium:500;--DataGrid-t-typography-font-weight-bold:700;--DataGrid-t-typography-font-body:400 0.875rem / 1.43 "Roboto", "Helvetica", "Arial", sans-serif;--DataGrid-t-typography-font-small:400 0.75rem / 1.66 "Roboto", "Helvetica", "Arial", sans-serif;--DataGrid-t-typography-font-large:400 1rem / 1.5 "Roboto", "Helvetica", "Arial", sans-serif;--DataGrid-t-transition-easing-ease-in:cubic-bezier(0.4, 0, 1, 1);--DataGrid-t-transition-easing-ease-out:cubic-bezier(0.0, 0, 0.2, 1);--DataGrid-t-transition-easing-ease-in-out:cubic-bezier(0.4, 0, 0.2, 1);--DataGrid-t-transition-duration-short:200ms;--DataGrid-t-transition-duration-base:250ms;--DataGrid-t-transition-duration-long:300ms;--DataGrid-t-shadow-base:0px 3px 1px -2px rgba(0,0,0,0.2),0px 2px 2px 0px rgba(0,0,0,0.14),0px 1px 5px 0px rgba(0,0,0,0.12);--DataGrid-t-shadow-overlay:0px 5px 5px -3px rgba(0,0,0,0.2),0px 8px 10px 1px rgba(0,0,0,0.14),0px 3px 14px 2px rgba(0,0,0,0.12);--DataGrid-t-z-index-panel:1300;--DataGrid-t-z-index-menu:1300;--DataGrid-t-z-index-modal:1300;}</style>
+</div>
+</div>
+</div>
+</div>"
+`;
+
+exports[`FilterEditor builtin markup > row: boolean is 1`] = `
+"<form class="MuiBox-root css-1ygolya" data-testid="datatable-filter-editor">
+<div class="MuiStack-root css-13hhz3e-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1ah5sg9-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Column</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Active</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="active">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Column</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-kws3sd-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Operator</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">is</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="is">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Operator</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-spfbcm-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Value</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Yes</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="true">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Value</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeSmall MuiButton-colorPrimary css-48llmp-MuiButtonBase-root-MuiButton-root" tabindex="0" type="submit" data-testid="datatable-filter-apply">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="AddIcon">
+<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z">
+</path>
+</svg>
+</span>Add</button>
+</div>
+</form>"
+`;
+
+exports[`FilterEditor builtin markup > row: date before 1`] = `
+"<form class="MuiBox-root css-1ygolya" data-testid="datatable-filter-editor">
+<div class="MuiStack-root css-13hhz3e-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1ah5sg9-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Column</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Created</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="created">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Column</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-kws3sd-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Operator</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">is before</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="before">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Operator</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-spfbcm-MuiFormControl-root-MuiTextField-root">
+<label class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" for="_r_N_" id="_r_N_-label">Value</label>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<input aria-invalid="false" id="_r_N_" class="MuiInputBase-input MuiOutlinedInput-input css-1pzfmz2-MuiInputBase-input-MuiOutlinedInput-input" type="date" value="2026-01-01">
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Value</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeSmall MuiButton-colorPrimary css-48llmp-MuiButtonBase-root-MuiButton-root" tabindex="0" type="submit" data-testid="datatable-filter-apply">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="AddIcon">
+<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z">
+</path>
+</svg>
+</span>Add</button>
+</div>
+</form>"
+`;
+
+exports[`FilterEditor builtin markup > row: date between 1`] = `
+"<form class="MuiBox-root css-1ygolya" data-testid="datatable-filter-editor">
+<div class="MuiStack-root css-13hhz3e-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1ah5sg9-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Column</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Created</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="created">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Column</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-kws3sd-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Operator</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">is between</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="between">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Operator</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-spfbcm-MuiFormControl-root-MuiTextField-root">
+<label class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" for="_r_N_" id="_r_N_-label">From</label>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<input aria-invalid="false" id="_r_N_" class="MuiInputBase-input MuiOutlinedInput-input css-1pzfmz2-MuiInputBase-input-MuiOutlinedInput-input" type="date" value="2026-01-01">
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>From</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-spfbcm-MuiFormControl-root-MuiTextField-root">
+<label class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" for="_r_N_" id="_r_N_-label">To</label>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<input aria-invalid="false" id="_r_N_" class="MuiInputBase-input MuiOutlinedInput-input css-1pzfmz2-MuiInputBase-input-MuiOutlinedInput-input" type="date" value="2026-02-01">
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>To</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeSmall MuiButton-colorPrimary css-48llmp-MuiButtonBase-root-MuiButton-root" tabindex="0" type="submit" data-testid="datatable-filter-apply">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="AddIcon">
+<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z">
+</path>
+</svg>
+</span>Add</button>
+</div>
+</form>"
+`;
+
+exports[`FilterEditor builtin markup > row: enum is 1`] = `
+"<form class="MuiBox-root css-1ygolya" data-testid="datatable-filter-editor">
+<div class="MuiStack-root css-13hhz3e-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1ah5sg9-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Column</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Status</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="status">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Column</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-kws3sd-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Operator</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">is</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="is">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Operator</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-spfbcm-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Value</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">OK</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="ok">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Value</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeSmall MuiButton-colorPrimary css-48llmp-MuiButtonBase-root-MuiButton-root" tabindex="0" type="submit" data-testid="datatable-filter-apply">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="AddIcon">
+<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z">
+</path>
+</svg>
+</span>Add</button>
+</div>
+</form>"
+`;
+
+exports[`FilterEditor builtin markup > row: enum isAnyOf 1`] = `
+"<form class="MuiBox-root css-1ygolya" data-testid="datatable-filter-editor">
+<div class="MuiStack-root css-13hhz3e-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1ah5sg9-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Column</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Status</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="status">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Column</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-kws3sd-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Operator</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">is any of</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="isAnyOf">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Operator</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-koz7te-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Value</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiSelect-multiple MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">OK, Failed</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="ok,failed">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Value</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeSmall MuiButton-colorPrimary css-48llmp-MuiButtonBase-root-MuiButton-root" tabindex="0" type="submit" data-testid="datatable-filter-apply">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="AddIcon">
+<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z">
+</path>
+</svg>
+</span>Add</button>
+</div>
+</form>"
+`;
+
+exports[`FilterEditor builtin markup > row: number between 1`] = `
+"<form class="MuiBox-root css-1ygolya" data-testid="datatable-filter-editor">
+<div class="MuiStack-root css-13hhz3e-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1ah5sg9-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Column</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Attempts</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="attempts">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Column</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-kws3sd-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Operator</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">is between</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="between">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Operator</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-spfbcm-MuiFormControl-root-MuiTextField-root">
+<label class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" for="_r_N_" id="_r_N_-label">From</label>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<input aria-invalid="false" id="_r_N_" class="MuiInputBase-input MuiOutlinedInput-input css-1pzfmz2-MuiInputBase-input-MuiOutlinedInput-input" type="number" value="1">
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>From</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-spfbcm-MuiFormControl-root-MuiTextField-root">
+<label class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" for="_r_N_" id="_r_N_-label">To</label>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<input aria-invalid="false" id="_r_N_" class="MuiInputBase-input MuiOutlinedInput-input css-1pzfmz2-MuiInputBase-input-MuiOutlinedInput-input" type="number" value="5">
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>To</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeSmall MuiButton-colorPrimary css-48llmp-MuiButtonBase-root-MuiButton-root" tabindex="0" type="submit" data-testid="datatable-filter-apply">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="AddIcon">
+<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z">
+</path>
+</svg>
+</span>Add</button>
+</div>
+</form>"
+`;
+
+exports[`FilterEditor builtin markup > row: number equals 1`] = `
+"<form class="MuiBox-root css-1ygolya" data-testid="datatable-filter-editor">
+<div class="MuiStack-root css-13hhz3e-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1ah5sg9-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Column</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Attempts</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="attempts">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Column</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-kws3sd-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Operator</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">=</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="equals">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Operator</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-spfbcm-MuiFormControl-root-MuiTextField-root">
+<label class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" for="_r_N_" id="_r_N_-label">Value</label>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<input aria-invalid="false" id="_r_N_" class="MuiInputBase-input MuiOutlinedInput-input css-1pzfmz2-MuiInputBase-input-MuiOutlinedInput-input" type="number" value="3">
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Value</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeSmall MuiButton-colorPrimary css-48llmp-MuiButtonBase-root-MuiButton-root" tabindex="0" type="submit" data-testid="datatable-filter-apply">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="AddIcon">
+<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z">
+</path>
+</svg>
+</span>Add</button>
+</div>
+</form>"
+`;
+
+exports[`FilterEditor builtin markup > row: text contains 1`] = `
+"<form class="MuiBox-root css-1ygolya" data-testid="datatable-filter-editor">
+<div class="MuiStack-root css-13hhz3e-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1ah5sg9-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Column</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Name</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="name">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Column</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-kws3sd-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Operator</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">contains</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="contains">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Operator</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-spfbcm-MuiFormControl-root-MuiTextField-root">
+<label class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" for="_r_N_" id="_r_N_-label">Value</label>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<input aria-invalid="false" id="_r_N_" class="MuiInputBase-input MuiOutlinedInput-input css-1pzfmz2-MuiInputBase-input-MuiOutlinedInput-input" type="text" value="al">
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Value</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeSmall MuiButton-colorPrimary css-48llmp-MuiButtonBase-root-MuiButton-root" tabindex="0" type="submit" data-testid="datatable-filter-apply">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="AddIcon">
+<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z">
+</path>
+</svg>
+</span>Add</button>
+</div>
+</form>"
+`;
+
+exports[`FilterEditor builtin markup > row: text isEmpty 1`] = `
+"<form class="MuiBox-root css-1ygolya" data-testid="datatable-filter-editor">
+<div class="MuiStack-root css-13hhz3e-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1ah5sg9-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Column</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Name</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="name">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Column</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-kws3sd-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Operator</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">is empty</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="isEmpty">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Operator</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeSmall MuiButton-colorPrimary css-48llmp-MuiButtonBase-root-MuiButton-root" tabindex="0" type="submit" data-testid="datatable-filter-apply">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="AddIcon">
+<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z">
+</path>
+</svg>
+</span>Add</button>
+</div>
+</form>"
+`;
+
+exports[`FilterEditor builtin markup > stacked: boolean is 1`] = `
+"<form class="MuiBox-root css-1ygolya" data-testid="datatable-filter-editor">
+<div class="MuiStack-root css-1wg6fd2-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1jd5yvi-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Column</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Active</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="active">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Column</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-hy6sva-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Operator</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">is</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="is">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Operator</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-q9uzxr-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Value</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Yes</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="true">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Value</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeSmall MuiButton-colorPrimary css-48llmp-MuiButtonBase-root-MuiButton-root" tabindex="0" type="submit" data-testid="datatable-filter-apply">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="AddIcon">
+<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z">
+</path>
+</svg>
+</span>Add</button>
+</div>
+</form>"
+`;
+
+exports[`FilterEditor builtin markup > stacked: date before 1`] = `
+"<form class="MuiBox-root css-1ygolya" data-testid="datatable-filter-editor">
+<div class="MuiStack-root css-1wg6fd2-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1jd5yvi-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Column</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Created</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="created">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Column</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-hy6sva-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Operator</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">is before</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="before">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Operator</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-q9uzxr-MuiFormControl-root-MuiTextField-root">
+<label class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" for="_r_N_" id="_r_N_-label">Value</label>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<input aria-invalid="false" id="_r_N_" class="MuiInputBase-input MuiOutlinedInput-input css-1pzfmz2-MuiInputBase-input-MuiOutlinedInput-input" type="date" value="2026-01-01">
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Value</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeSmall MuiButton-colorPrimary css-48llmp-MuiButtonBase-root-MuiButton-root" tabindex="0" type="submit" data-testid="datatable-filter-apply">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="AddIcon">
+<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z">
+</path>
+</svg>
+</span>Add</button>
+</div>
+</form>"
+`;
+
+exports[`FilterEditor builtin markup > stacked: date between 1`] = `
+"<form class="MuiBox-root css-1ygolya" data-testid="datatable-filter-editor">
+<div class="MuiStack-root css-1wg6fd2-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1jd5yvi-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Column</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Created</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="created">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Column</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-hy6sva-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Operator</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">is between</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="between">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Operator</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-q9uzxr-MuiFormControl-root-MuiTextField-root">
+<label class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" for="_r_N_" id="_r_N_-label">From</label>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<input aria-invalid="false" id="_r_N_" class="MuiInputBase-input MuiOutlinedInput-input css-1pzfmz2-MuiInputBase-input-MuiOutlinedInput-input" type="date" value="2026-01-01">
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>From</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-q9uzxr-MuiFormControl-root-MuiTextField-root">
+<label class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" for="_r_N_" id="_r_N_-label">To</label>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<input aria-invalid="false" id="_r_N_" class="MuiInputBase-input MuiOutlinedInput-input css-1pzfmz2-MuiInputBase-input-MuiOutlinedInput-input" type="date" value="2026-02-01">
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>To</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeSmall MuiButton-colorPrimary css-48llmp-MuiButtonBase-root-MuiButton-root" tabindex="0" type="submit" data-testid="datatable-filter-apply">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="AddIcon">
+<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z">
+</path>
+</svg>
+</span>Add</button>
+</div>
+</form>"
+`;
+
+exports[`FilterEditor builtin markup > stacked: enum is 1`] = `
+"<form class="MuiBox-root css-1ygolya" data-testid="datatable-filter-editor">
+<div class="MuiStack-root css-1wg6fd2-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1jd5yvi-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Column</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Status</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="status">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Column</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-hy6sva-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Operator</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">is</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="is">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Operator</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-q9uzxr-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Value</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">OK</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="ok">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Value</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeSmall MuiButton-colorPrimary css-48llmp-MuiButtonBase-root-MuiButton-root" tabindex="0" type="submit" data-testid="datatable-filter-apply">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="AddIcon">
+<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z">
+</path>
+</svg>
+</span>Add</button>
+</div>
+</form>"
+`;
+
+exports[`FilterEditor builtin markup > stacked: enum isAnyOf 1`] = `
+"<form class="MuiBox-root css-1ygolya" data-testid="datatable-filter-editor">
+<div class="MuiStack-root css-1wg6fd2-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1jd5yvi-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Column</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Status</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="status">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Column</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-hy6sva-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Operator</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">is any of</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="isAnyOf">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Operator</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-1ewneuz-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Value</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiSelect-multiple MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">OK, Failed</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="ok,failed">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Value</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeSmall MuiButton-colorPrimary css-48llmp-MuiButtonBase-root-MuiButton-root" tabindex="0" type="submit" data-testid="datatable-filter-apply">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="AddIcon">
+<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z">
+</path>
+</svg>
+</span>Add</button>
+</div>
+</form>"
+`;
+
+exports[`FilterEditor builtin markup > stacked: number between 1`] = `
+"<form class="MuiBox-root css-1ygolya" data-testid="datatable-filter-editor">
+<div class="MuiStack-root css-1wg6fd2-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1jd5yvi-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Column</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Attempts</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="attempts">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Column</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-hy6sva-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Operator</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">is between</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="between">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Operator</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-q9uzxr-MuiFormControl-root-MuiTextField-root">
+<label class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" for="_r_N_" id="_r_N_-label">From</label>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<input aria-invalid="false" id="_r_N_" class="MuiInputBase-input MuiOutlinedInput-input css-1pzfmz2-MuiInputBase-input-MuiOutlinedInput-input" type="number" value="1">
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>From</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-q9uzxr-MuiFormControl-root-MuiTextField-root">
+<label class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" for="_r_N_" id="_r_N_-label">To</label>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<input aria-invalid="false" id="_r_N_" class="MuiInputBase-input MuiOutlinedInput-input css-1pzfmz2-MuiInputBase-input-MuiOutlinedInput-input" type="number" value="5">
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>To</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeSmall MuiButton-colorPrimary css-48llmp-MuiButtonBase-root-MuiButton-root" tabindex="0" type="submit" data-testid="datatable-filter-apply">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="AddIcon">
+<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z">
+</path>
+</svg>
+</span>Add</button>
+</div>
+</form>"
+`;
+
+exports[`FilterEditor builtin markup > stacked: number equals 1`] = `
+"<form class="MuiBox-root css-1ygolya" data-testid="datatable-filter-editor">
+<div class="MuiStack-root css-1wg6fd2-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1jd5yvi-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Column</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Attempts</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="attempts">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Column</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-hy6sva-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Operator</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">=</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="equals">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Operator</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-q9uzxr-MuiFormControl-root-MuiTextField-root">
+<label class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" for="_r_N_" id="_r_N_-label">Value</label>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<input aria-invalid="false" id="_r_N_" class="MuiInputBase-input MuiOutlinedInput-input css-1pzfmz2-MuiInputBase-input-MuiOutlinedInput-input" type="number" value="3">
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Value</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeSmall MuiButton-colorPrimary css-48llmp-MuiButtonBase-root-MuiButton-root" tabindex="0" type="submit" data-testid="datatable-filter-apply">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="AddIcon">
+<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z">
+</path>
+</svg>
+</span>Add</button>
+</div>
+</form>"
+`;
+
+exports[`FilterEditor builtin markup > stacked: text contains 1`] = `
+"<form class="MuiBox-root css-1ygolya" data-testid="datatable-filter-editor">
+<div class="MuiStack-root css-1wg6fd2-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1jd5yvi-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Column</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Name</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="name">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Column</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-hy6sva-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Operator</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">contains</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="contains">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Operator</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-q9uzxr-MuiFormControl-root-MuiTextField-root">
+<label class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" for="_r_N_" id="_r_N_-label">Value</label>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<input aria-invalid="false" id="_r_N_" class="MuiInputBase-input MuiOutlinedInput-input css-1pzfmz2-MuiInputBase-input-MuiOutlinedInput-input" type="text" value="al">
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Value</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeSmall MuiButton-colorPrimary css-48llmp-MuiButtonBase-root-MuiButton-root" tabindex="0" type="submit" data-testid="datatable-filter-apply">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="AddIcon">
+<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z">
+</path>
+</svg>
+</span>Add</button>
+</div>
+</form>"
+`;
+
+exports[`FilterEditor builtin markup > stacked: text isEmpty 1`] = `
+"<form class="MuiBox-root css-1ygolya" data-testid="datatable-filter-editor">
+<div class="MuiStack-root css-1wg6fd2-MuiStack-root">
+<div class="MuiFormControl-root MuiTextField-root css-1jd5yvi-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Column</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">Name</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="name">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Column</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<div class="MuiFormControl-root MuiTextField-root css-hy6sva-MuiFormControl-root-MuiTextField-root">
+<div class="MuiFormLabel-root MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined MuiFormLabel-colorPrimary MuiFormLabel-filled MuiInputLabel-root MuiInputLabel-formControl MuiInputLabel-animated MuiInputLabel-shrink MuiInputLabel-sizeSmall MuiInputLabel-outlined css-hvjq6j-MuiFormLabel-root-MuiInputLabel-root" data-shrink="true" id="_r_N_-label">Operator</div>
+<div class="MuiInputBase-root MuiOutlinedInput-root MuiInputBase-colorPrimary MuiInputBase-formControl MuiInputBase-sizeSmall MuiSelect-root css-quhxjy-MuiInputBase-root-MuiOutlinedInput-root">
+<div tabindex="0" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-labelledby="_r_N_-label" id="_r_N_" class="MuiSelect-select MuiSelect-outlined MuiInputBase-input MuiOutlinedInput-input css-18x85q0-MuiNativeSelect-root-MuiSelect-select-MuiInputBase-input-MuiOutlinedInput-input">is empty</div>
+<input aria-invalid="false" aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-j0riat-MuiSelect-nativeInput" id="_r_N_" value="isEmpty">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium MuiSelect-icon css-1rfqz7c-MuiSvgIcon-root-MuiNativeSelect-root-MuiSelect-icon" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ArrowDropDownIcon">
+<path d="M7 10l5 5 5-5z">
+</path>
+</svg>
+<fieldset aria-hidden="true" class="MuiOutlinedInput-notchedOutline css-18p5xg2-MuiNotchedOutlined-root-MuiOutlinedInput-notchedOutline">
+<legend class="css-ex8a5f-MuiNotchedOutlined-root">
+<span>Operator</span>
+</legend>
+</fieldset>
+</div>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeSmall MuiButton-colorPrimary css-48llmp-MuiButtonBase-root-MuiButton-root" tabindex="0" type="submit" data-testid="datatable-filter-apply">
+<span class="MuiButton-icon MuiButton-startIcon css-t70kls-MuiButton-startIcon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeMedium css-1umw9bq-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="AddIcon">
+<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z">
+</path>
+</svg>
+</span>Add</button>
+</div>
+</form>"
+`;

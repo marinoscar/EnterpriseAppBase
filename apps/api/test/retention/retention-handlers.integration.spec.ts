@@ -1,0 +1,59 @@
+// =============================================================================
+// Retention purge handlers — registration in the real module graph (#681)
+// =============================================================================
+//
+// (#898: the purge handlers now live in the jobs, notifications and ai slices;
+// the scheduler enqueues what `RetentionPurgeRegistry` lists.) The unit specs construct each handler by hand; this boots the application
+// module and asserts what the worker and the node claim actually see: every
+// retention type registered, server-only (`JobHandlerRegistry.serverOnlyTypes()`,
+// the derivation the node plane reads) and carrying the declared profile.
+// =============================================================================
+
+import { JobHandlerRegistry, RetentionPurgeRegistry, jobTypeLabel } from '@marinoscar/platform-api/jobs';
+import { closeTestApp, createTestApp, type TestContext } from '../helpers/test-app.helper';
+
+const RETENTION_TYPES = [
+  'notifications.inbox.purge',
+  'notifications.deliveries.purge',
+  'audit.events.purge',
+  'ai.runs.purge',
+];
+
+describe('retention purge handlers in the application module (#681)', () => {
+  let context: TestContext;
+  let registry: JobHandlerRegistry;
+  let purges: RetentionPurgeRegistry;
+
+  beforeAll(async () => {
+    context = await createTestApp();
+    registry = context.app.get(JobHandlerRegistry);
+    purges = context.app.get(RetentionPurgeRegistry);
+  }, 60_000);
+
+  afterAll(async () => {
+    await closeTestApp(context);
+  });
+
+  it('the scheduler is offered exactly these four purges, in the namespace key order (#898)', () => {
+    expect(purges.list().map((purge) => [purge.policy, purge.type])).toEqual([
+      ['notifications', 'notifications.inbox.purge'],
+      ['notificationDeliveries', 'notifications.deliveries.purge'],
+      ['auditEvents', 'audit.events.purge'],
+      ['aiRuns', 'ai.runs.purge'],
+    ]);
+  });
+
+  it.each(RETENTION_TYPES)('%s is registered, server-only, and declares its profile', (type) => {
+    const handler = registry.get(type);
+
+    expect(handler).toBeDefined();
+    expect(registry.serverOnlyTypes()).toContain(type);
+    expect(handler!.nodeResultSchema).toBeUndefined();
+    expect(handler!.persistNodeResult).toBeUndefined();
+    expect(handler!.profile).toEqual({ maxRuntimeMs: 1_800_000, maxAttempts: 3 });
+  });
+
+  it.each(RETENTION_TYPES)('%s has a readable label in the admin job list', (type) => {
+    expect(jobTypeLabel(type)).not.toBe(type);
+  });
+});

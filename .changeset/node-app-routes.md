@@ -1,0 +1,5 @@
+---
+"@marinoscar/platform-api": minor
+---
+
+Add a supported rung for app-owned routes reachable by `nod_` worker credentials (#1076). `@marinoscar/platform-api/nodes` adds `@NodeRoute({ credentials?, nodeParam?, permissions? })`, which applies `@Auth` (default `nodes:write`), narrows the admitted credential kinds (`nod`, `pat`, `jwt`) and proves node ownership before the handler runs (404 missing, 403 not yours, 400 for a non-uuid id); `@CurrentNode()`; `NodeRouteModule` (provides `NodeRouteGuard` and the read-only `NodeOwnershipService`, and fails bootstrap on a node route outside `/api/nodes` or on a reserved sub-path); and `RESERVED_NODE_SUBPATHS` with `reservedNodeSubpathOverlap`. The ownership rule is extracted as `assertNodeOwnedBy`, shared with `NodesService.assertOwnership`. The new `@marinoscar/platform-api/nodes/testing` entry registers the `nodes` conformance suite: every app route under `/api/nodes` must carry `@NodeRoute()`, stay off the reserved sub-paths, and have a guard that refuses another user's node, a missing node and an unlisted credential kind. `JwtAuthGuard`'s prefix allowlist is unchanged.

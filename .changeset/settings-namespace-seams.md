@@ -1,0 +1,6 @@
+---
+"@marinoscar/platform-api": minor
+"@marinoscar/platform-contract": minor
+---
+
+Settings namespace seams for apps built on the packages (#865). `SystemSettingsNamespaces`, `SystemSettingsNamespaceDeclarations`, `UserSettingsNamespaces` and `UserSettingsNamespaceDeclarations` are declared in `@marinoscar/platform-api/settings` itself, so an app's `declare module '@marinoscar/platform-api/settings'` augmentation types `getNamespace(key)` whatever order the compiler meets it in (it used to lose the app's key once an installed slice's augmentation was processed after it). `SystemSettingsService.getNamespace(declaration)` reads a namespace typed by its declaration (`SystemSettingsNamespaceOf<D>`), with no augmentation. The `jobs` and `nodes` namespaces are the slices' own: `JOBS_SYSTEM_SETTINGS` / `mergeJobsSettings` (`/jobs`) and `NODES_SYSTEM_SETTINGS` / `mergeNodesSettings` (`/nodes`), with `DEFAULT_JOBS_POLICY` and `DEFAULT_NODES_POLICY` as defaults, registered by `JobsModule.forRoot()` and `NodesModule.forRoot()` through the new `ensureSystemSettingsNamespaces` unless the app's manifest already did (call them before `SettingsModule.forRoot()`). Their schemas are in `@marinoscar/platform-contract/jobs` and `/nodes`.

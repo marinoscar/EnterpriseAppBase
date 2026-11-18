@@ -1,0 +1,190 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+
+- **Scoped data access in the platform core**: the user-owned data registry (`userOwnedModelRegistry`, `registerUserOwnedModels`), the user-scoped Prisma client extension (`forUser`, `userScopeExtension`), `asSystem` and `ScopedAccessError` moved from `apps/api/src/prisma/ownership/` into `@marinoscar/platform-api/core`, schema-independent (model names are strings, the only Prisma import is `@prisma/client/extension`, the app passes its client in), so packaged slices scope their queries the same way. The app keeps its registrations, a thin `ScopedPrismaService` and a typed `PrismaService.forUser(scope)`; scoping semantics are unchanged and proven on a real database. The ownership and raw-SQL tripwires run as the `userOwnedData` suite of `runPlatformConformance()` with the same allowlist. See `packages/platform-api/src/core/README.md#scoped-data-access`.
+- **Platform core slice**: `@marinoscar/platform-api/core` now holds the principal and scope types (ADR 0001), `HttpExceptionFilter` with `ErrorDto`, `withVerbatimErrorBody` and `DatabaseSeedException`, the secret cipher (`encryptSecret`, `decryptSecret`, `userCredentialPurpose`) and `verifyEncryptionKeyAtStartup`, which now takes a `countStoredSecrets` callback instead of `PrismaService`. The API imports them from the package; the copies under `apps/api/src/common/` and the `common/registry` shim are gone, and `apps/api/test/platform/no-local-core-copies.spec.ts` keeps them gone. Ciphertexts, error bodies, startup log lines and `openapi.json` are unchanged. The OpenAPI tag list is now a registry (`openApiTags`) that slices can add to. See `packages/platform-api/src/core/README.md`.
+- **First platform pre-release (`next`): Doctor framework packaged.** The six `@marinoscar/platform-*` packages are versioned `0.1.0-next.0`. Until the npm scope is set up, each final version is attached as `npm pack` tarballs to the GitHub release `platform-v<version>` (a prerelease), installable by URL; the npm publish to `next` with provenance stays gated on the owner prerequisites. A consumer smoke (`tests/consumer-smoke/`, `npm run smoke:consumer`, the `pack-smoke` CI job) installs the packed, released or published packages into a minimal Nest app and a minimal Vite app outside the repository and proves they build, boot and render with the consumer's own host and checks. It found that `fastify` must be an optional peer of `@marinoscar/platform-api`. See `docs/runbooks/release-platform-packages.md`.
+- **Platform conformance harness**: `runPlatformConformance()` in `@marinoscar/platform-api/testing` runs the platform's invariants in any app from a spec that supplies only its own data. First suite: `cron-enqueue-only` (the scan moved out of `apps/api/test/jobs/cron-enqueue-only.spec.ts`, which keeps the three argued exemptions and the minimum). The registry primitive moved into `@marinoscar/platform-api/core`; `apps/api/src/common/registry/` is now a re-export shim, and the API image builds the package. See `packages/platform-api/src/testing/README.md`.
+- **Settings namespace registries**: every `global` system settings namespace and every optional user settings namespace is declared once, beside its owning module, and registered in `apps/api/src/settings/registry/`. The composed schemas, request and response DTOs, `DEFAULT_SYSTEM_SETTINGS`, the PATCH merge and the degraded-read salvage are derived from the registries, so adding a namespace is one declaration and one manifest line instead of six hand-kept places. Apps add namespaces, or fields inside a platform namespace, in `apps/api/src/app-registrations/settings.ts`; registration refuses secret-named fields, duplicate or malformed keys and `.default()` in user namespaces. The seed now reads the system defaults from a generated catalog (`apps/api/prisma/catalog/system-settings-defaults.json`, `npm run catalog:settings --workspace=api`, `-- --check` in CI). No behaviour change: stored JSON, API responses and the OpenAPI document are unchanged. See `apps/api/src/settings/registry/README.md`.
+- **Registry primitive**: a framework-free, typed `Registry<T>` (`apps/api/src/common/registry/`) with one stable set of rules for every registry: id validation, a duplicate policy (`throw` or `replace` in place), atomic `registerAll`, deterministic order, freezing after bootstrap, and typed `RegistryError` codes. Module-level registries made with `defineRegistry` are frozen by `RegistryFreezeService` once the application has bootstrapped; `withTemporaryEntries` lets tests add entries safely. The Doctor check registry now runs on it, with unchanged behaviour. `apps/api/src/app-registrations/` is the app-owned seam where a fork adds its own registry entries without editing platform files. See `apps/api/src/common/registry/README.md`.
+- **Permission registry**: every role and permission is declared once, with its description and default role grants, beside the module that enforces it (`apps/api/src/<module>/<module>.permissions.ts`), and validated at import time by the role and permission registries (`apps/api/src/common/permissions/`). `roles.constants.ts` now derives `ROLES` and `PERMISSIONS` (same keys and values) from those declarations, and `PermissionName`/`RoleName` widen by module augmentation, so an app adds its own permissions and roles in `apps/api/src/app-registrations/permissions.ts` without editing platform files. The seed reads a generated, committed catalog (`apps/api/prisma/catalog/permissions.json`, `npm run catalog:permissions --workspace=api`); the seeded roles, permissions and grants are unchanged. See `apps/api/src/common/permissions/README.md`.
+- **User-owned data registry and scoped data access**: every model with a foreign key to `User` is registered with the key's role (owner or actor), a purge policy that must match the relation's `onDelete`, an export policy and a rationale; a fork registers its own models in `apps/api/src/app-registrations/user-owned-models.ts`. `ScopedPrismaService.forUser(userId)` returns a Prisma client confined to one user's rows (another user's row is "not found"; actor-only models and raw SQL throw), and `asSystem({ kind: 'system', reason })` is the named, traced escape for system work. `UserCredentialsService` uses the scoped client. Two tripwires guard it: unregistered `User` relations or contradicting policies, and raw SQL outside an allowlist. See `apps/api/src/prisma/ownership/README.md`.
+- **Telemetry registries**: the Telemetry Dashboard's metric groups and the `app.*` metrics are registries (`apps/api/src/telemetry/metrics/metric-group.registry.ts`, `apps/api/src/common/otel/app-metric.registry.ts`), so an app adds a dashboard group and its own metrics in `apps/api/src/app-registrations/telemetry.ts` without editing platform files. A new route, `GET /api/admin/telemetry/dashboard/metric-groups` (`telemetry:query`), serves the group metadata, and the dashboard renders one section per registered group. `AppMetricsService` gains generic `add`/`record` for registered metrics, and the event bus now exports `app.event_bus.published`, `app.event_bus.delivered` and `app.event_bus.reconnects`. The six platform groups and the 31 existing metrics are unchanged. See `docs/runbooks/telemetry.md` §8.4.
+- **Background Job Queue**: a Postgres-backed generic work queue — no Redis, no second datastore. Atomic `FOR UPDATE SKIP LOCKED` claims, a lease reaper, and per-type lifetime stats. A new job type is one self-registering handler class. Admin surface `/admin/settings/jobs`, gated by `jobs:read`/`jobs:write`. See `docs/specs/job-queue.md`.
+- **Distributed Worker Nodes**: node-eligible job types can run on a remote worker node instead of the API server, via `appctl node`. A node authenticates with a `nod_…` credential confined to `/api/nodes/*` and moves job data through presigned URLs. Admin fleet view `/admin/settings/workers`, gated by `nodes:read`/`nodes:write`. See `docs/specs/worker-nodes.md`.
+- **Maintenance Mode**: an admin-controlled window (`/admin/settings/maintenance`) that returns `503` to ordinary requests, with an environment-variable break-glass (`MAINTENANCE_MODE`) that outranks the persisted setting. Gated by `system_settings:read`/`write`. See `docs/specs/maintenance-mode.md`.
+- **PostgreSQL Backup**: scheduled and on-demand `pg_dump` backups streamed directly into object storage, with their own heartbeat and single-active-run enforcement independent of the job queue. Admin surface `/admin/settings/db-backup`, gated by `db_backup:read`/`db_backup:write`. See `docs/specs/database-backup.md`.
+- **PostgreSQL Restore**: restore the database from a backup, or roll back a restore, gated by a dedicated `db_backup:restore` permission kept separate from `db_backup:write`. A capability gate a managed database can't satisfy answers with a ready-to-run command block instead of an error. See `docs/specs/database-restore.md`.
+- Four operational notification events: `jobs.job_failed`, `nodes.node_offline`, `db_backup.backup_failed`, and `db_backup.restore_completed` (mandatory — cannot be muted).
+- A new **Operations** admin settings group (Jobs, Job Insights, Worker Nodes, Database Backup, Broadcasts) alongside the existing General and Access groups.
+- **AI Platform**: admin-governed, bring-your-own-key AI across 5 providers (OpenAI, Anthropic, Gemini, Azure OpenAI, OpenAI-compatible) — responses, streaming, structured output, tool calling, embeddings, images, audio and realtime voice, plus background runs and usage reporting. Admin surface `/admin/settings/ai*`, user surface `/settings/ai`, AI Playground at `/ai` (admin-only: `ai:use` and `ai_config:read`), gated by `ai_config:*`/`ai:use`. See `docs/specs/ai-platform.md`.
+- **Runtime Object Storage Configuration**: point the deployment at AWS S3, Cloudflare R2, or any S3-compatible endpoint from `/admin/settings/storage`, with no restart. Retires the old `STORAGE_PROVIDER`/`S3_*` environment variables. Gated by `storage_config:read`/`storage_config:write`. See `docs/specs/storage-providers.md`.
+- **Web Push Runtime Configuration**: generate, rotate, enable/disable and remove VAPID keys from `/admin/settings/push`, with no restart. Gated by `push:read`/`push:write`. See `docs/specs/browser-notifications.md`.
+- **Admin Broadcasts**: compose a message to every active user, sent now or scheduled, over email/in-app/push, fanned out through chunked background jobs. Admin surface `/admin/settings/broadcasts`, gated by `broadcasts:read`/`broadcasts:write`. See `docs/specs/notification-broadcasts.md`.
+- **Personal Access Tokens**: create and revoke long-lived `pat_…` bearer tokens for API and CLI access at `/settings/tokens`, scoped to the caller's own tokens. See `docs/personal-access-tokens.md`.
+- **Encrypted Credential Store**: runtime-configured secrets (SMTP, VAPID, the storage credential, AI org keys) are encrypted at rest under `SECRETS_ENCRYPTION_KEY`, alongside a parallel per-user credential store for bring-your-own-key features. See `docs/specs/user-credentials.md`.
+- **VPS Deployment (`appctl deploy`)**: `doctor`/`install`/`update`/`status`/`certs`/`uninstall` deploy and manage this application on a VPS with no separate deploy script. The admin **About** page (`/admin/settings/about`) reports the running version, commit and deploy history. See `docs/specs/vps-deploy.md`.
+- **Served-vs-disk certificate check**: `appctl deploy certs` now always probes the domain's live TLS certificate and compares it against the one on disk, even without `--renew`, so an operator can ask after the fact whether a certificate was actually picked up by the proxy. A mismatch exits non-zero with the exact reload command for that deployment's proxy runtime.
+- **`deploy update` version override, in the TUI too**: the Update screen now asks for a release version (prefilled with the suggested patch bump, validated live against the same forward-only rule) alongside `ref`, matching the `--app-version` flag `deploy update` already had on the command line.
+- **`deploy update --maintenance`**: opt in to a maintenance window for the riskiest part of an update — build through restart — using the environment-variable break-glass (`MAINTENANCE_MODE`) since the CLI holds no admin session to call the real maintenance API. A failed update leaves the window open; the next `update`, flag or not, always clears a leftover window on its own. See `docs/specs/maintenance-mode.md`.
+- **Guided First-Time Setup**: `npm run setup` builds the CLI and runs `appctl init`, which creates `infra/compose/.env` interactively.
+- **Platform drift report**: `scripts/platform-drift.mjs` compares a fork against the base per area, module and file, ignoring comment, whitespace, issue-number and identity-rename noise, matches migrations by SQL and compares Prisma models, and writes a JSON and a Markdown report. See `docs/runbooks/platform-drift-report.md`.
+- **Template Tooling**: rebrand a fork with `scripts/rename.mjs` and `scripts/new-project.mjs` (or the `/rename-app`/`/new-project` skills), which rewrite the product identity centralized in `packages/shared`. See `docs/RENAMING.md`.
+- **Governance files**: an MIT `LICENSE`, a `SECURITY.md` that routes reports through GitHub private vulnerability reporting, `.github/CODEOWNERS`, and a Seam Request issue form for asking the platform for an extension point. `scripts/new-project.mjs --license` keeps the template's MIT notice as `LICENSE.platform` when a fork writes its own licence.
+- **Storage key-prefix registry**: the object-storage prefixes `npm run storage:purge` (`appctl deploy uninstall --purge-storage`) enumerates are now a registry (`apps/api/src/storage/storage-key-prefix.registry.ts`). An app declares its own prefixes in `apps/api/src/app-registrations/storage-prefixes.ts` instead of editing a platform file; a malformed, duplicate or overlapping prefix fails at import time, and a source-scanning test fails on any `*_KEY_PREFIX` constant no registered prefix covers. The platform's six prefixes and the purge's order and report are unchanged. See `docs/specs/storage-providers.md`.
+- **Notification registry**: notification channels, events, email templates and the event-to-template bindings are registries (`apps/api/src/notifications/registry/`) instead of closed lists. Each platform module declares the notifications it raises next to its code; a fork adds its own channels, templates and notifications in `apps/api/src/app-registrations/notifications.ts`, and an app channel's sender registers itself into `NotificationChannelSenderRegistry` from its own module. Invalid entries (unregistered or empty channels, malformed or duplicate keys, `mandatory` without `defaultEnabled`, unknown templates) fail at import time. `GET /api/notifications/events` and the OpenAPI document are unchanged. See `apps/api/src/notifications/registry/README.md`.
+- **Signed container images with an SBOM**: a reusable `.github/workflows/images.yml` builds and pushes the api, web, worker and a new stack-agent image to GHCR under lower-case `ghcr.io/<owner>/<repo>-<role>` names, with a BuildKit SBOM and SLSA provenance attestation and a keyless cosign signature on every digest, plus a non-blocking Trivy scan in code scanning. App releases (`deploy.yml`, `v*` tags) keep their tag set; platform releases tag `<version>`, the `next`/`latest` channel and `sha-<sha>`. See `docs/runbooks/container-images.md`.
+- **Platform release pipeline**: the six `@marinoscar/platform-*` packages share one version through a Changesets fixed group, in pre-release mode on the `next` dist-tag. `.github/workflows/release.yml` opens the Version Packages pull request and publishes with npm trusted publishing and provenance from a protected environment, or dry-runs (tarballs as a workflow artifact) until the owner enables it; a pull request that changes a platform package without a changeset fails. Every tarball ships the MIT `LICENSE`. `apps/api` and `apps/web` are now private workspaces. See `docs/runbooks/release-platform-packages.md`.
+
+### Fixed
+
+- **`deploy update` seed step OOMing on the API container**: the seed's `ts-node` invocation no longer type-checks `prisma/seed.ts`/`seed-data.ts` against the full generated Prisma Client surface at runtime (`--transpile-only`), which could exceed the api container's 512M memory cap as the schema grows. That type coverage now runs separately, in CI, via a new `prisma:typecheck` script.
+
+### Removed
+
+- **Web Push environment-variable fallback**: `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` are retired; Web Push is now configured exclusively at `/admin/settings/push`. Breaking change: a deployment that relied on the env-var path with no admin-UI configuration ever saved loses Web Push until an administrator reconfigures it there. No auto-migration, matching how object storage and SES's AWS credential were retired. See `docs/specs/browser-notifications.md`.
+
+## [1.1.0] - 2026-06-10
+
+### Changed
+
+- **Dependencies**: Major upgrade across the stack — React 19, MUI 9, react-router 7, Vite 8, TypeScript 6 (web); Prisma 7 (now using the `@prisma/adapter-pg` driver adapter), zod 4 + nestjs-zod 5, Jest 30, @fastify/multipart 10, and OpenTelemetry updates (API). class-validator bumped to 0.15.1. NestJS remains on 11.x. Runtime is Node.js 24.
+
+### Removed
+
+- **CLI Tool**: Removed the `tools/app` cross-platform CLI and the `tools/*` workspace.
+
+## [1.0.1] - 2026-01-24
+
+### Added
+
+- **CLI Storage Commands**: New storage commands for interacting with the storage API
+  - File upload support with `storage upload` command
+  - Interactive storage menu for browsing and managing files
+- **CLI Sync Feature**: Full folder synchronization functionality
+  - Sync database layer with better-sqlite3 for local state tracking
+  - Sync engine for bidirectional folder synchronization
+  - Sync commands (`sync push`, `sync pull`, `sync status`)
+  - Interactive sync menu for easy sync management
+- **API Improvements**: DatabaseSeedException for better seed-related error handling
+
+### Fixed
+
+- **Authentication**: Enhanced OAuth callback error logging for easier debugging
+- **Authentication**: Improved error handling for missing database seeds
+- **API**: Fixed metadata casting to `Prisma.InputJsonValue` in processing service
+- **API**: Fixed metadata casting to `Prisma.InputJsonValue` in objects service
+- **API**: Handle unknown error types in S3 storage provider
+- **CLI**: Use ESM import for `existsSync` in sync-database module
+- **Tests**: Convert ISO strings to timestamps for date comparison
+
+### Changed
+
+- **Database**: Squashed migrations into single initial migration
+- **Infrastructure**: Added AWS environment variables to compose file
+
+### Dependencies
+
+- Added AWS SDK dependencies for S3 storage provider
+- Added better-sqlite3 and related dependencies for CLI sync feature
+
+### Documentation
+
+- Added storage and folder sync documentation to CLI README
+
+## [1.0.0] - 2026-01-24
+
+### Initial Release
+
+Enterprise Application Foundation - A production-grade full-stack application foundation built with React, NestJS, and PostgreSQL.
+
+### Features
+
+#### Authentication
+- Google OAuth 2.0 with JWT access tokens and refresh token rotation
+- Short-lived access tokens (15 min default) with secure refresh rotation
+- HttpOnly cookie storage for refresh tokens
+
+#### Device Authorization (RFC 8628)
+- Device Authorization Flow for CLI tools, mobile apps, and IoT devices
+- Secure device code generation and polling
+- Device session management and revocation
+
+#### Authorization
+- Role-Based Access Control (RBAC) with three roles:
+  - **Admin**: Full access, manage users and system settings
+  - **Contributor**: Standard capabilities, manage own settings
+  - **Viewer**: Least privilege (default), manage own settings
+- Flexible permission system for feature expansion
+
+#### Access Control
+- Email allowlist restricts application access to pre-authorized users
+- Pending/Claimed status tracking for allowlist entries
+- Initial admin bootstrap via `INITIAL_ADMIN_EMAIL` environment variable
+
+#### User Management
+- Admin interface for managing users and role assignments
+- User activation/deactivation controls
+- Allowlist management UI at `/admin/users`
+
+#### Settings Framework
+- System-wide settings with type-safe Zod schemas
+- Per-user settings with validation
+- JSONB storage in PostgreSQL
+
+#### API
+- RESTful API built with NestJS and Fastify (2-3x better performance than Express)
+- Swagger/OpenAPI documentation at `/api/docs`
+- Health check endpoints (liveness and readiness probes)
+- Input validation on all endpoints
+
+#### Frontend
+- React 18 with TypeScript
+- Material-UI (MUI) component library
+- Theme support with responsive design
+- Protected routes with role-based access
+- Vite build tool with hot module replacement
+
+#### CLI Tool
+- Cross-platform CLI (`app`) for development and API management
+- Device authorization flow for secure CLI authentication
+- Interactive menu-driven mode and command-line interface
+- Support for multiple server environments (local, staging, production)
+
+#### Infrastructure
+- Docker Compose configurations:
+  - `base.compose.yml`: Core services (api, web, db, nginx)
+  - `dev.compose.yml`: Development overrides with hot reload
+  - `prod.compose.yml`: Production overrides with resource limits
+  - `otel.compose.yml`: Observability stack
+- Nginx reverse proxy for same-origin architecture
+- PostgreSQL 16 with Prisma ORM
+- Automated database migrations and seeding
+
+#### Observability
+- OpenTelemetry instrumentation for traces and metrics
+- Uptrace integration for visualization (UI at localhost:14318)
+- Pino structured logging
+- OTEL Collector configuration included
+
+#### Testing
+- Backend: Jest + Supertest for unit and integration tests
+- Frontend: Vitest + React Testing Library
+- CI pipeline with GitHub Actions
+
+### Technical Stack
+- **Backend**: Node.js + TypeScript, NestJS with Fastify adapter
+- **Frontend**: React + TypeScript, Material-UI (MUI)
+- **Database**: PostgreSQL with Prisma ORM
+- **Auth**: Passport strategies (Google OAuth)
+- **Testing**: Jest, Supertest, Vitest, React Testing Library
+- **Observability**: OpenTelemetry, Uptrace, Pino
+- **Infrastructure**: Docker, Docker Compose, Nginx

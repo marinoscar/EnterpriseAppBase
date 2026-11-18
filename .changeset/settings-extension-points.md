@@ -1,0 +1,13 @@
+---
+"@marinoscar/platform-api": minor
+"@marinoscar/platform-contract": minor
+"@marinoscar/platform-web": minor
+---
+
+Open the settings slice to an app and to an installed package (PP-14.21, #939). Nothing changes for an app that registers none of the new points: no schema, stored value or OpenAPI field moves.
+
+`@marinoscar/platform-api/settings`: `extendSystemSettingsNamespace` and `extendUserSettingsNamespace` take a dot `path` to an object field and add the fields inside it (an existing leaf key is refused, the parent is not; a stored value that predates the field keeps everything else). A system extension takes an `org` block (`mode: 'override' | 'tighten'`, `fields`, `tighten` per field as `'and'`, `'or'`, `'min'`, `'max'` or a function) that makes ONLY the added fields organization-overridable, composed with an existing org layer (`SettingsNamespaceOrgLayer` gained an optional `mode`). `overrideSettingsNamespaceDefaults(key, partial)` changes a namespace's defaults only, checked against its stored schema. `registerSettingsContribution({ id, system, user, extensions })` lets a package contribute namespaces and extensions from a side-effect import; `assembleSystemSettingsNamespaces` and `assembleUserSettingsNamespaces` list the platform's namespaces, the contributions' (import order) and the app's, fold the extensions and apply the defaults overrides. `extendUserProfile({ fields })` adds optional, bounded fields to the core user `profile`, and `registerThemePreference({ id, label })` adds a theme id `theme` accepts, listed in the new optional `themeOptions` of `GET /api/user-settings` while any is registered. `security` stays closed.
+
+`@marinoscar/platform-contract/settings`: `THEME_PREFERENCE_ID_PATTERN`, `THEME_OPTION_LABEL_MAX`, `themePreferenceIdSchema`, `themeOptionSchema`, `ThemeOption`, `ThemePreferenceId` and `UserSettingsResponseBase.themeOptions`.
+
+`@marinoscar/platform-web/settings`: `ProfileSettings` and `ThemeSettings` take `slots.ExtraFields` (and `UserProfilePage` and `UserAppearancePage` pass `slots` through), `ThemeSettings` offers `extraOptions`, `themePreferenceOptions` and `useThemePreferenceOptions` derive them from the settings document, and `registerOrgSettingsFieldRenderer(namespace, field, Component)` draws an `other` field of the organization settings page. `useUserSettings` hands `applyTheme` only `light`, `dark` and `system`; `UserSettingsDocument.theme`, `UserSettingsUpdateBase.theme` and `ThemeSettings`' `currentTheme` and `onThemeChange` widened to a theme id. The DOM of the three controls is unchanged without a slot, a renderer or a registered theme.

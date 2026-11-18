@@ -1,0 +1,5 @@
+---
+"@marinoscar/platform-api": minor
+---
+
+Storage: `StorageModule.forRoot({ provider })` now replaces the object store for every package consumer (the objects API, profile images, data exports, user-data, database backups, the AI output writer and the nodes data plane). The documented "provide `STORAGE_PROVIDER` in your app module" override never reached them, because each imports `StorageProvidersModule`; the binding is now held by a global `StorageProviderBindingModule` that `StorageProvidersModule` prefers, with `ResolvingStorageProvider` still the default. `StorageProvider` gains a required `kind: string` and rows record `provider.kind` instead of reading `StorageConfigService.activeProvider()`; `ResolvingStorageProvider.kind` answers the configured kind (`StorageConfigService.lastKnownProvider()`). `S3StorageProvider.providerId` is a deprecated alias of `kind`. Migration: a custom `StorageProvider` must add `kind`; `ObjectsService`, `ProfileImageService` and `ExportRunHandler` no longer take `StorageConfigService` in their constructors.

@@ -1,0 +1,454 @@
+// `@marinoscar/platform-api/identity`: the identity slice (issue #727, PP-6.6).
+// Authentication, the guards and decorators every route uses, users, the
+// allowlist, personal access tokens, the device authorization flow,
+// organizations and tenancy. Documented in ./README.md. Explicit named exports only.
+
+// ---- the module, its options and its configuration (rung 1) -----------------------
+export { IdentityModule } from './identity.module';
+export {
+  DEFAULT_IDENTITY_OPTIONS,
+  IDENTITY_OPTIONS,
+  resolveIdentityModuleOptions,
+} from './identity.options';
+export type { IdentityModuleOptions, ResolvedDeviceFlowOptions, ResolvedIdentityModuleOptions, ResolvedOAuthServerOptions } from './identity.options';
+export { identityConfiguration, requireJwtSecret } from './identity.configuration';
+export type { IdentityConfiguration } from './identity.configuration';
+
+// ---- the host ports (rung 3): one token per app capability --------------------------
+export {
+  IDENTITY_ALLOWLIST,
+  IDENTITY_AUTH_CREDENTIALS,
+  IDENTITY_EVENT_BUS,
+  IDENTITY_JOBS,
+  IDENTITY_METRICS,
+  IDENTITY_NODE_CREDENTIALS,
+  IDENTITY_OAUTH_SETTINGS,
+  IDENTITY_NOTIFIER,
+  IDENTITY_PROFILE_IMAGES,
+  NOOP_IDENTITY_METRICS,
+  USER_DEFAULTS,
+} from './ports';
+export type {
+  AllowlistInvitationNotice,
+  AuthProviderCredentials,
+  EnsureAllowedOptions,
+  EnsureAllowedResult,
+  IdentityAllowlist,
+  IdentityEventBus,
+  IdentityEventBusHealth,
+  IdentityEventBusMeta,
+  IdentityJobHandler,
+  IdentityJobRecord,
+  IdentityJobsPort,
+  IdentityLoginOutcome,
+  IdentityMetrics,
+  IdentityNodeCredentials,
+  IdentityOAuthSettings,
+  IdentityNotifier,
+  IdentityPrisma,
+  IdentityProfileImages,
+  IdentityRefreshOutcome,
+  OrgInvitationNotice,
+  RoleChangedNotice,
+  UserDefaults,
+  UserWelcomeNotice,
+} from './ports';
+
+// ---- the data identity reads and writes (structural; no generated client) -------------
+export { DEVICE_CODE_STATUS, isPrismaErrorCode } from './data/identity-db';
+export type {
+  IdentityAllowedEmailRow,
+  IdentityAuditEventRow,
+  IdentityBatchResult,
+  IdentityDelegate,
+  IdentityDeviceCodeRow,
+  IdentityInviteRow,
+  IdentityJsonValue,
+  IdentityMembershipRow,
+  IdentityOrganizationRow,
+  IdentityPermissionRow,
+  IdentityOAuthAuthorizationCodeRow,
+  IdentityOAuthAuthorizationRequestRow,
+  IdentityOAuthClientRow,
+  IdentityOAuthGrantRow,
+  IdentityOAuthTokenRow,
+  IdentityPersonalAccessTokenRow,
+  IdentityPrismaError,
+  IdentityQueryArgs,
+  IdentityRefreshTokenRow,
+  IdentityRoleRow,
+  IdentityRoleScope,
+  IdentityTx,
+  IdentityUserIdentityRow,
+  IdentityUserRoleRow,
+  IdentityUserRow,
+} from './data/identity-db';
+
+// ---- app metadata on users and organizations (PP-14.27) -------------------------------
+export {
+  METADATA_NAMESPACE_PATTERN,
+  organizationMetadataRegistry,
+  registerOrganizationMetadataSchema,
+  registerUserMetadataSchema,
+  userMetadataRegistry,
+} from './metadata/metadata-registry';
+export type { MetadataNamespace, MetadataNamespaceDef, MetadataSubject } from './metadata/metadata-registry';
+export { IdentityMetadataService, METADATA_MAX_BYTES, MetadataError } from './metadata/identity-metadata.service';
+export type { MetadataErrorCode } from './metadata/identity-metadata.service';
+export { METADATA_SECRET_FIELD_NAMES, findSecretKeys, inspectMetadataSchema, isSecretFieldName } from './metadata/metadata-secret-guard';
+export type { MetadataSchemaFindings } from './metadata/metadata-secret-guard';
+
+// ---- domain events (rung 4) -----------------------------------------------------------
+export { IDENTITY_EVENTS } from './identity.events';
+export type {
+  IdentityMembershipChange,
+  IdentityLoginSucceededEvent,
+  IdentityMembershipChangedEvent,
+  IdentityOAuthGrantEvent,
+  IdentityOrgCreatedEvent,
+  IdentityOrgSwitchedEvent,
+  IdentityUserCreatedEvent,
+} from './identity.events';
+
+// ---- sign-in providers (rung 2) -------------------------------------------------------
+export {
+  authCredentialPurpose,
+  authProviderRegistry,
+  authProviderStrategyName,
+  registerAuthProvider,
+} from './auth/providers/auth-provider.registry';
+export type {
+  AuthProviderContext,
+  AuthProviderDefinition,
+  AuthProviderMode,
+  AuthProviderRegistration,
+  AuthProviderStrategy,
+} from './auth/providers/auth-provider.registry';
+export {
+  assertExternalProfile,
+  externalProfileProblem,
+  googleProfileToExternal,
+  normalizeExternalProfile,
+} from './auth/external-profile';
+export type { ExternalProfile } from './auth/external-profile';
+export { createCookieStateStore } from './auth/providers/cookie-state-store';
+export type { CookieStateStore, CookieStateStoreOptions, CookieStateStoreRequest } from './auth/providers/cookie-state-store';
+export { IDENTITY_SIGNIN_POLICY } from './auth/sign-in-policy';
+export type { SignInAllow, SignInContext, SignInDecision, SignInDeny, SignInPolicy } from './auth/sign-in-policy';
+export {
+  REFRESH_TOKEN_COOKIE,
+  REFRESH_TOKEN_COOKIE_OPTIONS,
+  buildSignInSuccessRedirectUrl,
+  respondToSignIn,
+  setRefreshTokenCookie,
+} from './auth/sign-in-response';
+export type { RefreshTokenCookieOptions, RespondToSignInInput } from './auth/sign-in-response';
+export type { CookieReply, CookieReplyMethods, IdentityCookieOptions } from './auth/cookie-http';
+export { createPassportProviderGuard } from './auth/guards/external-provider.guard';
+
+// ---- user extensions: what an app adds to /auth/me and to the user list (rung 2) --------
+export {
+  DEFAULT_CURRENT_USER_EXTENSION_TIMEOUT_MS,
+  DEFAULT_USER_LIST_EXTENSION_TIMEOUT_MS,
+  MAX_IN_FLIGHT_PER_USER_EXTENSION,
+  MAX_USER_EXTENSION_TIMEOUT_MS,
+  checkUserExtensionContribution,
+  currentUserExtensionRegistry,
+  registerCurrentUserExtension,
+  registerUserListExtension,
+  resolveCurrentUserExtensions,
+  resolveUserListExtensions,
+  userListExtensionRegistry,
+} from './extensions/user-extensions';
+export type {
+  CurrentUserExtension,
+  CurrentUserExtensionContext,
+  UserExtensionAccepted,
+  UserExtensionCheck,
+  UserExtensionLog,
+  UserExtensionRefused,
+  UserListExtension,
+  UserListExtensionContext,
+} from './extensions/user-extensions';
+
+// ---- roles and permissions, as data for the app's permission registry -----------------
+export {
+  DEFAULT_ORG_ROLE,
+  IDENTITY_PERMISSION_DECLARATIONS,
+  IDENTITY_PERMISSION_IDS,
+  IDENTITY_ROLES,
+  IDENTITY_ROLE_IDS,
+  ORG_ADMIN_ROLE,
+} from './identity.permissions';
+export type {
+  IdentityPermissionDeclaration,
+  IdentityPermissionDeclarationMap,
+  IdentityPermissionScope,
+  IdentityRoleDeclaration,
+  IdentityRoleDeclarationMap,
+  PermissionName,
+  RoleName,
+} from './identity.permissions';
+export { assertAnyRoleAssignable, assertRoleAssignable, describeRole, isAppManagedRole, isRoleAssignable, listRoles, roleNotAssignable } from './roles/index';
+export { USERS_PERMISSIONS } from './users/users.permissions';
+export { ALLOWLIST_PERMISSIONS } from './allowlist/allowlist.permissions';
+export { ORGANIZATIONS_PERMISSIONS } from './organizations/organizations.permissions';
+export { OAuthAdminGrantViewDto, OAuthAdminGrantsQueryDto, OAuthClientCreateRequestDto, OAuthClientPatchRequestDto, OAuthClientsQueryDto } from './oauth-server/oauth.dto';
+export { OAUTH_CLIENTS_PERMISSIONS } from './oauth-server/oauth-clients.permissions';
+export { ORGANIZATIONS_APP_METRICS } from './organizations/organizations.metrics';
+export type { IdentityAppMetricDef } from './organizations/organizations.metrics';
+
+// ---- route access: decorators and guards (stable) -------------------------------------
+export { Auth, RBAC_EXTENSION_KEY } from './auth/decorators/auth.decorator';
+export type { AuthOptions, RbacExtension } from './auth/decorators/auth.decorator';
+export { IS_PUBLIC_KEY, Public } from './auth/decorators/public.decorator';
+export { ROLES_KEY, Roles } from './auth/decorators/roles.decorator';
+export { ANY_PERMISSIONS_KEY, AnyPermissions, PERMISSIONS_KEY, Permissions } from './auth/decorators/permissions.decorator';
+export { CurrentUser } from './auth/decorators/current-user.decorator';
+export { CurrentPrincipal, principalOf } from './auth/decorators/current-principal.decorator';
+export type { RequestWithPrincipal } from './auth/decorators/current-principal.decorator';
+export { CurrentOrg, activeOrgIdOf } from './auth/decorators/current-org.decorator';
+export { AuthCredential, authCredentialOf } from './auth/decorators/auth-credential.decorator';
+export { refuseOAuthCredential } from './auth/refuse-oauth';
+export { isUnderRoutePrefix, requestPathOf } from './auth/route-prefix';
+export {
+  FORBIDDEN_OAUTH_ROUTE_PREFIXES,
+  findOAuthRegistryProblems,
+  oauthResourceRegistry,
+  registerOAuthProtectedResource,
+  resourceForPath,
+} from './oauth-server/oauth-resource.registry';
+export type { OAuthProtectedResourceDefinition, OAuthRegistryProblem } from './oauth-server/oauth-resource.registry';
+export {
+  OAUTH_SCOPE_ID_MAX_LENGTH,
+  OAUTH_SCOPE_ID_PATTERN,
+  OFFLINE_ACCESS_SCOPE,
+  oauthScopeRegistry,
+  permissionsOfScopes,
+  registerOAuthScope,
+} from './oauth-server/oauth-scope.registry';
+export type { OAuthScopeDefinition, OAuthScopeRisk } from './oauth-server/oauth-scope.registry';
+export { OAUTH_CREDENTIAL_KIND } from './oauth-server/oauth-credential-kind';
+export { OAuthGrant, oauthGrantOf } from './oauth-server/oauth-grant.decorator';
+export { oauthAccessDecision, userPermissionsOf } from './oauth-server/oauth-access-decision';
+export { OAuthServerModule, isOAuthServerMounted } from './oauth-server/oauth-server.module';
+export { OAUTH_SETTINGS_CACHE_MS, OAuthServerSettingsReader } from './oauth-server/oauth-server-settings.reader';
+export {
+  OAUTH_SERVER_SETTINGS_DEFAULTS,
+  oauthServerSettingsPatchSchema,
+  oauthServerSettingsSchema,
+} from './oauth-server/oauth-server-settings.schemas';
+export type { OAuthServerSettingsValue } from './oauth-server/oauth-server-settings.schemas';
+export { OAUTH_LAST_USED_INTERVAL_MS, OAuthTokenResolver, oauthResourceIdentifier } from './oauth-server/oauth-token.resolver';
+export type { ResolvedOAuthToken } from './oauth-server/oauth-token.resolver';
+export { IPD_BEARER_PREFIX, IPD_TTL_MS, InProcessDelegation } from './oauth-server/in-process-delegation.service';
+export type { InProcessDelegationEntry } from './oauth-server/in-process-delegation.service';
+// The authorization server core (PP-15.4).
+export { OAUTH_CLIENT_RESOLVER, StoredClientResolver } from './oauth-server/client-resolver';
+export type { ClientRefused, ClientResolution, ClientResolved, ClientResolver, OAuthClientRecord } from './oauth-server/client-resolver';
+export { InMemoryOAuthRateLimiter, OAUTH_RATE_LIMITER, OAuthRateLimitService } from './oauth-server/oauth-rate-limiter';
+export type { OAuthRateLimitVerdict, OAuthRateLimiter } from './oauth-server/oauth-rate-limiter';
+export { OAuthServerContext, OAuthServerFeatures } from './oauth-server/oauth-server-context';
+export { OAUTH_AUDIT_ACTIONS, OAUTH_AUDIT_TARGET_TYPE, OAUTH_CLIENT_AUDIT_TARGET_TYPE, OAuthGrantService } from './oauth-server/oauth-grant.service';
+export type { OAuthAdminGrantViewPage, OAuthAuditEntry, OAuthGrantRef } from './oauth-server/oauth-grant.service';
+export { OAuthProtocolError } from './oauth-server/oauth-protocol.error';
+export { buildAuthorizationServerMetadata } from './oauth-server/oauth-metadata';
+export type { OAuthAuthorizationServerMetadata } from './oauth-server/oauth-metadata';
+export { isLoopbackRedirectUri, matchesRedirectUri, normalizeResourceIdentifier, redirectHostOf } from './oauth-server/redirect-uri';
+export { isWellFormedChallenge, isWellFormedVerifier, s256Challenge, verifyPkce } from './oauth-server/pkce';
+export {
+  OAUTH_ACCESS_TOKEN_PREFIX,
+  OAUTH_BODY_LIMIT_BYTES,
+  OAUTH_CODE_PREFIX,
+  OAUTH_CODE_TTL_MS,
+  OAUTH_RATE_LIMITS,
+  OAUTH_REFRESH_GRACE_MS,
+  OAUTH_REFRESH_TOKEN_PREFIX,
+  OAUTH_PUBLIC_CORS_PATHS,
+  OAUTH_REQUEST_TTL_MS,
+  OAUTH_ROUTE_PREFIX,
+} from './oauth-server/oauth-server.constants';
+export type { OAuthRateLimitSpec } from './oauth-server/oauth-server.constants';
+// Resource-server helpers: protected resource metadata and the challenges (PP-15.6).
+export { OAuthResourceMetadataController } from './oauth-server/oauth-resource-metadata.controller';
+export { buildProtectedResourceMetadata } from './oauth-server/oauth-resource-metadata';
+export type { OAuthProtectedResourceMetadata } from './oauth-server/oauth-resource-metadata';
+export { buildBearerChallenge, protectedResourceMetadataUrl, quoteChallengeValue } from './oauth-server/oauth-challenge';
+export type { BearerChallengeInput, OAuthChallengeError } from './oauth-server/oauth-challenge';
+export { InsufficientScopeException, assertOAuthScopes } from './oauth-server/oauth-insufficient-scope';
+// Client identity and the trust policy (PP-15.5).
+export {
+  CIMD_MAX_BYTES,
+  CimdError,
+  CimdFetcher,
+  ClientIdentityResolver,
+  ClientRefusalRecorder,
+  ClientRegistrationService,
+  ClientTrustPolicy,
+  OAUTH_CIMD_HOST_RESOLVER,
+  OAUTH_CIMD_TRANSPORT,
+  OAUTH_CLIENT_CLEANUP_TYPE,
+  OAuthClientCleanupHandler,
+  OAuthClientCleanupTask,
+  OAuthAdminHintsController,
+  OAuthClientsAdminController,
+  OAuthGrantsAdminController,
+  OAuthClientsAdminService,
+  cimdExpiry,
+  evaluateClientTrust,
+  parseCimdClientId,
+  validateCimdDocument,
+} from './oauth-server/clients/index';
+export type { CimdFailureCode, CimdFetchResult, CimdMetadata, OAuthClientViewPage, TrustRefusalReason, TrustSettings, TrustSubject, TrustVerdict } from './oauth-server/clients/index';
+export type { AuthCredentialInfo, RequestWithAuthCredential } from './auth/decorators/auth-credential.decorator';
+export { JwtAuthGuard, NODE_ROUTE_PREFIX } from './auth/guards/jwt-auth.guard';
+export { RolesGuard } from './auth/guards/roles.guard';
+export { PermissionsGuard } from './auth/guards/permissions.guard';
+export { GoogleOAuthGuard } from './auth/guards/google-oauth.guard';
+export type { GoogleAuthenticateOptions } from './auth/guards/google-oauth.guard';
+
+// ---- the request user and the principal ------------------------------------------------
+export { toRequestUser } from './auth/interfaces/authenticated-user.interface';
+export type {
+  AuthenticatedMembership,
+  AuthenticatedPermission,
+  AuthenticatedRole,
+  AuthenticatedUser,
+  RequestUser,
+} from './auth/interfaces/authenticated-user.interface';
+export {
+  PRINCIPAL_USER_INCLUDE,
+  PrincipalFactory,
+  principalFactory,
+  resolveEffectiveAccess,
+  selectCurrentMembership,
+  toPrincipal,
+} from './auth/principal.factory';
+export type {
+  EffectiveAccess,
+  PrincipalMembership,
+  PrincipalRole,
+  PrincipalSource,
+} from './auth/principal.factory';
+export { bindCredential, hasActiveMembership, stampCredential } from './auth/credential-binding';
+export type { BoundUser, CredentialBinding } from './auth/credential-binding';
+export type { GoogleProfile } from './auth/strategies/google.strategy';
+export type { JwtPayload } from './auth/strategies/jwt.strategy';
+
+// ---- the principal cache --------------------------------------------------------------
+export {
+  DEFAULT_PRINCIPAL_CACHE_TTL_SECONDS,
+  parsePrincipalCacheTtlSeconds,
+} from './auth/principal-cache/principal-cache.config';
+export {
+  PRINCIPAL_CACHE_CLOCK,
+  PRINCIPAL_CACHE_MAX_ENTRIES,
+  PRINCIPAL_INVALIDATE_CHANNEL,
+  PrincipalCache,
+} from './auth/principal-cache/principal-cache.service';
+export type {
+  PrincipalCacheKey,
+  PrincipalCacheStats,
+  PrincipalInvalidation,
+} from './auth/principal-cache/principal-cache.service';
+export { PrincipalCacheModule } from './auth/principal-cache/principal-cache.module';
+
+// ---- sign-in errors ------------------------------------------------------------------
+export {
+  AUTH_ERROR_CODES,
+  AuthLoginDeniedException,
+  DEFAULT_AUTH_ERROR_CODE,
+  buildAuthErrorRedirectUrl,
+  isOAuthAccessDenied,
+  resolveAuthErrorCode,
+} from './auth/auth-error-codes';
+export type { AuthErrorCode, AuthLoginDeniedReason } from './auth/auth-error-codes';
+
+// ---- tenancy and organization scope -----------------------------------------------------
+export {
+  DEFAULT_TENANCY_MODE,
+  TENANCY_MODES,
+  TENANCY_MODE_ENV_VAR,
+  describeTenancyMode,
+  parseTenancyMode,
+  tenancyCapabilitiesFor,
+  verifyTenancyModeAtStartup,
+} from './organizations/tenancy-mode';
+export type { TenancyCapabilities } from './organizations/tenancy-mode';
+export { currentTenancyMode, recordTenancyMode } from './auth/tenancy-mode';
+export { TenancyService } from './organizations/tenancy.service';
+export { MissingOrgScopeError, orgIdFromPayload, resolveJobOrgId, resolveOrgId } from './organizations/org-scope';
+export type { DefaultOrgReader } from './organizations/org-scope';
+export { DefaultOrganizationMissingException } from './organizations/organizations.errors';
+
+// ---- the modules and the services they export -----------------------------------------
+export { AuthModule } from './auth/auth.module';
+export { AuthService, ORG_SWITCHED_AUDIT_ACTION } from './auth/auth.service';
+export type { FullTokenResponse } from './auth/auth.service';
+export { AdminBootstrapService } from './auth/admin-bootstrap.service';
+export { UsersModule } from './users/users.module';
+export { UsersService } from './users/users.service';
+export { AllowlistModule } from './allowlist/allowlist.module';
+export { AllowlistService } from './allowlist/allowlist.service';
+export { PatModule } from './pat/pat.module';
+export { PatService } from './pat/pat.service';
+export { DeviceAuthModule } from './device-auth/device-auth.module';
+export { DeviceAuthService } from './device-auth/device-auth.service';
+export { OrganizationsModule } from './organizations/organizations.module';
+export { OrganizationsService } from './organizations/organizations.service';
+export { OrgMembersService } from './organizations/org-members.service';
+export { OrgInvitesService } from './organizations/org-invites.service';
+export { OrganizationsAdminService } from './organizations/organizations-admin.service';
+
+// ---- OAuth token housekeeping, metrics and Doctor checks (PP-15.8) ------------------------
+export { OAUTH_TOKEN_CLEANUP_TYPE, OAUTH_TOKEN_RETENTION, OAuthTokenCleanupHandler } from './oauth-server/oauth-token-cleanup.handler';
+export type { OAuthTokenCleanupResult } from './oauth-server/oauth-token-cleanup.handler';
+export { OAuthTokenCleanupTask } from './oauth-server/oauth-token-cleanup.task';
+export { OAUTH_APP_METRICS } from './oauth-server/oauth.metrics';
+export {
+  OAUTH_SETTINGS_PATH,
+  OAUTH_TOKEN_CLEANUP_GRACE_MS,
+  OAuthClientPolicyDoctorCheck,
+  OAuthPublicUrlDoctorCheck,
+  OAuthResourcesDoctorCheck,
+  OAuthTokenCleanupDoctorCheck,
+  OAuthWellKnownDoctorCheck,
+  decideOAuthClientPolicy,
+  decideOAuthPublicUrl,
+  decideOAuthResources,
+  decideOAuthTokenCleanup,
+  decideOAuthWellKnown,
+  isNonPublicHostName,
+} from './oauth-server/doctor/oauth-server.doctor-checks';
+export type { WellKnownProbe } from './oauth-server/doctor/oauth-server.doctor-checks';
+
+// ---- the job types (permanent strings; both server-only) --------------------------------
+export { AUTH_TOKEN_CLEANUP_TYPE } from './auth/handlers/token-cleanup.handler';
+export { DEVICE_CODE_CLEANUP_TYPE } from './device-auth/handlers/device-code-cleanup.handler';
+
+// ---- `IdentityPermissionIds`, `IdentityRoleIds`: augmentation targets, declared here, never re-exported (#865) ----
+
+/**
+ * The permission ids `@Auth({ permissions })` and `@Permissions(...)` accept.
+ * Empty here; an app widens it by module augmentation so its own registry's ids
+ * type-check (and a typo does not):
+ *
+ * ```ts
+ * declare module '@marinoscar/platform-api/identity' {
+ *   interface IdentityPermissionIds extends Record<PermissionName, true> {}
+ * }
+ * ```
+ *
+ * While nobody augments it, any string is accepted.
+ *
+ * @stability experimental
+ */
+export interface IdentityPermissionIds {}
+
+/**
+ * The role ids `@Auth({ roles })` and `@Roles(...)` accept; widened by the app
+ * like {@link IdentityPermissionIds}.
+ *
+ * @stability experimental
+ */
+export interface IdentityRoleIds {}

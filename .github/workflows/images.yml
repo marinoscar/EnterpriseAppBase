@@ -1,0 +1,334 @@
+name: Images
+
+# Builds, pushes, attests and signs the four container images (issue #692):
+#
+#   api          apps/api/Dockerfile
+#   web          apps/web/Dockerfile
+#   worker       apps/cli/Dockerfile, target production
+#   stack-agent  apps/stack-agent/Dockerfile
+#
+# Every image goes to ghcr.io/<owner>/<repo>-<role>, both parts lower-cased from
+# this repository, so a fork publishes under its own name with no edit here.
+# Each pushed digest carries a BuildKit SBOM and SLSA provenance (mode=max), is
+# signed keyless with cosign (GitHub OIDC, Sigstore public-good instance), and
+# is scanned by Trivy into code scanning. The scan is a report, not a gate.
+#
+# Three callers, two tag schemes:
+#
+#   release.yml  workflow_call with version + channel (a platform release):
+#                tags <version>, the channel (next | latest) and sha-<sha>.
+#   deploy.yml   workflow_call with app-release: true (an app release on a v*
+#                tag): the app's historic tag set, unchanged. That is semver,
+#                major.minor, the bare sha, and latest on main.
+#   manual       workflow_dispatch: sha-<sha> only, plus <version> and the
+#                channel when given. Version and channel tags are pushed from
+#                main only, and `latest` only for an explicit channel latest
+#                on a version without a prerelease part.
+#
+# A calling job must grant contents: read, packages: write, id-token: write
+# and security-events: write; a called workflow cannot raise its caller's
+# permissions, and a caller that grants less fails before any job starts.
+#
+# The only credential is GITHUB_TOKEN. A package GHCR creates on the first push
+# is private; the workflow still owns it, so pushes and signatures succeed, and
+# the summary step reports whether an anonymous pull works. Making the packages
+# public is an owner step: docs/runbooks/container-images.md.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Platform version to tag, for example 0.1.0-next.3'
+        type: string
+        required: false
+        default: ''
+      channel:
+        description: 'Channel tag to move: empty, next or latest'
+        type: string
+        required: false
+        default: ''
+      app-release:
+        description: 'Use the app release tag scheme (deploy.yml)'
+        type: boolean
+        required: false
+        default: false
+    outputs:
+      api-image:
+        description: 'Tags pushed for the api image, one per line'
+        value: ${{ jobs.image.outputs.api-image }}
+      web-image:
+        description: 'Tags pushed for the web image, one per line'
+        value: ${{ jobs.image.outputs.web-image }}
+      worker-image:
+        description: 'Tags pushed for the worker image, one per line'
+        value: ${{ jobs.image.outputs.worker-image }}
+      stack-agent-image:
+        description: 'Tags pushed for the stack-agent image, one per line'
+        value: ${{ jobs.image.outputs.stack-agent-image }}
+      api-digest:
+        description: 'The signed api image, by digest'
+        value: ${{ jobs.image.outputs.api-digest }}
+      web-digest:
+        description: 'The signed web image, by digest'
+        value: ${{ jobs.image.outputs.web-digest }}
+      worker-digest:
+        description: 'The signed worker image, by digest'
+        value: ${{ jobs.image.outputs.worker-digest }}
+      stack-agent-digest:
+        description: 'The signed stack-agent image, by digest'
+        value: ${{ jobs.image.outputs.stack-agent-digest }}
+      version:
+        description: 'The VERSION build argument the images were built with'
+        value: ${{ jobs.image.outputs.version }}
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Platform version to tag; main only (empty: sha-<sha> only)'
+        type: string
+        required: false
+        default: ''
+      channel:
+        description: 'Channel tag to move (needs a version)'
+        type: choice
+        options: [none, next, latest]
+        default: none
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: ${{ matrix.role }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { role: api, file: apps/api/Dockerfile, target: '' }
+          - { role: web, file: apps/web/Dockerfile, target: '' }
+          - { role: worker, file: apps/cli/Dockerfile, target: production }
+          - { role: stack-agent, file: apps/stack-agent/Dockerfile, target: '' }
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write # push to GHCR
+      id-token: write # keyless cosign signature (GitHub OIDC)
+      security-events: write # Trivy SARIF to code scanning
+    # Each leg writes only its own <role>-image and <role>-digest outputs, so
+    # the four legs combine instead of overwriting each other.
+    outputs:
+      api-image: ${{ steps.out.outputs.api-image }}
+      web-image: ${{ steps.out.outputs.web-image }}
+      worker-image: ${{ steps.out.outputs.worker-image }}
+      stack-agent-image: ${{ steps.out.outputs.stack-agent-image }}
+      api-digest: ${{ steps.out.outputs.api-digest }}
+      web-digest: ${{ steps.out.outputs.web-digest }}
+      worker-digest: ${{ steps.out.outputs.worker-digest }}
+      stack-agent-digest: ${{ steps.out.outputs.stack-agent-digest }}
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # Image name, tag scheme and version, validated before anything is
+      # built. Inputs reach the shell through env only, never inline.
+      - name: Plan the image and its tags
+        id: plan
+        env:
+          ROLE: ${{ matrix.role }}
+          APP_RELEASE: ${{ inputs.app-release && 'true' || 'false' }}
+          VERSION_INPUT: ${{ inputs.version }}
+          CHANNEL_INPUT: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error title=images.yml::$1"; exit 1; }
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          repo="${GITHUB_REPOSITORY#*/}"
+          repo="${repo,,}"
+          channel="$CHANNEL_INPUT"
+          if [ "$channel" = "none" ]; then channel=""; fi
+          has_version=false
+          if [ "$APP_RELEASE" = "true" ]; then
+            scheme=app
+            if [ -n "$VERSION_INPUT" ] || [ -n "$channel" ]; then
+              fail "app-release takes neither a version nor a channel"
+            fi
+            if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+              version="${GITHUB_REF#refs/tags/v}"
+            else
+              version="$GITHUB_SHA"
+            fi
+          else
+            scheme=platform
+            case "$channel" in
+              ''|next|latest) ;;
+              *) fail "channel must be empty, none, next or latest (got: $channel)" ;;
+            esac
+            if [ -n "$VERSION_INPUT" ]; then
+              if ! [[ "$VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+                fail "version must be semver without a leading v (got: $VERSION_INPUT)"
+              fi
+              version="$VERSION_INPUT"
+              has_version=true
+            else
+              version="$GITHUB_SHA"
+            fi
+            if [ -n "$channel" ] && [ "$has_version" != "true" ]; then
+              fail "a channel tag needs a version"
+            fi
+            if [ "$has_version" = "true" ] && [ "$GITHUB_REF" != "refs/heads/main" ]; then
+              fail "version and channel tags are pushed from main only (this run is on $GITHUB_REF)"
+            fi
+            if [ "$channel" = "latest" ] && [[ "$version" == *-* ]]; then
+              fail "latest never points at a prerelease ($version)"
+            fi
+          fi
+          {
+            echo "image=ghcr.io/${owner}/${repo}-${ROLE}"
+            echo "package=${repo}-${ROLE}"
+            echo "owner=${owner}"
+            echo "scheme=${scheme}"
+            echo "version=${version}"
+            echo "has-version=${has_version}"
+            echo "channel=${channel}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The app scheme reproduces deploy.yml's tags before it called this
+      # workflow, including metadata-action's default latest=auto flavour. The
+      # platform scheme turns that flavour off, so `latest` is only ever the
+      # explicit channel.
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@v6
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+        with:
+          images: ${{ steps.plan.outputs.image }}
+          flavor: |
+            latest=${{ steps.plan.outputs.scheme == 'app' && 'auto' || 'false' }}
+          tags: |
+            type=semver,pattern={{version}},enable=${{ steps.plan.outputs.scheme == 'app' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ steps.plan.outputs.scheme == 'app' }}
+            type=sha,prefix=,enable=${{ steps.plan.outputs.scheme == 'app' }}
+            type=raw,value=latest,enable=${{ steps.plan.outputs.scheme == 'app' && github.ref == format('refs/heads/{0}', 'main') }}
+            type=raw,value=${{ steps.plan.outputs.version }},enable=${{ steps.plan.outputs.has-version == 'true' }}
+            type=raw,value=next,enable=${{ steps.plan.outputs.channel == 'next' }}
+            type=raw,value=latest,enable=${{ steps.plan.outputs.channel == 'latest' }}
+            type=sha,prefix=sha-,enable=${{ steps.plan.outputs.scheme == 'platform' }}
+          labels: |
+            org.opencontainers.image.title=${{ steps.plan.outputs.package }}
+            org.opencontainers.image.version=${{ steps.plan.outputs.version }}
+            org.opencontainers.image.licenses=MIT
+
+      # Context is the repository root for all four: each app is an npm
+      # workspace member with no lockfile of its own.
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          target: ${{ matrix.target }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha,scope=${{ matrix.role }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.role }}
+          build-args: |
+            VERSION=${{ steps.plan.outputs.version }}
+
+      - name: Record the image for callers
+        id: out
+        env:
+          ROLE: ${{ matrix.role }}
+          IMAGE: ${{ steps.plan.outputs.image }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          {
+            echo "${ROLE}-image<<IMAGE_TAGS_EOF"
+            printf '%s\n' "$TAGS"
+            echo "IMAGE_TAGS_EOF"
+            echo "${ROLE}-digest=${IMAGE}@${DIGEST}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      # Always the digest, never a tag: a tag can be moved after signing.
+      - name: Sign the pushed digest (keyless)
+        env:
+          IMAGE: ${{ steps.plan.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      # Non-blocking for now: the report lands in code scanning, and a scan
+      # or upload failure (rate-limited vulnerability database, code scanning
+      # unavailable on a private fork) never fails the release.
+      - name: Scan for vulnerabilities (report only)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        continue-on-error: true
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          image-ref: ${{ steps.plan.outputs.image }}@${{ steps.build.outputs.digest }}
+          format: sarif
+          output: trivy.sarif
+          exit-code: '0'
+          ignore-unfixed: true
+
+      - name: Upload the scan to code scanning
+        if: hashFiles('trivy.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
+        continue-on-error: true
+        with:
+          sarif_file: trivy.sarif
+          category: image-${{ matrix.role }}
+
+      # Reports, never fails: an anonymous registry read tells whether the
+      # package is public yet. Until the owner changes its visibility, pushes
+      # and signatures still work; only an anonymous `docker pull` does not.
+      - name: Summary and visibility check
+        env:
+          ROLE: ${{ matrix.role }}
+          IMAGE: ${{ steps.plan.outputs.image }}
+          PACKAGE: ${{ steps.plan.outputs.package }}
+          OWNER: ${{ steps.plan.outputs.owner }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -uo pipefail
+          path="${IMAGE#ghcr.io/}"
+          {
+            echo "### ${ROLE}"
+            echo ""
+            echo "- Signed digest: \`${IMAGE}@${DIGEST}\`"
+            echo "- Tags:"
+            while IFS= read -r tag; do
+              [ -n "$tag" ] && echo "  - \`${tag}\`"
+            done <<< "$TAGS"
+          } >> "$GITHUB_STEP_SUMMARY"
+          token=$(curl -fsS "https://ghcr.io/token?scope=repository:${path}:pull" 2>/dev/null | jq -r '.token // empty' 2>/dev/null || true)
+          accept='application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json'
+          if [ -n "$token" ] && curl -fsS -o /dev/null -H "Authorization: Bearer ${token}" -H "Accept: ${accept}" "https://ghcr.io/v2/${path}/manifests/${DIGEST}" 2>/dev/null; then
+            echo "- Anonymous pull: works (the package is public)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            settings="https://github.com/users/${OWNER}/packages/container/${PACKAGE}/settings"
+            echo "::warning title=${PACKAGE} is not public::Anonymous pulls are refused. Owner step: ${settings} (for an organization, /orgs/ instead of /users/), Change visibility to Public. See docs/runbooks/container-images.md."
+            echo "- Anonymous pull: **refused**. Owner step: make the package public at ${settings} (docs/runbooks/container-images.md)" >> "$GITHUB_STEP_SUMMARY"
+          fi

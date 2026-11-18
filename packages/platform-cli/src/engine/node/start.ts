@@ -1,0 +1,431 @@
+import { cliName } from '../identity.js';
+import { HttpNodeApi, type NodeApi } from './node-api.js';
+import { registerNode } from './enrollment.js';
+import { createHostTelemetry } from './host-telemetry.js';
+import { DEFAULT_HEARTBEAT_MS, NodeEngine } from './node-engine.js';
+import type { NodeEngineEvent } from './node-events.js';
+import { NodeLogger, readLogTail, formatLogRecord } from './logger.js';
+import { startDaemonHost, type DaemonHost } from './daemon.js';
+import { nodeLogPath, nodePidPath, nodeSocketPath, nodeStateDir, nodeTmpDir, type NodePathsContext } from './paths.js';
+import { resolveNodeConfig, saveNodeConfig, type ResolvedNodeConfig } from './node-config.js';
+import {
+  probeCapabilities,
+  runStartupSelfTest,
+  type CapabilityProbe,
+  type JobTypeRequirements,
+} from './capabilities.js';
+import { resolveModelsDir, verifyModels, withheldTypesFor } from './models.js';
+import { MemoryWatchdog, memoryWatchdogEnabled } from './memory-watchdog.js';
+import { writeHeapSnapshot } from './heap-snapshot.js';
+import {
+  currentHeapLimitMb,
+  memoryValveDisabled,
+  memoryValveExitCode,
+  resolveDefaultConcurrency,
+  resolveNativeThreads,
+  runWorkerRuntimeHooks,
+} from './runtime-tuning.js';
+import { appliedWorkerEnvAliases } from './worker-env-aliases.js';
+import { cpus } from 'node:os';
+import { snapshotsDir } from './paths.js';
+import { NodeVitalsProvider } from './node-vitals.js';
+
+// =============================================================================
+// `node start`  (issue #275, epic #254)
+// =============================================================================
+//
+// Wires config → API client → engine → daemon socket → signal handlers, and
+// owns exactly two decisions that are hard to get right anywhere else:
+//
+//   1. EVERY RUN HOSTS THE DAEMON SOCKET, foreground or detached. A worker you
+//      can only inspect if you happened to start it a particular way is a
+//      worker nobody inspects.
+//
+//   2. `--headless` DRAINS ON SIGTERM WITHOUT DEREGISTERING. A restarting
+//      container must RE-ATTACH to its existing node row; deregistering on
+//      every SIGTERM would leak a row per restart, and a crash-looping replica
+//      would fill the fleet page with corpses. Interactive Ctrl-C does
+//      deregister, because a human stopping a worker on their laptop means it
+//      is going away.
+// =============================================================================
+
+export interface StartNodeOptions extends NodePathsContext {
+  /** Drain-without-deregister on SIGTERM. Also settable through the environment. */
+  headless?: boolean | undefined;
+  /** Streams. Human output goes to stderr, per program.ts. */
+  stderr?: { write(chunk: string): unknown } | undefined;
+  /** Test seams. */
+  createApi?: ((config: ResolvedNodeConfig) => NodeApi) | undefined;
+  /** Replaces the signal wiring, which a test must not install globally. */
+  installSignalHandlers?: ((handler: (signal: NodeJS.Signals) => void) => void) | undefined;
+  /** Wired by #277. */
+  writeHeapSnapshot?: (() => Promise<{ path: string; size: number }>) | undefined;
+  capabilities?: Record<string, unknown> | undefined;
+  /** Overrides the capability probe. Injected by tests; never in production. */
+  probe?: CapabilityProbe | undefined;
+  /** Overrides `JOB_TYPE_REQUIREMENTS`. A fork could supply its own map here. */
+  requirements?: Record<string, JobTypeRequirements> | undefined;
+  /**
+   * Run the startup self-test. Defaults to ON in headless mode, where a hard
+   * exit is a visible crash-loop with a reason; interactive runs default to
+   * warning, because a human is right there to read it.
+   */
+  selfTest?: boolean | undefined;
+  /** Replaces `process.exit` for the self-test's hard failure. */
+  exit?: ((code: number) => never) | undefined;
+  /** `false` disables the memory watchdog for this run (#277). */
+  watchdog?: boolean | undefined;
+  /** `false` sends heartbeats without `vitals` (#605). Test seam; on by default. */
+  vitals?: boolean | undefined;
+  /**
+   * Receives every engine event after it has been logged and broadcast to the
+   * daemon's clients. The embedded dashboard (RETRO-G1.3) feeds on it; a throw
+   * here never reaches the engine.
+   */
+  onEvent?: ((event: NodeEngineEvent) => void) | undefined;
+}
+
+/** Exit code for "this node cannot do the work it advertised". */
+export const EXIT_MISSING_CAPABILITY = 70;
+
+export interface StartedNode {
+  engine: NodeEngine;
+  /** `undefined` when the watchdog is disabled. */
+  watchdog: MemoryWatchdog | undefined;
+  host: DaemonHost;
+  logger: NodeLogger;
+  config: ResolvedNodeConfig;
+  /** Resolves when the engine has drained and the socket is closed. */
+  finished: Promise<void>;
+}
+
+/**
+ * Start a worker in this process and return once it is serving.
+ *
+ * Returns rather than awaiting the run loop, so a caller can hold the handle —
+ * which is what makes this testable and what #279's TUI needs.
+ */
+export async function startNode(options: StartNodeOptions = {}): Promise<StartedNode> {
+  const stderr = options.stderr ?? process.stderr;
+  const pathCtx: NodePathsContext = {
+    ...(options.env !== undefined ? { env: options.env } : {}),
+    ...(options.home !== undefined ? { home: options.home } : {}),
+    ...(options.platform !== undefined ? { platform: options.platform } : {}),
+  };
+
+  // The RAM- and core-aware default lands here rather than in `node-config.ts`
+  // so the config module stays free of any runtime-tuning dependency; an
+  // explicit setting in the file or the environment still wins.
+  const config = resolveNodeConfig({ ...pathCtx, defaultConcurrency: resolveDefaultConcurrency() });
+  const headless = options.headless ?? config.headless;
+
+  const logger = new NodeLogger({
+    path: nodeLogPath(pathCtx),
+    // In the foreground a human wants to see what is happening; a detached run
+    // has its stdio redirected to the same file anyway, so mirroring would
+    // double every line.
+    ...(headless ? {} : { mirror: (record) => stderr.write(`${formatLogRecord(record)}\n`) }),
+  });
+
+  // ---------------------------------------------------------------------------
+  // The startup self-test (#276), BEFORE anything is registered or claimed
+  // ---------------------------------------------------------------------------
+  // A node that cannot do the work it advertised must not reach the claim loop:
+  // there it would take a lease, fail it, and charge the job an attempt — once
+  // per job, looking healthy the whole time.
+  const probe = options.probe ?? (await probeCapabilities());
+  const selfTestEnabled = options.selfTest ?? headless;
+  if (selfTestEnabled) {
+    const failures: string[] = [];
+    const result = await runStartupSelfTest({
+      types: config.node.eligibleTypes,
+      probe,
+      ...(options.requirements !== undefined ? { requirements: options.requirements } : {}),
+      warn: (message) => logger.warn(message),
+      fail: (message) => {
+        logger.error(message);
+        failures.push(message);
+      },
+    });
+
+    if (!result.ok) {
+      stderr.write(`${failures.join('\n')}\n`);
+      const exit = options.exit ?? ((code: number) => process.exit(code));
+      exit(EXIT_MISSING_CAPABILITY);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Model artifacts (RETRO-G2.4): verify what is on disk, withhold what cannot run
+  // ---------------------------------------------------------------------------
+  // A type whose model file is missing or corrupt is not advertised: claiming it
+  // would take a lease and fail it. This is not fatal (unlike a missing required
+  // capability), because `node models pull` fixes it and the rest of the node
+  // is healthy. A pull needs a restart to be noticed.
+  const modelVerdicts = await verifyModels(resolveModelsDir(nodeStateDir(pathCtx), options.env ?? process.env));
+  const withheld = withheldTypesFor(modelVerdicts);
+  for (const verdict of modelVerdicts) {
+    if (verdict.status === 'ok') continue;
+    const types = [...withheld.entries()].filter(([, ids]) => ids.includes(verdict.id)).map(([type]) => type);
+    logger.warn(
+      `model "${verdict.id}" is ${verdict.status}${verdict.detail !== undefined ? ` (${verdict.detail})` : ''}; ` +
+        `${types.length > 0 ? `not advertising ${types.join(', ')}` : 'no job type depends on it'}. Run \`${cliName()} node models pull\`, then restart.`,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Runtime hooks (#1072): once, after the re-exec, before anything can claim
+  // ---------------------------------------------------------------------------
+  // A hook that throws aborts the start with a named error: a worker that is
+  // only half tuned would leak native memory where the watchdog cannot see it.
+  const runtimeEnv = options.env ?? process.env;
+  const cores = safeCores();
+  const nativeThreads = resolveNativeThreads(cores, runtimeEnv);
+  await runWorkerRuntimeHooks({ concurrency: config.node.concurrency, cores, nativeThreads, env: runtimeEnv });
+
+  const api = options.createApi?.(config) ?? HttpNodeApi.create(config.serverUrl, config.token);
+
+  // Register on first start. `validateTypes: false` because a start must not
+  // fail because `GET /nodes/job-types` was briefly unavailable — the server
+  // re-checks every claim against its own registry regardless.
+  let nodeId = config.nodeId;
+  let serverFeatures: readonly string[] | undefined;
+  if (nodeId === undefined) {
+    const registered = await registerNode({
+      api,
+      node: config.node,
+      validateTypes: false,
+      configContext: pathCtx,
+      ...(options.capabilities !== undefined ? { capabilities: options.capabilities } : {}),
+    });
+    nodeId = registered.node.id;
+    serverFeatures = registered.serverFeatures;
+    logger.info(registered.reattached ? 'reattached to node' : 'registered node', {
+      nodeId,
+      name: registered.node.name,
+    });
+  }
+
+  let host: DaemonHost | undefined;
+
+  // The vitals provider (#605). The watchdog is built AFTER the engine (its
+  // valve stops the engine), so the provider reads it through this late-bound
+  // reference; until it is assigned — or when the watchdog is disabled — the
+  // heartbeat simply reports no `watchdogTrips`.
+  let watchdogRef: MemoryWatchdog | undefined;
+  const vitals =
+    options.vitals === false
+      ? undefined
+      : new NodeVitalsProvider({
+          stateDir: nodeStateDir(pathCtx),
+          watchdogState: () => watchdogRef?.getState(),
+        });
+
+  const engine = new NodeEngine({
+    api,
+    nodeId,
+    concurrency: config.node.concurrency,
+    eligibleTypes: config.node.eligibleTypes,
+    ...(withheld.size > 0 ? { withheldTypes: [...withheld.keys()] } : {}),
+    pollIntervalMs: config.node.pollIntervalMs,
+    tmpDir: nodeTmpDir(pathCtx),
+    capabilities: { ...(options.capabilities ?? {}), probe: { ...probe } },
+    // Cheap presence probes are refreshed on every heartbeat so the fleet page
+    // sees a sidecar go away; expensive results come from the probe cache and
+    // version banners are carried forward, never re-read.
+    // An injected probe (a test seam) is never replaced by a real one.
+    ...(options.probe === undefined
+      ? {
+          refreshCapabilities: async () => ({
+            ...(options.capabilities ?? {}),
+            probe: {
+              ...(await probeCapabilities({
+                useCache: true,
+                ...(options.env !== undefined ? { env: options.env } : {}),
+                readVersion: (name: string) => probe.versions?.[name],
+              })),
+            },
+          }),
+        }
+      : {}),
+    ...(vitals !== undefined ? { collectVitals: (input) => vitals.collect(input) } : {}),
+    // The engine learns the server's features from the register response (a
+    // fresh registration) or from any heartbeat response (an already-registered
+    // node never re-registers: that would overwrite server-stored settings).
+    ...(vitals !== undefined
+      ? {
+          ...(serverFeatures !== undefined ? { serverFeatures } : {}),
+          hostTelemetry: createHostTelemetry({ heartbeatMs: DEFAULT_HEARTBEAT_MS }),
+        }
+      : {}),
+    persistConcurrency: (value) => {
+      saveNodeConfig({ node: { concurrency: value } }, { ...pathCtx, degradeOnFailure: true });
+    },
+    onEvent: (event) => {
+      logEvent(logger, event);
+      host?.broadcast(event);
+      try {
+        options.onEvent?.(event);
+      } catch {
+        // An observer must never cost the worker an event.
+      }
+    },
+  });
+
+  // The `heap-snapshot` IPC command asks the LIVE daemon to write one, which
+  // is the point: restarting to attach a diagnostic flag discards exactly the
+  // accumulated state that names the retainer.
+  const snapshotWriter =
+    options.writeHeapSnapshot ??
+    (async () => {
+      const result = writeHeapSnapshot({ dir: snapshotsDir(pathCtx), reason: 'manual', ...(options.env !== undefined ? { env: options.env } : {}) });
+      if (!result.written) throw new Error(result.skipped ?? 'The snapshot could not be written.');
+      return { path: result.path ?? '', size: result.size ?? 0 };
+    });
+
+  host = await startDaemonHost(engine, logger, {
+    pidPath: nodePidPath(pathCtx),
+    socketPath: nodeSocketPath(pathCtx),
+    logTail: () => readLogTail(nodeLogPath(pathCtx), 50),
+    writeHeapSnapshot: snapshotWriter,
+  });
+
+  // ---------------------------------------------------------------------------
+  // The memory watchdog (#277)
+  // ---------------------------------------------------------------------------
+  // ⚠ Its valve EXITS DELIBERATELY after a clean drain. Without a supervisor —
+  // `Restart=on-failure` (#276) or `restart: unless-stopped` (#278) — that
+  // successful drain leaves the worker down.
+  const watchdog =
+    options.watchdog === false || !memoryWatchdogEnabled(options.env ?? process.env)
+      ? undefined
+      : new MemoryWatchdog({
+          snapshotDir: snapshotsDir(pathCtx),
+          ...(options.env !== undefined ? { env: options.env } : {}),
+          stop: () => engine.stop({ deregister: false }),
+          log: (message, fields) => logger.warn(message, fields),
+        });
+  watchdogRef = watchdog;
+  watchdog?.start();
+
+  const install =
+    options.installSignalHandlers ??
+    ((handler: (signal: NodeJS.Signals) => void) => {
+      for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(signal, () => handler(signal));
+    });
+
+  let shuttingDown = false;
+  install((signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info('shutdown signal received', { signal, headless });
+    // THE ONE BRANCH THAT MATTERS. See the file header.
+    void engine.stop({ deregister: !headless });
+  });
+
+  const finished = engine
+    .run()
+    .then(async () => {
+      watchdog?.stop();
+      vitals?.stop();
+      await host?.close();
+    })
+    .catch(async (error: unknown) => {
+      logger.error('worker exited with an error', { error: error instanceof Error ? error.message : String(error) });
+      watchdog?.stop();
+      vitals?.stop();
+      await host?.close();
+      throw error;
+    });
+
+  logger.info('worker started', {
+    nodeId,
+    name: config.node.name,
+    concurrency: config.node.concurrency,
+    types: engine.claimableTypes(),
+    headless,
+    heapLimitMb: currentHeapLimitMb(),
+    nativeThreads,
+    valveExitCode: memoryValveExitCode(),
+    valve: watchdog === undefined ? 'off (watchdog disabled)' : memoryValveDisabled() ? 'off (sampling only)' : 'armed',
+    ...(appliedWorkerEnvAliases().length > 0
+      ? { envAliases: appliedWorkerEnvAliases().map((alias) => `${alias.legacy}->${alias.canonical}`) }
+      : {}),
+  });
+
+  if (!headless) {
+    stderr.write(
+      `Worker ${config.node.name} (${nodeId}) is running.\n` +
+        `  Concurrency ${config.node.concurrency}; types ${
+          engine.claimableTypes().length > 0 ? engine.claimableTypes().join(', ') : '(none — this node has no executors)'
+        }\n` +
+        `  Attach from another terminal: ${cliName()} node status\n`,
+    );
+  }
+
+  return { engine, host, logger, config, watchdog, finished };
+}
+
+function safeCores(): number {
+  try {
+    return cpus().length;
+  } catch {
+    return 1;
+  }
+}
+
+/**
+ * One engine event → one log line.
+ *
+ * Kept OUT of the engine deliberately: the engine is UI-free and must stay
+ * renderable by a printer, the IPC broadcast and the TUI without any of them
+ * inheriting a logging opinion from it.
+ */
+function logEvent(logger: NodeLogger, event: NodeEngineEvent): void {
+  switch (event.kind) {
+    case 'job-succeeded':
+      logger.info('job succeeded', { jobId: event.jobId, type: event.type, durationMs: event.durationMs });
+      return;
+    case 'job-failed':
+      logger.error('job failed', {
+        jobId: event.jobId,
+        type: event.type,
+        error: event.error,
+        rateLimited: event.rateLimited,
+        willRetry: event.willRetry,
+      });
+      return;
+    case 'job-started':
+      logger.info('job started', { jobId: event.jobId, type: event.type });
+      return;
+    case 'lease-renew-failed':
+      logger.warn('lease renew failed', { jobId: event.jobId, error: event.error });
+      return;
+    case 'heartbeat-failed':
+      logger.warn('heartbeat failed', { error: event.error });
+      return;
+    case 'vitals-disabled':
+      logger.warn('server refused heartbeat vitals; not sending them again this process', { error: event.error });
+      return;
+    case 'telemetry-disabled':
+      logger.warn('server has no span relay (older API); not sending job spans again this process', { error: event.error });
+      return;
+    case 'claim-failed':
+      logger.warn('claim failed', { error: event.error });
+      return;
+    case 'concurrency-changed':
+      logger.info('concurrency changed', { concurrency: event.concurrency });
+      return;
+    case 'draining':
+      logger.info('draining', { inFlight: event.inFlight });
+      return;
+    case 'stopped':
+      logger.info('stopped', { deregistered: event.deregistered });
+      return;
+    default:
+      // `idle`, `claimed`, `heartbeat`, `job-input`, `job-log`, `lease-renewed`
+      // and `started` are high-volume or uninteresting on their own; they still
+      // reach attached clients through the broadcast.
+      logger.debug(event.kind, { event });
+  }
+}

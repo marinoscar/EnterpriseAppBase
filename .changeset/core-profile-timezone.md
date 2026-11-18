@@ -1,0 +1,7 @@
+---
+"@marinoscar/platform-contract": minor
+"@marinoscar/platform-api": minor
+"@marinoscar/platform-web": minor
+---
+
+Make the user's time zone a core profile setting and render every packaged date in it. Contract: `TIME_ZONE_ID_MAX`, `isValidTimeZone` and `timeZoneIdSchema`; `profile.timezone` (an IANA id, absent means follow the device) on the stored profile, the response and the PATCH body (`null` clears it). API: the user settings service reads, merges and validates it (an invalid zone is a 400), and `timezone` joins `CORE_PROFILE_FIELDS`, so an app that registered `timezone` with `extendUserProfile` must drop that registration (the reference example now adds `pronouns`). Web: the display-zone store and the zone-aware formatters live in `@marinoscar/platform-web/core` (`getDisplayTimeZone`, `setPreferredTimeZone`, `useDisplayTimeZone`, `formatDateTime`, `formatDate`, `formatTime`, `zonedDateKey`, the `NUMERIC_*` presets; `/timezone/headless` re-exports them), and every packaged page (identity, AI, jobs, nodes, db-backup, notifications, storage, email, host, telemetry, exports, android-app, sharing, credentials) formats through them, so times follow the zone the user picked. The broadcast composer's "Send at" input reads and writes the user's zone. Deliberately UTC values (AI usage days, values labelled UTC, values sent to the server) are unchanged. Mount `UserTimeZoneSync` inside `AuthProvider` to load the user's zone at sign-in; without it, times follow the device as before.

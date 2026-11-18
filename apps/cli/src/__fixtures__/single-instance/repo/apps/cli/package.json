@@ -1,0 +1,8 @@
+{
+  "name": "fixture-cli",
+  "private": true,
+  "dependencies": {
+    "ink": "^7.1.0",
+    "react": "^19.2.8"
+  }
+}

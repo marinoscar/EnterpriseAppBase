@@ -1,0 +1,38 @@
+// `@marinoscar/platform-cli/testing`: helpers for an app's CLI tests and the
+// CLI's conformance suites (#715).
+export {
+  PLATFORM_DOCUMENTED_OPTIONAL_KEYS,
+  TEST_CLI_IDENTITY,
+  TUI_CONFORMANCE_CHECKS,
+  checkDashboardReducer,
+  checkExecutorCredentialHygiene,
+  checkTuiLabels,
+  checkTuiLazy,
+  checkTuiMenu,
+  checkTuiNoInkImport,
+  cliConformanceSuites,
+  commentedAssignments,
+  composeEnvSpecs,
+  registerCliConformanceSuite,
+  resetCliConformanceSuitesForTests,
+  resetCliForTests,
+  testDeployStepContext,
+  runPlatformConformance,
+  useTestCliIdentity,
+} from '../engine/index.js';
+export type {
+  CliConformanceOptions,
+  CliConformanceSkip,
+  CliConformanceSuite,
+  CliPlatformConformanceOptions,
+  CliPlatformConformanceSuites,
+  ConformanceMatchers,
+  ConformanceTestApi,
+  CredentialHygieneOptions,
+  DeployRegistrationsConformanceOptions,
+  CredentialHygieneReport,
+  EnvTemplateFragment,
+  TuiConformanceCheck,
+  TuiConformanceOptions,
+  TuiDashboardCheck,
+} from '../engine/index.js';

@@ -1,0 +1,40 @@
+{
+  "name": "platform-consumer-smoke-api",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A minimal NestJS consumer of @marinoscar/platform-api, installed from packed or published packages by ../run.mjs. Never an npm workspace.",
+  "license": "MIT",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test test/smoke.e2e.mjs"
+  },
+  "dependencies": {
+    "@marinoscar/platform-api": "next",
+    "@nestjs/common": "^11.1.12",
+    "@nestjs/config": "^4.0.2",
+    "@nestjs/core": "^11.1.12",
+    "@nestjs/event-emitter": "^3.0.1",
+    "@nestjs/jwt": "^11.0.2",
+    "@nestjs/passport": "^11.0.5",
+    "@nestjs/platform-fastify": "^11.1.12",
+    "@nestjs/schedule": "^6.1.0",
+    "@nestjs/swagger": "^11.2.5",
+    "@opentelemetry/api": "^1.9.1",
+    "@prisma/client": "^7.8.0",
+    "@prisma/client-runtime-utils": "^7.8.0",
+    "fastify": "^5",
+    "nestjs-zod": "^5.4.0",
+    "passport": "^0.7.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "zod": "^4.4.3"
+  },
+  "overrides": {
+    "fastify": "$fastify"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.32",
+    "typescript": "^6.0.3"
+  }
+}

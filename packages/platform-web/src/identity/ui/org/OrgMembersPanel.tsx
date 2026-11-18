@@ -1,0 +1,256 @@
+/**
+ * The Members tab of the Organization page (#726, PP-6.7): the ACTIVE
+ * organization's members, with their org role and status.
+ *
+ * Controls are disabled without `org_members:write` (the API enforces it
+ * anyway), and on the viewer's own row: the API refuses self-demotion,
+ * self-suspension and self-removal, so the page does not offer them. Every
+ * other rule (the last active administrator) is the API's to decide; its
+ * refusal is shown as returned.
+ *
+ * Laid out as a list of rows that wrap, not a wide table, so it works at
+ * phone width without horizontal scrolling.
+ */
+import type { ReactElement } from 'react';
+import { useEffect, useState } from 'react';
+import {
+  Alert,
+  Box,
+  Button,
+  Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Paper,
+  Select,
+  Stack,
+  TextField,
+  Typography,
+} from '@mui/material';
+import { useDisplayTimeZone } from '../../../core/index.js';
+import type { TableSlots } from '../../../core/index.js';
+import { useAuth } from '../../headless/index.js';
+import { usePermissions } from '../../headless/index.js';
+import { useOrgMembers, useRoles } from '../../headless/index.js';
+import type { OrgMember, UseRolesReturn } from '../../headless/index.js';
+import { MEMBER_STATUS_COLOR, formatDate, orgRoleLabel } from './orgLabels.js';
+
+/**
+ * The slots of {@link OrgMembersPanel}: the table slots that make sense for a
+ * list of member rows. `RowActions` adds controls to a member's action row,
+ * `DetailPanel` adds content under the member's row, `Toolbar` adds controls
+ * under the search box. There is no `Columns`: the panel is a list of cards that
+ * wrap at phone width, not a table with columns to add.
+ *
+ * @example
+ * ```tsx
+ * <OrgMembersPanel slots={{ RowActions: ({ row }) => <ResendWelcome userId={row.userId} /> }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type OrgMembersPanelSlots = Pick<TableSlots<OrgMember>, 'RowActions' | 'DetailPanel' | 'Toolbar'>;
+
+/**
+ * Props of {@link OrgMembersPanel}.
+ *
+ * @stability experimental
+ */
+export interface OrgMembersPanelProps {
+  /**
+   * The org roles (`useRoles('org')`), when the page already read them. Without
+   * it the panel reads its own.
+   */
+  roles?: UseRolesReturn;
+  /** Add per-member actions, a detail view or toolbar controls. */
+  slots?: OrgMembersPanelSlots;
+}
+
+/**
+ * The current organization's members: role and status changes and removal
+ * (`org_members:write`). The Members tab of {@link OrganizationPage}. The roles
+ * offered come from `GET /api/roles?scope=org` (the assignable ones).
+ *
+ * @param props - see {@link OrgMembersPanelProps}.
+ * @returns the component.
+ *
+ * @stability stable
+ */
+export function OrgMembersPanel({ roles: rolesFromPage, slots }: OrgMembersPanelProps = {}): ReactElement {
+  useDisplayTimeZone(); // "Last active" renders in the display zone.
+  const RowActions = slots?.RowActions;
+  const DetailPanel = slots?.DetailPanel;
+  const Toolbar = slots?.Toolbar;
+  const ownRoles = useRoles('org', { enabled: rolesFromPage === undefined });
+  const roles = rolesFromPage ?? ownRoles;
+  const { user } = useAuth();
+  const { hasPermission } = usePermissions();
+  const canWrite = hasPermission('org_members:write');
+  const { members, total, isLoading, error, fetchMembers, updateMember, removeMember } = useOrgMembers();
+  const [search, setSearch] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<OrgMember | null>(null);
+
+  useEffect(() => {
+    void fetchMembers({ page: 1, pageSize: 100, search: search.trim() || undefined });
+  }, [fetchMembers, search]);
+
+  async function run(userId: string, action: () => Promise<void>) {
+    setBusy(userId);
+    try {
+      await action();
+    } catch {
+      // The hook already holds the API's message in `error`.
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Stack spacing={2}>
+      <TextField
+        label="Search members"
+        size="small"
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+        sx={{ maxWidth: { sm: 360 } }}
+      />
+
+      {Toolbar && <Toolbar />}
+
+      {error && <Alert severity="error">{error}</Alert>}
+
+      {!isLoading && members.length === 0 && !error && (
+        <Typography color="text.secondary">No members match.</Typography>
+      )}
+
+      {members.map((member) => {
+        const isSelf = member.userId === user?.id;
+        const disabled = !canWrite || isSelf || busy === member.userId;
+        return (
+          <Paper key={member.userId} variant="outlined" sx={{ p: 2 }} data-testid={`member-${member.userId}`}>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={2}
+              sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}
+            >
+              <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                <Typography noWrap sx={{ fontWeight: 600 }}>
+                  {member.displayName ?? member.email}
+                  {isSelf ? ' (you)' : ''}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" noWrap>
+                  {member.email}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Last active {formatDate(member.lastActiveAt)}
+                </Typography>
+              </Box>
+
+              <Chip
+                label={member.status === 'active' ? 'Active' : 'Suspended'}
+                color={MEMBER_STATUS_COLOR[member.status]}
+                size="small"
+                sx={{ alignSelf: { xs: 'flex-start', sm: 'center' } }}
+              />
+
+              <FormControl size="small" sx={{ minWidth: 160 }} disabled={disabled}>
+                <InputLabel id={`role-${member.userId}`}>Role</InputLabel>
+                <Select
+                  labelId={`role-${member.userId}`}
+                  label="Role"
+                  value={member.role}
+                  onChange={(event) =>
+                    void run(member.userId, () =>
+                      updateMember(member.userId, { roleName: event.target.value }),
+                    )
+                  }
+                >
+                  {/* A role the person holds but the API will not let this caller assign
+                      (internal, or removed since) is shown, not selectable. */}
+                  {!roles.assignable.some((role) => role.id === member.role) && (
+                    <MenuItem value={member.role} disabled>
+                      {orgRoleLabel(member.role, roles.roles)}
+                    </MenuItem>
+                  )}
+                  {roles.assignable.map((role) => (
+                    <MenuItem key={role.id} value={role.id}>
+                      {role.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <Stack direction="row" spacing={1}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  disabled={disabled}
+                  onClick={() =>
+                    void run(member.userId, () =>
+                      updateMember(member.userId, {
+                        status: member.status === 'active' ? 'suspended' : 'active',
+                      }),
+                    )
+                  }
+                >
+                  {member.status === 'active' ? 'Suspend' : 'Reactivate'}
+                </Button>
+                <Button
+                  size="small"
+                  color="error"
+                  variant="outlined"
+                  disabled={disabled}
+                  onClick={() => setConfirmRemove(member)}
+                >
+                  Remove
+                </Button>
+                {RowActions && <RowActions row={member} />}
+              </Stack>
+            </Stack>
+            {DetailPanel && (
+              <Box sx={{ mt: 2 }}>
+                <DetailPanel row={member} />
+              </Box>
+            )}
+          </Paper>
+        );
+      })}
+
+      {total > members.length && (
+        <Typography variant="body2" color="text.secondary">
+          Showing {members.length} of {total}. Search to narrow the list.
+        </Typography>
+      )}
+
+      <Dialog open={confirmRemove !== null} onClose={() => setConfirmRemove(null)}>
+        <DialogTitle>Remove member?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {confirmRemove?.email} loses access to this organization at once: their sessions, personal access
+            tokens and device sign-ins for it stop working. Their other organizations are not affected.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmRemove(null)}>Cancel</Button>
+          <Button
+            color="error"
+            onClick={() => {
+              const target = confirmRemove;
+              setConfirmRemove(null);
+              if (target) void run(target.userId, () => removeMember(target.userId));
+            }}
+          >
+            Remove
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Stack>
+  );
+}

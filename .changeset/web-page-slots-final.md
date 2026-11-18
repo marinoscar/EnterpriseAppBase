@@ -1,0 +1,5 @@
+---
+"@marinoscar/platform-web": minor
+---
+
+Apply the page-slot contract to the last three packaged pages (PP-14.24b, #974), so `test/page-slots.exempt.json` is empty. `DataExportPage` takes `slots: DataExportPageSlots` (`PageSlotsBase`, plus the exports list's `Columns` and `RowActions`, which it forwards to `ExportsList`, plus the existing `form`); `GettingStartedPage` takes `slots: GettingStartedPageSlots` and `SetupGuidePage` takes `slots: SetupGuidePageSlots` (both `PageSlotsBase`: `Header`, `BeforeContent`, `Sections` at both ends, `AfterContent`). New exported types: `DataExportPageSlots` (`@marinoscar/platform-web/exports/ui`), `GettingStartedPageProps`, `GettingStartedPageSlots` and `SetupGuidePageSlots` (`@marinoscar/platform-web/onboarding/ui`). Back-compat: every slot is optional and the pages' markup with none is unchanged (pinned by snapshots recorded from the old pages); `SetupGuidePage` keeps `showActivation` and `footer`, and `<GettingStartedPage />` takes no required props.
