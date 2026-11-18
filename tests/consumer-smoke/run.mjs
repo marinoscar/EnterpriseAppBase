@@ -20,7 +20,7 @@
 //   --from registry   install <version|tag> from the npm registry. First waits
 //                     (up to 10 minutes, backing off) until every platform
 //                     package resolves that version (`npm view --prefer-online`),
-//                     then retries the install for up to 2 minutes.
+//                     then retries the install for up to 2 minutes (5 minutes, backing off 15 s to 60 s, on E404).
 //   --from release    install the tarballs attached to the GitHub release
 //                     `platform-v<version>` of --repo (default: the
 //                     repository in packages/platform-api/package.json).
@@ -36,7 +36,7 @@ import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSyn
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { waitForRegistry } from './registry-wait.mjs';
+import { tarballServed, waitForRegistry } from './registry-wait.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..', '..');
@@ -49,6 +49,9 @@ const INSTALL_TIMEOUT_MS = 5 * 60_000;
 const STEP_TIMEOUT_MS = 10 * 60_000;
 const REGISTRY_RETRY_MS = 2 * 60_000;
 const REGISTRY_RETRY_INTERVAL_MS = 15_000;
+// An E404 means a tarball is not propagated yet (#1210): back off longer.
+const REGISTRY_404_RETRY_MS = 5 * 60_000;
+const REGISTRY_404_MAX_INTERVAL_MS = 60_000;
 const REGISTRY_WAIT_MS = 30 * 60_000;
 const VIEW_TIMEOUT_MS = 60_000;
 
@@ -231,6 +234,29 @@ function npmView(name, spec) {
   }
 }
 
+/** The `dist.tarball` URL of `name@version`, bypassing the local cache; null when unavailable. */
+function npmTarballUrl(name, version) {
+  const result = spawnSync(NPM, ['view', `${name}@${version}`, 'dist.tarball', '--json', '--prefer-online'], {
+    env: cleanEnv(),
+    encoding: 'utf8',
+    timeout: VIEW_TIMEOUT_MS,
+    shell: process.platform === 'win32',
+  });
+  if (result.status !== 0 || !result.stdout?.trim()) return null;
+  try {
+    const parsed = JSON.parse(result.stdout);
+    const url = Array.isArray(parsed) ? parsed.at(-1) : parsed;
+    return typeof url === 'string' ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+async function npmTarballServed(name, version) {
+  const url = npmTarballUrl(name, version);
+  return url ? tarballServed(url) : false;
+}
+
 async function install(dir, opts) {
   const args = ['install', '--no-audit', '--no-fund'];
   if (opts.from !== 'registry') {
@@ -238,12 +264,29 @@ async function install(dir, opts) {
     return;
   }
   args.push('--prefer-online');
-  const deadline = Date.now() + REGISTRY_RETRY_MS;
+  const start = Date.now();
+  let interval404 = REGISTRY_RETRY_INTERVAL_MS;
   for (let attempt = 1; ; attempt += 1) {
-    if (run(NPM, args, dir, { timeout: INSTALL_TIMEOUT_MS, allowFail: true })) return;
-    if (Date.now() + REGISTRY_RETRY_INTERVAL_MS > deadline) throw new Error(`npm install failed after ${attempt} attempts`);
-    log(`install attempt ${attempt} failed; retrying in ${REGISTRY_RETRY_INTERVAL_MS / 1000} s (registry propagation)`);
-    await sleep(REGISTRY_RETRY_INTERVAL_MS);
+    log(`$ ${[NPM, ...args].join(' ')}   (in ${dir})`);
+    const result = spawnSync(NPM, args, {
+      cwd: dir,
+      env: cleanEnv(),
+      stdio: ['inherit', 'inherit', 'pipe'],
+      encoding: 'utf8',
+      timeout: INSTALL_TIMEOUT_MS,
+      shell: process.platform === 'win32',
+    });
+    if (result.stderr) process.stderr.write(result.stderr);
+    if (result.status === 0) return;
+    // E404 is a tarball the registry has not propagated yet: back off 15 s
+    // doubling to 60 s for up to 5 minutes. Other failures keep the short window.
+    const is404 = /E404|404 Not Found/.test(result.stderr ?? '');
+    const budget = is404 ? REGISTRY_404_RETRY_MS : REGISTRY_RETRY_MS;
+    const wait = is404 ? interval404 : REGISTRY_RETRY_INTERVAL_MS;
+    if (Date.now() - start + wait > budget) throw new Error(`npm install failed after ${attempt} attempts`);
+    log(`install attempt ${attempt} failed${is404 ? ' (E404)' : ''}; retrying in ${wait / 1000} s (registry propagation)`);
+    await sleep(wait);
+    if (is404) interval404 = Math.min(interval404 * 2, REGISTRY_404_MAX_INTERVAL_MS);
   }
 }
 
@@ -300,8 +343,8 @@ async function main() {
     } else {
       specs = Object.fromEntries(PLATFORM_PACKAGES.map((p) => [`${PLATFORM_PREFIX}${p}`, opts.source]));
       // Right after a publish the registry and its CDN may not serve the new
-      // version yet; wait for all seven before the first install.
-      await waitForRegistry({ packages: Object.keys(specs), spec: opts.source, view: npmView, timeoutMs: REGISTRY_WAIT_MS, log });
+      // version yet; wait for all seven (packument and tarball) before the first install.
+      await waitForRegistry({ packages: Object.keys(specs), spec: opts.source, view: npmView, tarball: npmTarballServed, timeoutMs: REGISTRY_WAIT_MS, log });
     }
     for (const project of projects) await smoke(project, opts, specs);
     log(`PASS: ${projects.join(', ')} (from ${opts.from}${opts.source ? ` ${opts.source}` : ''})`);

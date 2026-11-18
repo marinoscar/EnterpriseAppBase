@@ -1,7 +1,7 @@
 // Unit tests for registry-wait.mjs: node --test tests/consumer-smoke/registry-wait.test.mjs
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { isExactVersion, waitForRegistry } from './registry-wait.mjs';
+import { isExactVersion, tarballServed, waitForRegistry } from './registry-wait.mjs';
 
 const PACKAGES = ['@marinoscar/platform-contract', '@marinoscar/platform-api'];
 
@@ -73,4 +73,51 @@ test('caps the delay and fails with the missing packages once the timeout is spe
   );
   assert.deepEqual(c.sleeps, [10_000, 20_000, 30_000, 30_000, 10_000]);
   assert.equal(c.now(), 100_000);
+});
+
+test('metadata resolved but tarball 404 is not served; served once the tarball answers', async () => {
+  const c = clock();
+  const logs = [];
+  const asked = [];
+  const tarball = async (name, version) => {
+    asked.push([name, version]);
+    return c.now() >= 10_000;
+  };
+  const result = await waitForRegistry({
+    packages: [PACKAGES[0]], spec: '1.0.0', view: async () => '1.0.0', tarball, ...c, initialDelayMs: 5_000, log: (m) => logs.push(m),
+  });
+  assert.deepEqual(result, { [PACKAGES[0]]: '1.0.0' });
+  assert.deepEqual(c.sleeps, [5_000, 10_000]);
+  assert.equal(asked.length, 3);
+  assert.match(logs[0], /platform-contract@1\.0\.0 \(tarball\)/);
+});
+
+test('a tarball that never appears fails with the package marked (tarball)', async () => {
+  const c = clock();
+  await assert.rejects(
+    waitForRegistry({ packages: [PACKAGES[0]], spec: '1.0.0', view: async () => '1.0.0', tarball: async () => false, ...c, timeoutMs: 20_000 }),
+    /platform-contract@1\.0\.0 \(tarball\)/,
+  );
+});
+
+test('tarballServed: HEAD 200 is enough', async () => {
+  const calls = [];
+  const f = async (url, init) => { calls.push(init.method); return { status: 200 }; };
+  assert.equal(await tarballServed('https://x/y.tgz', f), true);
+  assert.deepEqual(calls, ['HEAD']);
+});
+
+test('tarballServed: HEAD refused falls back to a ranged GET', async () => {
+  const calls = [];
+  const f = async (url, init) => {
+    calls.push(init.method === 'GET' ? `GET ${init.headers.Range}` : init.method);
+    return init.method === 'HEAD' ? { status: 405 } : { status: 206 };
+  };
+  assert.equal(await tarballServed('https://x/y.tgz', f), true);
+  assert.deepEqual(calls, ['HEAD', 'GET bytes=0-0']);
+});
+
+test('tarballServed: 404 on both, or a network error, is not served', async () => {
+  assert.equal(await tarballServed('https://x/y.tgz', async () => ({ status: 404 })), false);
+  assert.equal(await tarballServed('https://x/y.tgz', async () => { throw new Error('boom'); }), false);
 });
