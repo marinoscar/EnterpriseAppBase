@@ -193,6 +193,7 @@ export { assertAnyRoleAssignable, assertRoleAssignable, describeRole, isAppManag
 export { USERS_PERMISSIONS } from './users/users.permissions';
 export { ALLOWLIST_PERMISSIONS } from './allowlist/allowlist.permissions';
 export { ORGANIZATIONS_PERMISSIONS } from './organizations/organizations.permissions';
+export { OAUTH_CLIENTS_PERMISSIONS } from './oauth-server/oauth-clients.permissions';
 export { ORGANIZATIONS_APP_METRICS } from './organizations/organizations.metrics';
 export type { IdentityAppMetricDef } from './organizations/organizations.metrics';
 
@@ -246,7 +247,7 @@ export type { ClientRefused, ClientResolution, ClientResolved, ClientResolver, O
 export { InMemoryOAuthRateLimiter, OAUTH_RATE_LIMITER, OAuthRateLimitService } from './oauth-server/oauth-rate-limiter';
 export type { OAuthRateLimitVerdict, OAuthRateLimiter } from './oauth-server/oauth-rate-limiter';
 export { OAuthServerContext, OAuthServerFeatures } from './oauth-server/oauth-server-context';
-export { OAUTH_AUDIT_ACTIONS, OAUTH_AUDIT_TARGET_TYPE, OAuthGrantService } from './oauth-server/oauth-grant.service';
+export { OAUTH_AUDIT_ACTIONS, OAUTH_AUDIT_TARGET_TYPE, OAUTH_CLIENT_AUDIT_TARGET_TYPE, OAuthGrantService } from './oauth-server/oauth-grant.service';
 export type { OAuthAuditEntry, OAuthGrantRef } from './oauth-server/oauth-grant.service';
 export { OAuthProtocolError } from './oauth-server/oauth-protocol.error';
 export { buildAuthorizationServerMetadata } from './oauth-server/oauth-metadata';
@@ -265,6 +266,28 @@ export {
   OAUTH_ROUTE_PREFIX,
 } from './oauth-server/oauth-server.constants';
 export type { OAuthRateLimitSpec } from './oauth-server/oauth-server.constants';
+// Client identity and the trust policy (PP-15.5).
+export {
+  CIMD_MAX_BYTES,
+  CimdError,
+  CimdFetcher,
+  ClientIdentityResolver,
+  ClientRefusalRecorder,
+  ClientRegistrationService,
+  ClientTrustPolicy,
+  OAUTH_CIMD_HOST_RESOLVER,
+  OAUTH_CIMD_TRANSPORT,
+  OAUTH_CLIENT_CLEANUP_TYPE,
+  OAuthClientCleanupHandler,
+  OAuthClientCleanupTask,
+  OAuthClientsAdminController,
+  OAuthClientsAdminService,
+  cimdExpiry,
+  evaluateClientTrust,
+  parseCimdClientId,
+  validateCimdDocument,
+} from './oauth-server/clients/index';
+export type { CimdFailureCode, CimdFetchResult, CimdMetadata, TrustRefusalReason, TrustSettings, TrustSubject, TrustVerdict } from './oauth-server/clients/index';
 export type { AuthCredentialInfo, RequestWithAuthCredential } from './auth/decorators/auth-credential.decorator';
 export { JwtAuthGuard, NODE_ROUTE_PREFIX } from './auth/guards/jwt-auth.guard';
 export { RolesGuard } from './auth/guards/roles.guard';

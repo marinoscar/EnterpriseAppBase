@@ -25,6 +25,7 @@
 import type { PermissionDeclaration, PermissionDeclarationMap, PermissionScope, RoleDeclaration, RoleDeclarationMap } from '../core/index';
 
 import { ALLOWLIST_PERMISSIONS } from './allowlist/allowlist.permissions';
+import { OAUTH_CLIENTS_PERMISSIONS } from './oauth-server/oauth-clients.permissions';
 import { ORGANIZATIONS_PERMISSIONS } from './organizations/organizations.permissions';
 import { USERS_PERMISSIONS } from './users/users.permissions';
 import type { IdentityPermissionIds, IdentityRoleIds } from './index';
@@ -116,14 +117,18 @@ export const IDENTITY_ROLES: {
 
 /**
  * Every permission identity enforces, in seed order: users and RBAC, the
- * allowlist, then organizations, members and invites.
+ * allowlist, then organizations, members and invites, then OAuth clients.
  *
  * @stability stable
  */
-export const IDENTITY_PERMISSION_DECLARATIONS: typeof USERS_PERMISSIONS & typeof ALLOWLIST_PERMISSIONS & typeof ORGANIZATIONS_PERMISSIONS = {
+export const IDENTITY_PERMISSION_DECLARATIONS: typeof USERS_PERMISSIONS &
+  typeof ALLOWLIST_PERMISSIONS &
+  typeof ORGANIZATIONS_PERMISSIONS &
+  typeof OAUTH_CLIENTS_PERMISSIONS = {
   ...USERS_PERMISSIONS,
   ...ALLOWLIST_PERMISSIONS,
   ...ORGANIZATIONS_PERMISSIONS,
+  ...OAUTH_CLIENTS_PERMISSIONS,
 };
 
 /** Turns a declaration map into a map of its ids, keeping the literal types. */
@@ -178,6 +183,10 @@ export const IDENTITY_PERMISSION_IDS: {
   readonly ORGANIZATIONS_READ: 'organizations:read';
   /** `organizations:write`. */
   readonly ORGANIZATIONS_WRITE: 'organizations:write';
+  /** `oauth_clients:read`. */
+  readonly OAUTH_CLIENTS_READ: 'oauth_clients:read';
+  /** `oauth_clients:write`. */
+  readonly OAUTH_CLIENTS_WRITE: 'oauth_clients:write';
 } = idsOf(IDENTITY_PERMISSION_DECLARATIONS);
 
 /**

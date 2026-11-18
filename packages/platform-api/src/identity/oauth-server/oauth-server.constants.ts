@@ -88,7 +88,7 @@ export interface OAuthRateLimitSpec {
 }
 
 /**
- * Rate limits (docs/specs/oauth-server.md §3), fixed window of one minute.
+ * Rate limits (docs/specs/oauth-server.md §3), fixed windows (one minute; registration one hour).
  *
  * @stability experimental
  */
@@ -99,8 +99,11 @@ export const OAUTH_RATE_LIMITS: Readonly<{
   tokenPerClient: OAuthRateLimitSpec;
   /** `/revoke`: per client id. */
   revokePerClient: OAuthRateLimitSpec;
+  /** `/register`: per source address, per hour. */
+  registerPerAddress: OAuthRateLimitSpec;
 }> = Object.freeze({
   authorizePerAddress: { limit: 30, windowMs: 60_000 },
   tokenPerClient: { limit: 60, windowMs: 60_000 },
   revokePerClient: { limit: 60, windowMs: 60_000 },
+  registerPerAddress: { limit: 10, windowMs: 60 * 60_000 },
 });

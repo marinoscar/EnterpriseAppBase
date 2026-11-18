@@ -84,6 +84,13 @@ const TAG_GROUPS: AppOpenApiTagGroup[] = [
           'and the grants routes (Connected apps) are ordinary platform routes.',
       },
       {
+        name: 'OAuth clients',
+        description:
+          'The OAuth clients of this deployment (metadata-document, dynamically registered and pre-registered): list, ' +
+          'pre-register, edit, disable (which revokes the client\'s grants), rotate the secret and delete. Admin only ' +
+          '(`oauth_clients:read` / `oauth_clients:write`).',
+      },
+      {
         name: 'Allowlist',
         description:
           'Pre-authorized email addresses. Access is allowlist-gated: an email absent from this list ' +

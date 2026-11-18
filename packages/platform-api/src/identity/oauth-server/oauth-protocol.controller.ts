@@ -21,8 +21,9 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { RawResponse } from '../../core/index';
 import { Public } from '../auth/decorators/public.decorator';
 import { OAuthAuthorizationService } from './oauth-authorization.service';
+import { ClientRegistrationService } from './clients/client-registration.service';
 import { buildAuthorizationServerMetadata } from './oauth-metadata';
-import { OAuthErrorResponseDto, OAuthTokenRequestDto, OAuthTokenResponseDto } from './oauth.dto';
+import { OAuthErrorResponseDto, OAuthRegistrationRequestDto, OAuthRegistrationResponseDto, OAuthTokenRequestDto, OAuthTokenResponseDto } from './oauth.dto';
 import { oauthError, rateLimited } from './oauth-protocol.error';
 import { OAuthProtocolExceptionFilter } from './oauth-protocol.filter';
 import { OAuthRateLimitService } from './oauth-rate-limiter';
@@ -55,6 +56,7 @@ export class OAuthProtocolController {
     private readonly context: OAuthServerContext,
     private readonly features: OAuthServerFeatures,
     private readonly limiter: OAuthRateLimitService,
+    private readonly registration: ClientRegistrationService,
   ) {}
 
   private async requireEnabled(): Promise<void> {
@@ -147,6 +149,40 @@ export class OAuthProtocolController {
     return this.tokens.token(parseOAuthForm(body), authorization);
   }
 
+  // PUBLIC: RFC 7591. Anyone may try to register, so the trust policy and a per-address rate limit decide.
+  @Public()
+  @Post('register')
+  @HttpCode(HttpStatus.CREATED)
+  @RawResponse()
+  @Header('Cache-Control', 'no-store')
+  @Header('Pragma', 'no-cache')
+  @Header('Access-Control-Allow-Origin', '*')
+  @ApiOperation({
+    summary: 'Dynamic client registration (RFC 7591)',
+    description:
+      'JSON body with `redirect_uris` (required, at most 10), `client_name`, `client_uri`, `logo_uri`, `token_endpoint_auth_method` (`none` default, `client_secret_post`, `client_secret_basic`), ' +
+      '`grant_types`, `response_types`, `application_type` (`web` or `native`) and `scope`; unknown fields are ignored. Redirect URIs are `https:` or loopback `http:` with no fragment and share one host; ' +
+      'a custom scheme needs `application_type: native` and a reverse-domain scheme. The host trust policy runs here: a host that is not allowed is `403 invalid_client_metadata`. ' +
+      'A public client that registers again with exactly the same redirect URIs, name and host gets the existing client back. `404` while dynamic registration is off or the server is disabled. ' +
+      'Rate limited: 10 per hour per source address (`429`). The `client_secret` of a confidential client is returned once and stored hashed.',
+  })
+  @ApiBody({ type: OAuthRegistrationRequestDto })
+  @ApiResponse({ status: 201, description: 'The registered client (RFC 7591 §3.2.1), not enveloped.', type: OAuthRegistrationResponseDto })
+  @ApiResponse({ status: 400, description: '`invalid_redirect_uri` or `invalid_client_metadata`.', type: OAuthErrorResponseDto })
+  @ApiResponse({ status: 403, description: '`invalid_client_metadata`: the host is not allowed on this deployment.', type: OAuthErrorResponseDto })
+  @ApiResponse({ status: 404, description: 'Dynamic registration is off, or the OAuth server is not enabled.' })
+  @ApiResponse({ status: 429, description: '`temporarily_unavailable`.', type: OAuthErrorResponseDto })
+  async register(@Body() body: unknown, @Req() request: FastifyRequest) {
+    await this.requireEnabled();
+    if (!(await this.settings.read()).dynamicClientRegistration) throw new NotFoundException();
+    const spec = OAUTH_RATE_LIMITS.registerPerAddress;
+    const verdict = await this.limiter.consume(`oauth:register:${request.ip}`, spec.limit, spec.windowMs);
+    if (!verdict.allowed) throw rateLimited(verdict.retryAfterSeconds);
+    const contentType = String(request.headers['content-type'] ?? '').toLowerCase();
+    if (!contentType.startsWith('application/json')) throw oauthError('invalid_client_metadata', 'The request body must be application/json.');
+    return this.registration.register(body);
+  }
+
   // PUBLIC: RFC 7009. Client authentication happens in the handler, as for the token endpoint.
   @Public()
   @Post('revoke')
@@ -195,6 +231,20 @@ export class OAuthProtocolController {
   @Header('Access-Control-Max-Age', '600')
   @ApiExcludeEndpoint()
   preflightToken(): void {
+    // Headers only.
+  }
+
+  // PUBLIC: CORS preflight of `/register`, as above.
+  @Public()
+  @Options('register')
+  @RawResponse()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Header('Access-Control-Allow-Origin', '*')
+  @Header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+  @Header('Access-Control-Allow-Headers', 'content-type, authorization')
+  @Header('Access-Control-Max-Age', '600')
+  @ApiExcludeEndpoint()
+  preflightRegister(): void {
     // Headers only.
   }
 

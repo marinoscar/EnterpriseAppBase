@@ -293,22 +293,24 @@ describeWithDb('the OAuth authorization server core through the whole app (real 
         issuer: appUrl,
         authorization_endpoint: `${appUrl}/api/oauth/authorize`,
         token_endpoint: `${appUrl}/api/oauth/token`,
+        registration_endpoint: `${appUrl}/api/oauth/register`,
         revocation_endpoint: `${appUrl}/api/oauth/revoke`,
         scopes_supported: expect.arrayContaining(['asitems:read', 'asitems:write', 'offline_access']),
         response_types_supported: ['code'],
         grant_types_supported: ['authorization_code', 'refresh_token'],
         token_endpoint_auth_methods_supported: ['none', 'client_secret_post', 'client_secret_basic'],
         code_challenge_methods_supported: ['S256'],
+        client_id_metadata_document_supported: true,
         authorization_response_iss_parameter_supported: true,
       });
       expect(new Set(res.body.scopes_supported).size).toBe(res.body.scopes_supported.length);
       expect(issuer().endsWith('/')).toBe(false);
     });
 
-    it('omits registration_endpoint and client_id_metadata_document_supported until a route serves them (PP-15.5)', async () => {
+    it('advertises registration_endpoint and client_id_metadata_document_supported (PP-15.5; the toggles are proven in oauth-clients.db.spec.ts) and never jwks_uri', async () => {
       const res = await http().get('/api/oauth/.well-known/authorization-server').expect(200);
-      expect(res.body).not.toHaveProperty('registration_endpoint');
-      expect(res.body).not.toHaveProperty('client_id_metadata_document_supported');
+      expect(res.body).toHaveProperty('registration_endpoint');
+      expect(res.body).toHaveProperty('client_id_metadata_document_supported');
       expect(res.body).not.toHaveProperty('jwks_uri');
     });
   });

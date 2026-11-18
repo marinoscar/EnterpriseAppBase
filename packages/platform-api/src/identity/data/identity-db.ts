@@ -472,6 +472,14 @@ export interface IdentityOAuthClientRow {
   host: string;
   /** When the client was disabled, or `null`. */
   disabledAt: Date | null;
+  /** When the metadata document was last fetched (`cimd`), or `null`. */
+  metadataFetchedAt: Date | null;
+  /** When the cached metadata document must be refetched (`cimd`), or `null`. */
+  metadataExpiresAt: Date | null;
+  /** The administrator who pre-registered it (`registered`), or `null`. */
+  createdByUserId: string | null;
+  /** When it was last used to complete an authorization, or `null`. */
+  lastUsedAt: Date | null;
   /** When it first appeared. */
   createdAt: Date;
 }

@@ -2,7 +2,16 @@ import { Global, Injectable, Logger, Module, OnModuleInit, Optional } from '@nes
 import { HttpAdapterHost } from '@nestjs/core';
 
 import { permissionRegistry } from '../../core/index';
-import { OAUTH_CLIENT_RESOLVER, StoredClientResolver } from './client-resolver';
+import { OAUTH_CLIENT_RESOLVER } from './client-resolver';
+import { CimdFetcher } from './clients/cimd.fetcher';
+import { ClientIdentityResolver } from './clients/client-identity.resolver';
+import { ClientRefusalRecorder } from './clients/client-refusal.recorder';
+import { ClientRegistrationService } from './clients/client-registration.service';
+import { ClientTrustPolicy } from './clients/client-trust.policy';
+import { OAuthClientCleanupHandler } from './clients/oauth-client-cleanup.handler';
+import { OAuthClientCleanupTask } from './clients/oauth-client-cleanup.task';
+import { OAuthClientsAdminController } from './clients/oauth-clients-admin.controller';
+import { OAuthClientsAdminService } from './clients/oauth-clients-admin.service';
 import { InProcessDelegation } from './in-process-delegation.service';
 import { OAuthAuthorizationService } from './oauth-authorization.service';
 import { installOAuthBodyGuard } from './oauth-body-guard';
@@ -41,6 +50,24 @@ export class OAuthRegistryBootstrapCheck implements OnModuleInit {
 }
 
 /**
+ * Declares that dynamic registration and metadata documents are served, so the
+ * authorization server metadata advertises `registration_endpoint` and
+ * `client_id_metadata_document_supported` while their settings are on (PP-15.5).
+ *
+ * @internal
+ */
+@Injectable()
+export class OAuthClientIdentityBootstrap implements OnModuleInit {
+  constructor(private readonly features: OAuthServerFeatures) {}
+
+  /** Enables both features. */
+  onModuleInit(): void {
+    this.features.enable('dynamicClientRegistration');
+    this.features.enable('clientIdMetadataDocuments');
+  }
+}
+
+/**
  * Installs the body rules of `/api/oauth/token` and `/api/oauth/revoke` (form
  * only, 16 KiB) on the HTTP server, before it starts listening.
  *
@@ -68,15 +95,15 @@ export class OAuthBodyGuardInstaller implements OnModuleInit {
  * absent, an `oat_` header is a `401` and no route exists. Global, because
  * `JwtAuthGuard` is instantiated in every module whose controllers use `@Auth()`.
  *
- * The client is looked up through `OAUTH_CLIENT_RESOLVER` (default: the stored
- * rows); the rate limiter is `OAUTH_RATE_LIMITER` when an app binds one, else an
+ * The client is looked up through `OAUTH_CLIENT_RESOLVER` (default: `ClientIdentityResolver`:
+ * stored rows, metadata documents and the host trust policy of PP-15.5); the rate limiter is `OAUTH_RATE_LIMITER` when an app binds one, else an
  * in-memory fixed window.
  *
  * @stability experimental
  */
 @Global()
 @Module({
-  controllers: [OAuthProtocolController, OAuthConsentController, OAuthGrantsController],
+  controllers: [OAuthProtocolController, OAuthConsentController, OAuthGrantsController, OAuthClientsAdminController],
   providers: [
     OAuthServerSettingsReader,
     OAuthTokenResolver,
@@ -89,7 +116,17 @@ export class OAuthBodyGuardInstaller implements OnModuleInit {
     OAuthAuthorizationService,
     OAuthTokenService,
     OAuthBodyGuardInstaller,
-    { provide: OAUTH_CLIENT_RESOLVER, useClass: StoredClientResolver },
+    // Client identity and the trust policy (PP-15.5).
+    CimdFetcher,
+    ClientTrustPolicy,
+    ClientRefusalRecorder,
+    ClientRegistrationService,
+    OAuthClientsAdminService,
+    OAuthClientIdentityBootstrap,
+    OAuthClientCleanupHandler,
+    OAuthClientCleanupTask,
+    ClientIdentityResolver,
+    { provide: OAUTH_CLIENT_RESOLVER, useExisting: ClientIdentityResolver },
   ],
   exports: [
     OAuthServerSettingsReader,
@@ -99,6 +136,7 @@ export class OAuthBodyGuardInstaller implements OnModuleInit {
     OAuthServerFeatures,
     OAuthGrantService,
     OAUTH_CLIENT_RESOLVER,
+    ClientTrustPolicy,
   ],
 })
 export class OAuthServerModule {}

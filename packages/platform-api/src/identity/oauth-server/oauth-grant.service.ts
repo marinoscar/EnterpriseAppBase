@@ -39,12 +39,33 @@ export const OAUTH_AUDIT_ACTIONS: Readonly<{
   CONSENT_DENY: 'oauth:consent.deny';
   /** A code or a rotated refresh token was replayed: the grant was revoked. */
   TOKEN_REUSE_DETECTED: 'oauth:token.reuse_detected';
+  /** An administrator pre-registered a client. */
+  CLIENT_CREATE: 'oauth:client.create';
+  /** An administrator changed a client's name or redirect URIs. */
+  CLIENT_UPDATE: 'oauth:client.update';
+  /** An administrator disabled a client. */
+  CLIENT_DISABLE: 'oauth:client.disable';
+  /** An administrator re-enabled a client. */
+  CLIENT_ENABLE: 'oauth:client.enable';
+  /** An administrator deleted a client. */
+  CLIENT_DELETE: 'oauth:client.delete';
+  /** An administrator rotated a client's secret. */
+  CLIENT_ROTATE_SECRET: 'oauth:client.rotate_secret';
+  /** A client of a host the trust policy does not allow tried to connect (at most one row per host per hour). */
+  CLIENT_REFUSED: 'oauth:client.refused';
 }> = Object.freeze({
   GRANT_CREATE: 'oauth:grant.create',
   GRANT_UPDATE: 'oauth:grant.update',
   GRANT_REVOKE: 'oauth:grant.revoke',
   CONSENT_DENY: 'oauth:consent.deny',
   TOKEN_REUSE_DETECTED: 'oauth:token.reuse_detected',
+  CLIENT_CREATE: 'oauth:client.create',
+  CLIENT_UPDATE: 'oauth:client.update',
+  CLIENT_DISABLE: 'oauth:client.disable',
+  CLIENT_ENABLE: 'oauth:client.enable',
+  CLIENT_DELETE: 'oauth:client.delete',
+  CLIENT_ROTATE_SECRET: 'oauth:client.rotate_secret',
+  CLIENT_REFUSED: 'oauth:client.refused',
 } as const);
 
 /**
@@ -53,6 +74,14 @@ export const OAUTH_AUDIT_ACTIONS: Readonly<{
  * @stability experimental
  */
 export const OAUTH_AUDIT_TARGET_TYPE = 'oauth_grant';
+
+/**
+ * The target type of the client audit rows (`oauth:client.*`): the target id is
+ * the client's row id, or the refused host for `oauth:client.refused`.
+ *
+ * @stability experimental
+ */
+export const OAUTH_CLIENT_AUDIT_TARGET_TYPE = 'oauth_client';
 
 /**
  * The part of a grant revocation needs.
@@ -82,8 +111,10 @@ export interface OAuthAuditEntry {
   action: string;
   /** Who acted; `null` when the client or the system did. */
   actorUserId: string | null;
-  /** The grant the row is about. */
+  /** The grant (or, with `targetType: 'oauth_client'`, the client or host) the row is about. */
   targetId: string;
+  /** The target type; default {@link OAUTH_AUDIT_TARGET_TYPE}. */
+  targetType?: string;
   /** The organization, when known. */
   orgId?: string | null;
   /** Ids and closed values only. */
@@ -201,7 +232,7 @@ export class OAuthGrantService {
         data: {
           actorUserId: entry.actorUserId,
           action: entry.action,
-          targetType: OAUTH_AUDIT_TARGET_TYPE,
+          targetType: entry.targetType ?? OAUTH_AUDIT_TARGET_TYPE,
           targetId: entry.targetId,
           meta: entry.meta,
           ...(entry.orgId ? { orgId: entry.orgId } : {}),

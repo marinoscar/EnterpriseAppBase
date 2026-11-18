@@ -92,6 +92,8 @@ export interface ClientRefused {
   readonly ok: false;
   /** `unknown_client`, `client_not_allowed` or `client_metadata_unavailable`. */
   readonly code: Extract<OAuthErrorPageCode, 'unknown_client' | 'client_not_allowed' | 'client_metadata_unavailable'>;
+  /** For `client_not_allowed`: the host the error page names. */
+  readonly host?: string;
 }
 
 /**

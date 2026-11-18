@@ -138,6 +138,7 @@ export type {
 
 // The OAuth authorization server's wire shapes (PP-15.4, #1182).
 export {
+  OAUTH_CLIENT_AUTH_METHODS,
   OAUTH_CLIENT_KINDS,
   OAUTH_DECISIONS,
   OAUTH_ERROR_CODES,
@@ -145,6 +146,13 @@ export {
   OAUTH_GRANT_REVOKED_REASONS,
   OAUTH_GRANT_TYPES,
   OAUTH_SCOPE_RISKS,
+  oauthClientCreateRequestSchema,
+  oauthClientPatchRequestSchema,
+  oauthClientViewSchema,
+  oauthClientWithSecretSchema,
+  oauthClientsQuerySchema,
+  oauthRegistrationRequestSchema,
+  oauthRegistrationResponseSchema,
   oauthConsentRequestSchema,
   oauthConsentScopeSchema,
   oauthDecisionRequestSchema,
@@ -155,6 +163,14 @@ export {
   oauthTokenResponseSchema,
 } from './oauth.js';
 export type {
+  OAuthClientAuthMethodEnum,
+  OAuthClientCreateRequest,
+  OAuthClientPatchRequest,
+  OAuthClientView,
+  OAuthClientWithSecret,
+  OAuthClientsQuery,
+  OAuthRegistrationRequest,
+  OAuthRegistrationResponse,
   OAuthClientKindEnum,
   OAuthDecisionEnum,
   OAuthErrorCodeEnum,

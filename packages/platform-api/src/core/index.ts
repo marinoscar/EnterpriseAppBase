@@ -20,6 +20,10 @@ export * from './pluggable/index';
 // end user can aim (a webhook) runs every resolved address through.
 export { isBlockedAddress, isBlockedIpv4, isBlockedIpv6 } from './net/ip-classify';
 
+// The egress guard and the pinned GET transport (issue #1046; moved here by PP-15.5,
+// #1183 so identity can fetch client metadata without depending on webhooks).
+export * from './egress/index';
+
 // The host ports (issue #696): the access port (`definePlatformHost`), the
 // DI-time ports (`AUDIT_SINK`, `SYSTEM_SETTINGS_STORE`, `PLATFORM_PRISMA`) and
 // `PlatformHostModule`, which binds them. Every packaged slice reuses them.

@@ -264,6 +264,17 @@ export const mockPermissions = {
     name: 'organizations:write',
     description: 'Create organizations (with a first administrator invitation) and rename them',
   },
+  // The OAuth server's client management (#1183, PP-15.5). SYSTEM scope, seeded to `admin` only.
+  oauthClientsRead: {
+    id: randomUUID(),
+    name: 'oauth_clients:read',
+    description: 'View OAuth clients',
+  },
+  oauthClientsWrite: {
+    id: randomUUID(),
+    name: 'oauth_clients:write',
+    description: 'Manage OAuth clients: pre-register, edit, disable, rotate secrets, delete',
+  },
   // The sharing slice (#728, PP-7.1). ORG scope: read for every org role,
   // write for org_admin and contributor, admin for org_admin.
   groupsRead: {
@@ -695,6 +706,8 @@ export const rolePermissionsMap = {
     mockPermissions.telemetryQuery,
     mockPermissions.organizationsRead,
     mockPermissions.organizationsWrite,
+    mockPermissions.oauthClientsRead,
+    mockPermissions.oauthClientsWrite,
     mockPermissions.systemFactoryReset,
     mockPermissions.orgsOffboard,
     mockPermissions.groupsRead,

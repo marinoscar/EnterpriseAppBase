@@ -331,7 +331,7 @@ A capability an app mounts: its routes, jobs, settings, Doctor checks and, in th
 | Users & Allowlist | `/admin/settings/users` | `users:read` | none | the package (data the app spreads into its registry) |
 | Access Tokens | `/settings/tokens` | none | none | the package (data the app spreads into its registry) |
 
-**Permissions it adds.** `allowlist:{read,write}`, `org_members:{read,write}` (org), `org_invites:{read,write}` (org), `organizations:{read,write}`, `users:{read,write}`, `rbac:manage`
+**Permissions it adds.** `allowlist:{read,write}`, `oauth_clients:{read,write}`, `org_members:{read,write}` (org), `org_invites:{read,write}` (org), `organizations:{read,write}`, `users:{read,write}`, `rbac:manage`
 
 **Standalone (With slices).** Imports core, doctor and otel-core. The app binds its host ports (for example the notifier and the user defaults). Almost every other feature slice depends on it for `@Auth()` and the principal. Transitive slice dependencies in API: `core`, `doctor`, `otel-core`.
 

@@ -59,9 +59,11 @@ const ORG_SETTINGS_PERMISSIONS = ['org_settings:read', 'org_settings:write'];
 const ORG_BROADCASTS_PERMISSIONS = ['org_broadcasts:read', 'org_broadcasts:write'];
 /** The AI slice's org permissions (#739), granted to org_admin: declared after the split too. */
 const ORG_AI_PERMISSIONS = ['org_ai_config:read', 'org_ai_config:write'];
-/** The webhooks (#1046) and alerts (#1047) slices' permissions: declared after the split too. */
+/** The webhooks (#1046), alerts (#1047) and OAuth clients (#1183) permissions: declared after the split too. */
 const WEBHOOKS_ALERTS_PERMISSIONS = [
   'webhooks:read', 'webhooks:write', 'org_webhooks:read', 'org_webhooks:write', 'system_webhooks:read', 'system_webhooks:write', 'alerts:read', 'alerts:write',
+  // The OAuth server's client permissions (#1183, PP-15.5).
+  'oauth_clients:read', 'oauth_clients:write',
 ];
 const SEED_INPUT = platformSeedInputFrom(SEED_SNAPSHOT, {});
 

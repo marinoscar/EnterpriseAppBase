@@ -175,7 +175,8 @@ describeWithDb('platform seed against a migrated scratch database (real Postgres
     // org_ai_config:* permissions, granted to org_admin. #743: the two system
     // permissions system:factory_reset and orgs:offboard, granted to admin. #1046 and
     // #1047: eight webhooks:* and alerts:* permissions, 12 grants in all.
-    for (const line of ['✓ Seeded 4 roles', '✓ Seeded 59 permissions', '✓ Seeded 77 role-permission mappings', '✓ Seeded default system settings', `✓ Added ${INITIAL_ADMIN} to allowlist`]) {
+    // #1183: oauth_clients:read and :write, granted to admin (two more of each).
+    for (const line of ['✓ Seeded 4 roles', '✓ Seeded 61 permissions', '✓ Seeded 79 role-permission mappings', '✓ Seeded default system settings', `✓ Added ${INITIAL_ADMIN} to allowlist`]) {
       expect(firstRun).toContain(line);
     }
   });

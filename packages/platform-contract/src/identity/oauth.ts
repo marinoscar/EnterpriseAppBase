@@ -16,7 +16,7 @@ import { z } from 'zod';
 
 /**
  * The OAuth error codes the authorization server answers with (RFC 6749 §5.2,
- * RFC 7009, RFC 8707 `invalid_target`, RFC 7591), plus `temporarily_unavailable`
+ * RFC 7009, RFC 8707 `invalid_target`, RFC 7591 `invalid_redirect_uri` and `invalid_client_metadata`), plus `temporarily_unavailable`
  * for the rate limit. A client treats `invalid_grant` as "reconnect".
  *
  * @stability experimental
@@ -33,6 +33,8 @@ export const OAUTH_ERROR_CODES = [
   'access_denied',
   'server_error',
   'temporarily_unavailable',
+  'invalid_redirect_uri',
+  'invalid_client_metadata',
 ] as const;
 
 /**
@@ -403,3 +405,218 @@ export const oauthErrorResponseSchema = z.object({
  * @stability experimental
  */
 export type OAuthErrorResponse = z.infer<typeof oauthErrorResponseSchema>;
+
+// ---- client identity (PP-15.5, #1183) -------------------------------------------------------
+
+/**
+ * The client authentication methods a client may have.
+ *
+ * @stability experimental
+ */
+export const OAUTH_CLIENT_AUTH_METHODS = ['none', 'client_secret_post', 'client_secret_basic'] as const;
+
+/**
+ * The entries of {@link OAUTH_CLIENT_AUTH_METHODS} as an object type.
+ *
+ * @stability experimental
+ */
+export type OAuthClientAuthMethodEnum = { [K in (typeof OAUTH_CLIENT_AUTH_METHODS)[number]]: K };
+
+const authMethodSchema = (): z.ZodEnum<OAuthClientAuthMethodEnum> => z.enum(OAUTH_CLIENT_AUTH_METHODS);
+
+/**
+ * The body of `POST /api/oauth/register` (RFC 7591). Unknown fields are ignored.
+ * Documented for OpenAPI and clients; the endpoint parses it itself so that its
+ * errors are RFC 7591 JSON.
+ *
+ * @stability experimental
+ */
+export const oauthRegistrationRequestSchema = z.object({
+  /** Redirect URIs (at most 10, each at most 2,000 characters). */
+  redirect_uris: z.array(z.string().max(2000)).min(1).max(10),
+  /** Display name (at most 200 characters). */
+  client_name: z.string().max(200).optional(),
+  /** The client's home page. */
+  client_uri: z.string().max(2000).optional(),
+  /** The client's logo (shown only when `https:` and on the client's host). */
+  logo_uri: z.string().max(2000).optional(),
+  /** `none` (default) or a secret-based method (a secret is issued). */
+  token_endpoint_auth_method: authMethodSchema().optional(),
+  /** Must include `authorization_code`. */
+  grant_types: z.array(z.string()).optional(),
+  /** Must be `code`. */
+  response_types: z.array(z.string()).optional(),
+  /** `native` permits loopback and reverse-domain redirect URIs. */
+  application_type: z.enum(['web', 'native']).optional(),
+  /** Requested scopes (informational). */
+  scope: z.string().max(2000).optional(),
+});
+
+/**
+ * The dynamic registration request.
+ *
+ * @stability experimental
+ */
+export type OAuthRegistrationRequest = z.infer<typeof oauthRegistrationRequestSchema>;
+
+/**
+ * The `201` body of `POST /api/oauth/register` (RFC 7591 §3.2.1).
+ *
+ * @stability experimental
+ */
+export const oauthRegistrationResponseSchema = z.object({
+  /** The generated `oc_...` client id. */
+  client_id: z.string(),
+  /** The secret, once, for a confidential client only. */
+  client_secret: z.string().optional(),
+  /** Seconds since the epoch. */
+  client_id_issued_at: z.number().int(),
+  /** Always `0`: the secret does not expire. */
+  client_secret_expires_at: z.literal(0).optional(),
+  /** The stored metadata. */
+  redirect_uris: z.array(z.string()),
+  /** The stored name. */
+  client_name: z.string(),
+  /** The stored authentication method. */
+  token_endpoint_auth_method: authMethodSchema(),
+  /** `authorization_code`. */
+  grant_types: z.array(z.string()),
+  /** `code`. */
+  response_types: z.array(z.string()),
+  /** `web` or `native`. */
+  application_type: z.enum(['web', 'native']),
+  /** The stored home page. */
+  client_uri: z.string().optional(),
+  /** The stored logo. */
+  logo_uri: z.string().optional(),
+});
+
+/**
+ * The dynamic registration response.
+ *
+ * @stability experimental
+ */
+export type OAuthRegistrationResponse = z.infer<typeof oauthRegistrationResponseSchema>;
+
+/**
+ * One OAuth client in the admin list. Never a secret or its hash.
+ *
+ * @stability experimental
+ */
+export const oauthClientViewSchema = z.object({
+  /** The row id (`/api/admin/oauth/clients/:id`). */
+  id: z.string().uuid(),
+  /** The public `client_id`. */
+  clientId: z.string(),
+  /** How the client came to exist. */
+  kind: clientKindSchema(),
+  /** The (self-asserted for cimd and dynamic) name. */
+  name: z.string(),
+  /** The host the trust policy uses. */
+  host: z.string(),
+  /** The registered redirect URIs. */
+  redirectUris: z.array(z.string()),
+  /** The authentication method. */
+  tokenEndpointAuthMethod: authMethodSchema(),
+  /** Active (not revoked) grants. */
+  activeGrantCount: z.number().int().nonnegative(),
+  /** When the client was last used to complete an authorization, or `null`. */
+  lastUsedAt: z.string().datetime().nullable(),
+  /** When it was disabled, or `null`. */
+  disabledAt: z.string().datetime().nullable(),
+  /** Whether it is disabled. */
+  disabled: z.boolean(),
+  /** When the client first appeared. */
+  createdAt: z.string().datetime(),
+});
+
+/**
+ * An OAuth client in the admin list.
+ *
+ * @stability experimental
+ */
+export type OAuthClientView = z.infer<typeof oauthClientViewSchema>;
+
+/**
+ * The query of `GET /api/admin/oauth/clients`.
+ *
+ * @stability experimental
+ */
+export const oauthClientsQuerySchema = z.object({
+  /** 1-based page. */
+  page: z.coerce.number().int().min(1).default(1),
+  /** Page size. */
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  /** Filter by kind. */
+  kind: clientKindSchema().optional(),
+  /** Substring of the name or host. */
+  search: z.string().max(200).optional(),
+});
+
+/**
+ * The admin client list query.
+ *
+ * @stability experimental
+ */
+export type OAuthClientsQuery = z.infer<typeof oauthClientsQuerySchema>;
+
+/**
+ * The body of `POST /api/admin/oauth/clients`: pre-register a client.
+ *
+ * @stability experimental
+ */
+export const oauthClientCreateRequestSchema = z.object({
+  /** Display name. */
+  name: z.string().trim().min(1).max(200),
+  /** Redirect URIs: `https:` or loopback `http:`, no fragment, one shared host. */
+  redirectUris: z.array(z.string().max(2000)).min(1).max(10),
+  /** `none` (public) or a secret-based method (a secret is returned once). */
+  tokenEndpointAuthMethod: authMethodSchema().default('none'),
+});
+
+/**
+ * The pre-registration body.
+ *
+ * @stability experimental
+ */
+export type OAuthClientCreateRequest = z.infer<typeof oauthClientCreateRequestSchema>;
+
+/**
+ * The response of create and rotate-secret: the client and, once, its secret.
+ *
+ * @stability experimental
+ */
+export const oauthClientWithSecretSchema = oauthClientViewSchema.extend({
+  /** The secret, shown once; absent for a public client. */
+  clientSecret: z.string().optional(),
+});
+
+/**
+ * A client with its one-time secret.
+ *
+ * @stability experimental
+ */
+export type OAuthClientWithSecret = z.infer<typeof oauthClientWithSecretSchema>;
+
+/**
+ * The body of `PATCH /api/admin/oauth/clients/:id`.
+ *
+ * @stability experimental
+ */
+export const oauthClientPatchRequestSchema = z
+  .object({
+    /** Disable or re-enable. Disabling revokes the client's grants (`client_disabled`). */
+    disabled: z.boolean().optional(),
+    /** The `registered` kind only. */
+    name: z.string().trim().min(1).max(200).optional(),
+    /** The `registered` kind only. */
+    redirectUris: z.array(z.string().max(2000)).min(1).max(10).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, { message: 'Send at least one field to change.' });
+
+/**
+ * The client patch body.
+ *
+ * @stability experimental
+ */
+export type OAuthClientPatchRequest = z.infer<typeof oauthClientPatchRequestSchema>;

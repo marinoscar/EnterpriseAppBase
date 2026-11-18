@@ -83,8 +83,10 @@ export class OAuthAuthorizationService {
   ) {}
 
   /** The URL of the web error page (shown to the person, never to a client). */
-  errorPageUrl(code: OAuthErrorPageCode): string {
-    return `${this.context.appUrl()}/oauth/error?code=${code}`;
+  errorPageUrl(code: OAuthErrorPageCode, host?: string): string {
+    const base = `${this.context.appUrl()}/oauth/error?code=${code}`;
+    // `client_not_allowed` names the host so an administrator knows what to allow; a host is a DNS name, never markup.
+    return host ? `${base}&host=${encodeURIComponent(host)}` : base;
   }
 
   /**
@@ -102,7 +104,7 @@ export class OAuthAuthorizationService {
     const clientId = single(query, 'client_id');
     if (!clientId || clientId.length > OAUTH_PARAM_MAX_LENGTH) return this.errorPageUrl('unknown_client');
     const resolution = await this.clients.resolveForAuthorization(clientId);
-    if (!resolution.ok) return this.errorPageUrl(resolution.code);
+    if (!resolution.ok) return this.errorPageUrl(resolution.code, resolution.host);
     const client = resolution.client;
 
     // 3. The redirect URI. Never a redirect to it for a bad one.
@@ -365,6 +367,8 @@ export class OAuthAuthorizationService {
               expiresAt: new Date(now.getTime() + OAUTH_CODE_TTL_MS),
             },
           });
+          // The client was used to complete an authorization: a dynamic client is kept (PP-15.5 cleanup).
+          await tx.oAuthClient.update({ where: { id: row.clientId }, data: { lastUsedAt: now } });
           return {
             grant: { id: grant.id, userId: principal.userId, orgId, clientId: row.clientId, resource: resourceIdentifier },
             created: existing === null,

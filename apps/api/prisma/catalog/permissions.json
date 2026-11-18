@@ -317,6 +317,16 @@
       "name": "alerts:write",
       "description": "Create, edit and delete alert rules; test them; acknowledge incidents",
       "scope": "system"
+    },
+    {
+      "name": "oauth_clients:read",
+      "description": "View OAuth clients",
+      "scope": "system"
+    },
+    {
+      "name": "oauth_clients:write",
+      "description": "Manage OAuth clients: pre-register, edit, disable, rotate secrets, delete",
+      "scope": "system"
     }
   ],
   "rolePermissions": {
@@ -354,7 +364,9 @@
       "system_webhooks:read",
       "system_webhooks:write",
       "alerts:read",
-      "alerts:write"
+      "alerts:write",
+      "oauth_clients:read",
+      "oauth_clients:write"
     ],
     "contributor": [
       "user_settings:read",

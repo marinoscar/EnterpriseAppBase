@@ -31,6 +31,7 @@ import type { OAuthTokenResponse } from '@marinoscar/platform-contract/identity'
 
 import { PLATFORM_PRISMA } from '../../core/index';
 import type { IdentityOAuthGrantRow, IdentityOAuthTokenRow, IdentityPrisma, IdentityOAuthAuthorizationCodeRow } from '../data/identity-db';
+import { ClientTrustPolicy } from './clients/client-trust.policy';
 import { OAUTH_CLIENT_RESOLVER, type ClientResolver, type OAuthClientRecord } from './client-resolver';
 import { OAuthGrantService, OAUTH_AUDIT_ACTIONS, type OAuthGrantRef } from './oauth-grant.service';
 import { invalidClient, oauthError, rateLimited } from './oauth-protocol.error';
@@ -120,6 +121,7 @@ export class OAuthTokenService {
     private readonly limiter: OAuthRateLimitService,
     private readonly settings: OAuthServerSettingsReader,
     private readonly grants: OAuthGrantService,
+    private readonly trust: ClientTrustPolicy,
   ) {}
 
   // ---- client authentication -----------------------------------------------------------------
@@ -166,6 +168,9 @@ export class OAuthTokenService {
    */
   async token(body: OAuthFormBody, authorization: string | undefined): Promise<OAuthTokenResponse> {
     const client = await this.authenticate(body, authorization, 'token');
+    // The host trust policy applies at /token too: a host removed from the allowlist stops refreshing (stored data only, no fetch).
+    const verdict = await this.trust.evaluate({ kind: client.kind, host: client.host, redirectUris: client.redirectUris });
+    if (!verdict.admitted) throw oauthError('unauthorized_client', 'The client is not allowed on this deployment.');
     const grantType = body.grant_type;
     if (grantType === 'authorization_code') return this.exchangeCode(client, body);
     if (grantType === 'refresh_token') return this.refresh(client, body);

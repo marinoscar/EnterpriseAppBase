@@ -112,6 +112,9 @@ const BASELINE_PERMISSIONS = [
   { name: 'system_webhooks:write', description: "Create, change, delete, rotate and test the deployment's webhook endpoints", scope: 'system' },
   { name: 'alerts:read', description: 'View alert rules, incidents and the firing summary', scope: 'system' },
   { name: 'alerts:write', description: 'Create, edit and delete alert rules; test them; acknowledge incidents', scope: 'system' },
+  // The OAuth server's client management (#1183, PP-15.5).
+  { name: 'oauth_clients:read', description: 'View OAuth clients', scope: 'system' },
+  { name: 'oauth_clients:write', description: 'Manage OAuth clients: pre-register, edit, disable, rotate secrets, delete', scope: 'system' },
 ];
 
 const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
@@ -150,6 +153,8 @@ const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
     'system_webhooks:write',
     'alerts:read',
     'alerts:write',
+    'oauth_clients:read',
+    'oauth_clients:write',
   ],
   contributor: [
     'user_settings:read',

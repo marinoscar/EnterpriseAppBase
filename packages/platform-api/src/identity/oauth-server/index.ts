@@ -39,7 +39,7 @@ export type { ClientRefused, ClientResolution, ClientResolved, ClientResolver, O
 export { InMemoryOAuthRateLimiter, OAUTH_RATE_LIMITER, OAuthRateLimitService } from './oauth-rate-limiter';
 export type { OAuthRateLimitVerdict, OAuthRateLimiter } from './oauth-rate-limiter';
 export { OAuthServerContext, OAuthServerFeatures } from './oauth-server-context';
-export { OAUTH_AUDIT_ACTIONS, OAUTH_AUDIT_TARGET_TYPE, OAuthGrantService } from './oauth-grant.service';
+export { OAUTH_AUDIT_ACTIONS, OAUTH_AUDIT_TARGET_TYPE, OAUTH_CLIENT_AUDIT_TARGET_TYPE, OAuthGrantService } from './oauth-grant.service';
 export type { OAuthAuditEntry, OAuthGrantRef } from './oauth-grant.service';
 export { OAuthProtocolError, invalidClient, oauthError, rateLimited } from './oauth-protocol.error';
 export { OAuthProtocolExceptionFilter } from './oauth-protocol.filter';
@@ -64,3 +64,5 @@ export { OAuthTokenService, parseOAuthForm } from './oauth-token.service';
 export { OAuthConsentController, OAuthGrantsController } from './oauth-consent.controller';
 export { OAuthProtocolController } from './oauth-protocol.controller';
 export { requireSessionCredential } from './session-only';
+export * from './clients/index';
+export { OAUTH_CLIENTS_PERMISSIONS } from './oauth-clients.permissions';
