@@ -14,10 +14,11 @@
 // make an outbound request on behalf of a host an administrator has not allowed.
 // =============================================================================
 
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 
 import { PLATFORM_PRISMA } from '../../../core/index';
 import type { IdentityOAuthClientRow, IdentityPrisma } from '../../data/identity-db';
+import { IDENTITY_METRICS, NOOP_IDENTITY_METRICS, type IdentityMetrics } from '../../ports';
 import { toClientRecord, type ClientRefused, type ClientResolution, type ClientResolver, type OAuthClientRecord } from '../client-resolver';
 import { OAuthServerSettingsReader } from '../oauth-server-settings.reader';
 import { registeredRedirectUris } from '../redirect-uri';
@@ -41,6 +42,7 @@ export class ClientIdentityResolver implements ClientResolver {
     private readonly fetcher: CimdFetcher,
     private readonly trust: ClientTrustPolicy,
     private readonly refusals: ClientRefusalRecorder,
+    @Optional() @Inject(IDENTITY_METRICS) private readonly metrics: IdentityMetrics = NOOP_IDENTITY_METRICS,
   ) {}
 
   /** @inheritdoc */
@@ -102,11 +104,13 @@ export class ClientIdentityResolver implements ClientResolver {
         metadataFetchedAt: now,
         metadataExpiresAt: expiresAt,
       };
-      return await this.prisma.oAuthClient.upsert<IdentityOAuthClientRow>({
+      const stored = await this.prisma.oAuthClient.upsert<IdentityOAuthClientRow>({
         where: { clientId },
         create: { clientId, kind: 'cimd', ...data },
         update: data,
       });
+      if (!cached) this.metrics.add('oauthClientRegistrations', 1, { kind: 'cimd' });
+      return stored;
     } catch (error) {
       const code = error instanceof CimdError ? error.code : 'unexpected';
       if (cached && registeredRedirectUris(cached.redirectUris).length > 0) {

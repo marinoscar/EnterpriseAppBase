@@ -53,6 +53,8 @@ export const OAUTH_AUDIT_ACTIONS: Readonly<{
   CLIENT_ROTATE_SECRET: 'oauth:client.rotate_secret';
   /** A client of a host the trust policy does not allow tried to connect (at most one row per host per hour). */
   CLIENT_REFUSED: 'oauth:client.refused';
+  /** An administrator changed the `oauthServer` settings (the meta names the fields, never a value that is a secret: there is none). */
+  SETTINGS_UPDATE: 'oauth:settings.update';
 }> = Object.freeze({
   GRANT_CREATE: 'oauth:grant.create',
   GRANT_UPDATE: 'oauth:grant.update',
@@ -66,6 +68,7 @@ export const OAUTH_AUDIT_ACTIONS: Readonly<{
   CLIENT_DELETE: 'oauth:client.delete',
   CLIENT_ROTATE_SECRET: 'oauth:client.rotate_secret',
   CLIENT_REFUSED: 'oauth:client.refused',
+  SETTINGS_UPDATE: 'oauth:settings.update',
 } as const);
 
 /**

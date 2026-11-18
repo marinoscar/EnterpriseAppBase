@@ -115,6 +115,9 @@ export const USER_SETTINGS_SECTIONS: SettingsSectionDef[] = [
         permission: 'ai:use',
         feature: 'ai',
       },
+      // #1185 (PP-15.7): APPENDED. No permission (the caller's own grants);
+      // `feature: 'oauthServer'`, hidden while the OAuth server is off.
+      ...identityUserSettingsSections.connectedApps,
     ],
   },
   {

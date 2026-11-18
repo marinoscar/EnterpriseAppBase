@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from 'react';
 import { PlatformHostProvider, type PlatformWebHost } from '@marinoscar/platform-web/core';
-import { useAuth, usePermissions } from '@marinoscar/platform-web/identity/headless';
+import { useAuth, useOAuthServerFeature, usePermissions } from '@marinoscar/platform-web/identity/headless';
 
 import { platformApi } from './api';
 import { useSliceFeatures } from './slices/manifest';
@@ -12,9 +12,10 @@ export function AppPlatformHost({ children }: { children: ReactNode }) {
   // The features the enabled slices expose (`ai`); a fixed set of hooks, since the enabled slices never change at run time.
   const sliceFeatures = useSliceFeatures();
   const sliceFeatureKey = JSON.stringify(sliceFeatures);
+  const oauthServer = useOAuthServerFeature();
   const features = useMemo<Record<string, boolean>>(
-    () => ({ ...(JSON.parse(sliceFeatureKey) as Record<string, boolean>), orgs: user?.tenancyMode === 'multi' }),
-    [sliceFeatureKey, user?.tenancyMode],
+    () => ({ ...(JSON.parse(sliceFeatureKey) as Record<string, boolean>), orgs: user?.tenancyMode === 'multi', oauthServer }),
+    [sliceFeatureKey, user?.tenancyMode, oauthServer],
   );
   const host = useMemo<PlatformWebHost>(
     () => ({

@@ -48,6 +48,18 @@ export function configureOAuthChallengeBase(appUrl: string | undefined): void {
 }
 
 /**
+ * The application root the challenge URLs are currently built on (a test seam
+ * for the conformance suite, which sets a probe root and restores this one).
+ *
+ * @returns the root, or `undefined` when none is configured.
+ *
+ * @internal
+ */
+export function configuredOAuthChallengeBase(): string | undefined {
+  return configuredAppUrl;
+}
+
+/**
  * The URL of a resource's protected resource metadata document as clients see
  * it: `<APP_URL>/.well-known/oauth-protected-resource<resource path>` (the
  * nginx fragment, or the Vite proxy in development, maps it to the API).

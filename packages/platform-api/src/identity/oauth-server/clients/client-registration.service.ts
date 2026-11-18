@@ -13,10 +13,11 @@
 // without bound.
 // =============================================================================
 
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import type { OAuthRegistrationResponse } from '@marinoscar/platform-contract/identity';
 
 import { PLATFORM_PRISMA } from '../../../core/index';
+import { IDENTITY_METRICS, NOOP_IDENTITY_METRICS, type IdentityMetrics } from '../../ports';
 import { isPrismaErrorCode, type IdentityOAuthClientRow, type IdentityPrisma } from '../../data/identity-db';
 import { OAuthProtocolError } from '../oauth-protocol.error';
 import { isLoopbackRedirectUri, registeredRedirectUris } from '../redirect-uri';
@@ -71,6 +72,7 @@ export class ClientRegistrationService {
     @Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma,
     private readonly trust: ClientTrustPolicy,
     private readonly refusals: ClientRefusalRecorder,
+    @Optional() @Inject(IDENTITY_METRICS) private readonly metrics: IdentityMetrics = NOOP_IDENTITY_METRICS,
   ) {}
 
   /**
@@ -141,6 +143,7 @@ export class ClientRegistrationService {
       ...(clientUri ? { clientUri } : {}),
       ...(logoUri ? { logoUri } : {}),
     });
+    this.metrics.add('oauthClientRegistrations', 1, { kind: 'dynamic' });
     this.logger.log(`oauth register: client ${row.id} (${method === 'none' ? 'public' : 'confidential'})`);
     return this.toResponse(row, secret);
   }

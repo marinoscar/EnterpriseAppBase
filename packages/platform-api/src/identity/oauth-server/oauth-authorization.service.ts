@@ -24,7 +24,9 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { trace } from '@opentelemetry/api';
 import type {
   OAuthConsentRequest,
   OAuthDecisionRequest,
@@ -34,6 +36,8 @@ import type {
 } from '@marinoscar/platform-contract/identity';
 
 import { PLATFORM_PRISMA, type Principal } from '../../core/index';
+import { Trace } from '../../otel-core/index';
+import { IDENTITY_METRICS, NOOP_IDENTITY_METRICS, type IdentityMetrics } from '../ports';
 import { PRINCIPAL_USER_INCLUDE, resolveEffectiveAccess } from '../auth/principal.factory';
 import { currentTenancyMode } from '../auth/tenancy-mode';
 import { isPrismaErrorCode, type IdentityOAuthAuthorizationRequestRow, type IdentityOAuthClientRow, type IdentityPrisma } from '../data/identity-db';
@@ -80,6 +84,7 @@ export class OAuthAuthorizationService {
     private readonly settings: OAuthServerSettingsReader,
     private readonly context: OAuthServerContext,
     private readonly grants: OAuthGrantService,
+    @Optional() @Inject(IDENTITY_METRICS) private readonly metrics: IdentityMetrics = NOOP_IDENTITY_METRICS,
   ) {}
 
   /** The URL of the web error page (shown to the person, never to a client). */
@@ -96,7 +101,15 @@ export class OAuthAuthorizationService {
    * @returns the absolute URL to answer `302` with: the consent page, the web
    *   error page, or the client's redirect URI carrying an error.
    */
+  @Trace('oauth.authorize')
   async authorize(query: Record<string, unknown>): Promise<string> {
+    const location = await this.validateAuthorization(query);
+    // A redirect to the consent page is a request taken; anything else is an error page or an error redirect.
+    if (!location.startsWith(`${this.context.appUrl()}/oauth/consent?`)) this.metrics.add('oauthAuthorizations', 1, { outcome: 'error' });
+    return location;
+  }
+
+  private async validateAuthorization(query: Record<string, unknown>): Promise<string> {
     // 1. The server is switched on. (A person is looking at this route: a page, not a 404.)
     if (!(await this.settings.isEnabled())) return this.errorPageUrl('server_disabled');
 
@@ -106,6 +119,7 @@ export class OAuthAuthorizationService {
     const resolution = await this.clients.resolveForAuthorization(clientId);
     if (!resolution.ok) return this.errorPageUrl(resolution.code, resolution.host);
     const client = resolution.client;
+    trace.getActiveSpan()?.setAttribute('oauth.client.kind', client.kind);
 
     // 3. The redirect URI. Never a redirect to it for a bad one.
     const redirectUri = single(query, 'redirect_uri');
@@ -136,6 +150,7 @@ export class OAuthAuthorizationService {
     const resourceParam = single(query, 'resource');
     const resource = resourceParam && resourceParam.length <= OAUTH_PARAM_MAX_LENGTH ? this.context.resourceForParameter(resourceParam) : undefined;
     if (!resource) return fail('invalid_target', 'The resource parameter must name a protected resource of this server.');
+    trace.getActiveSpan()?.setAttribute('oauth.resource.id', resource.id);
 
     // 7. The scopes.
     const scopes = this.resolveScopes(single(query, 'scope'), resource);
@@ -277,12 +292,14 @@ export class OAuthAuthorizationService {
    * @throws BadRequestException a scope outside the requested set, a missing required scope, or nothing grantable.
    * @throws ForbiddenException an `orgId` that is not an active membership of the caller.
    */
+  @Trace('oauth.decision')
   async decide(id: string, body: OAuthDecisionRequest, principal: Principal): Promise<OAuthDecisionResponse> {
     await this.requireEnabled();
     const row = await this.loadAndBind(id, principal.userId);
     const resource = this.context.resourceForIdentifier(row.resource);
     if (!resource) throw new GoneException('This authorization request is no longer available');
     if (row.client.disabledAt !== null) throw new GoneException('This authorization request is no longer available');
+    trace.getActiveSpan()?.setAttributes({ 'oauth.client.kind': row.client.kind, 'oauth.resource.id': resource.id });
 
     if (body.decision === 'deny') {
       const { count } = await this.prisma.oAuthAuthorizationRequest.updateMany({
@@ -296,6 +313,7 @@ export class OAuthAuthorizationService {
         targetId: row.id,
         meta: { clientId: row.clientId, resourceId: resource.id, requestId: row.id },
       });
+      this.metrics.add('oauthAuthorizations', 1, { outcome: 'denied' });
       return { redirectTo: this.redirectWith(row.redirectUri, { error: 'access_denied', ...(row.state !== null ? { state: row.state } : {}) }) };
     }
 
@@ -391,6 +409,7 @@ export class OAuthAuthorizationService {
       meta: { clientId: row.clientId, resourceId: resource.id, scopes: granted.join(' ') },
     });
     this.grants.emitCreated(outcome.grant, outcome.created ? 'created' : 'updated');
+    this.metrics.add('oauthAuthorizations', 1, { outcome: 'approved' });
     this.logger.log(`oauth consent: approved grant ${outcome.grant.id} client ${row.clientId}`);
 
     return { redirectTo: this.redirectWith(row.redirectUri, { code: rawCode, ...(row.state !== null ? { state: row.state } : {}) }) };

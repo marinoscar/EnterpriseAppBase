@@ -296,8 +296,9 @@ export interface IdentityMetrics {
    *
    * @param key - the counter's registry key.
    * @param value - the increment; 1 by default.
+   * @param attributes - the metric's declared labels (bounded by its declaration; an undeclared key is dropped).
    */
-  add(key: string, value?: number): void;
+  add(key: string, value?: number, attributes?: Record<string, string>): void;
 }
 
 /**

@@ -15,7 +15,8 @@ import { composeSections } from '../slices/sections';
  */
 const CORE_USER_SECTIONS: SettingsSectionDef[] = [
   { label: 'Account', cards: [] },
-  { label: 'Security', cards: [...identityUserSettingsSections.security] },
+  // `Connected apps` (the OAuth server's grants) shows only while the server is on (`feature: 'oauthServer'`).
+  { label: 'Security', cards: [...identityUserSettingsSections.security, ...identityUserSettingsSections.connectedApps] },
   {
     label: 'Notes',
     cards: [

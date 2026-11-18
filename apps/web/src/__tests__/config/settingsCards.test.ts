@@ -1559,3 +1559,74 @@ describe('USER_SETTINGS_SECTIONS - Download your data (issue #744)', () => {
     expect(section?.cards[0]?.feature).toBeUndefined();
   });
 });
+
+/**
+ * Issue #1185 (PP-15.7). The OAuth server's two cards, shipped as data by
+ * `@marinoscar/platform-web/identity/ui` and spread here:
+ *
+ * - `OAuth clients` is APPENDED to the Access group, gated on exactly
+ *   `oauth_clients:read` (`oauth-clients-admin.controller.ts`), with no
+ *   `feature`: it is where the server is switched on.
+ * - `Connected apps` is APPENDED to the user Security group, after `AI Keys`,
+ *   with no permission (the grants routes are `@Auth()` only) and
+ *   `feature: 'oauthServer'`: hidden while the server is off.
+ */
+describe('OAuth server cards (issue #1185)', () => {
+  const adminTitles = (held: string[], features: Record<string, boolean> = {}) =>
+    visibleSettingsSections(ADMIN_SECTIONS, (p) => held.includes(p), '', features).flatMap((section) =>
+      section.cards.map((card) => card.title),
+    );
+  const userTitles = (features: Record<string, boolean>) =>
+    visibleSettingsSections(USER_SETTINGS_SECTIONS, () => true, '', features).flatMap((section) =>
+      section.cards.map((card) => card.title),
+    );
+
+  it('appends OAuth clients to Access, gated on oauth_clients:read and never on a feature', () => {
+    const access = ADMIN_SECTIONS.find((section) => section.label === 'Access');
+    expect(access?.cards.map((card) => card.title)).toEqual(['Users & Allowlist', 'OAuth clients']);
+    const card = access?.cards[1];
+    expect(card).toMatchObject({ path: '/admin/settings/oauth-clients', permission: 'oauth_clients:read' });
+    expect(card?.feature).toBeUndefined();
+    expect(adminTitles([])).not.toContain('OAuth clients');
+    expect(adminTitles(['users:read'])).not.toContain('OAuth clients');
+    expect(adminTitles(['oauth_clients:read'])).toEqual(['OAuth clients']);
+  });
+
+  it('declares the exact string the admin controller enforces on its list route', () => {
+    expect(readApiPermissionConstants()).toContain("OAUTH_CLIENTS_READ: 'oauth_clients:read'");
+    const controller = readFileSync(
+      resolve(
+        dirname(fileURLToPath(import.meta.url)),
+        '../../../../../packages/platform-api/src/identity/oauth-server/clients/oauth-clients-admin.controller.ts',
+      ),
+      'utf8',
+    );
+    expect(controller).toMatch(/@Get\(\)\s*@Auth\(\{ permissions: \[PERMISSIONS\.OAUTH_CLIENTS_READ\] \}\)/);
+  });
+
+  it('titles the OAuth clients route', () => {
+    expect(settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/oauth-clients')).toBe('OAuth clients');
+  });
+
+  it('appends Connected apps after AI Keys, ungated, and hides it while the OAuth server is off', () => {
+    const security = USER_SETTINGS_SECTIONS.find((section) => section.label === 'Security');
+    expect(security?.cards.map((card) => card.title)).toEqual(['Access Tokens', 'AI Keys', 'Connected apps']);
+    const card = security?.cards[2];
+    expect(card).toMatchObject({ path: '/settings/connected-apps', feature: 'oauthServer' });
+    expect(card?.permission).toBeUndefined();
+    expect(userTitles({ oauthServer: false })).not.toContain('Connected apps');
+    expect(userTitles({})).not.toContain('Connected apps');
+    expect(userTitles({ oauthServer: true })).toContain('Connected apps');
+    expect(settingsPageTitle(USER_SETTINGS_SECTIONS, USER_HUB_PATH, USER_HUB_TITLE, '/settings/connected-apps', { oauthServer: true })).toBe(
+      'Connected apps',
+    );
+  });
+
+  it('routes both cards, the admin one behind the same permission', () => {
+    const app = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../App.tsx'), 'utf8');
+    expect(app).toMatch(/path="\/admin\/settings\/oauth-clients"\s*element=\{\s*<RequirePermission\s*permission="oauth_clients:read"/);
+    expect(app).toContain('path="/settings/connected-apps"');
+    expect(app).toContain('path="/oauth/consent"');
+    expect(app).toContain('path="/oauth/error"');
+  });
+});

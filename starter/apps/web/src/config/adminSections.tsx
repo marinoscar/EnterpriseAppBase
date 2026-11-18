@@ -15,7 +15,11 @@ import { sliceAdminCards } from '../slices/manifest';
  */
 const CORE_ADMIN_SECTIONS: SettingsSectionDef[] = [
   { label: 'General', cards: [] },
-  { label: 'Access', cards: [...identityAdminSections.access, ...identityAdminSections.organizations] },
+  {
+    label: 'Access',
+    // `OAuth clients` (the OAuth server, part of identity) is appended last; the server ships off at run time.
+    cards: [...identityAdminSections.access, ...identityAdminSections.organizations, ...identityAdminSections.oauthClients],
+  },
   {
     label: 'Operations',
     cards: [

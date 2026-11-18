@@ -11,11 +11,12 @@
 // (the reason `admin` is reserved), so its tokens fail on the next call.
 // =============================================================================
 
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import type { OAuthClientPatchRequest, OAuthClientCreateRequest, OAuthClientView, OAuthClientWithSecret, OAuthClientsQuery } from '@marinoscar/platform-contract/identity';
 
 import { PLATFORM_PRISMA } from '../../../core/index';
 import type { IdentityOAuthClientRow, IdentityOAuthGrantRow, IdentityPrisma } from '../../data/identity-db';
+import { IDENTITY_METRICS, NOOP_IDENTITY_METRICS, type IdentityMetrics } from '../../ports';
 import { OAUTH_AUDIT_ACTIONS, OAUTH_CLIENT_AUDIT_TARGET_TYPE, OAuthGrantService } from '../oauth-grant.service';
 import { registeredRedirectUris } from '../redirect-uri';
 import { sharedRedirectHost, validateRedirectUris } from './client-redirects';
@@ -38,6 +39,7 @@ export class OAuthClientsAdminService {
   constructor(
     @Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma,
     private readonly grants: OAuthGrantService,
+    @Optional() @Inject(IDENTITY_METRICS) private readonly metrics: IdentityMetrics = NOOP_IDENTITY_METRICS,
   ) {}
 
   /**
@@ -89,6 +91,7 @@ export class OAuthClientsAdminService {
       },
     });
     await this.audit(OAUTH_AUDIT_ACTIONS.CLIENT_CREATE, actorUserId, row.id, { kind: 'registered', method: dto.tokenEndpointAuthMethod });
+    this.metrics.add('oauthClientRegistrations', 1, { kind: 'registered' });
     return { ...this.view(row, 0), ...(secret ? { clientSecret: secret } : {}) };
   }
 

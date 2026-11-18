@@ -8,6 +8,15 @@ import { ClientIdentityResolver } from './clients/client-identity.resolver';
 import { ClientRefusalRecorder } from './clients/client-refusal.recorder';
 import { ClientRegistrationService } from './clients/client-registration.service';
 import { ClientTrustPolicy } from './clients/client-trust.policy';
+import {
+  OAuthClientPolicyDoctorCheck,
+  OAuthPublicUrlDoctorCheck,
+  OAuthResourcesDoctorCheck,
+  OAuthTokenCleanupDoctorCheck,
+  OAuthWellKnownDoctorCheck,
+} from './doctor/oauth-server.doctor-checks';
+import { OAuthTokenCleanupHandler } from './oauth-token-cleanup.handler';
+import { OAuthTokenCleanupTask } from './oauth-token-cleanup.task';
 import { OAuthClientCleanupHandler } from './clients/oauth-client-cleanup.handler';
 import { OAuthClientCleanupTask } from './clients/oauth-client-cleanup.task';
 import { OAuthClientsAdminController } from './clients/oauth-clients-admin.controller';
@@ -149,6 +158,15 @@ export class OAuthBodyGuardInstaller implements OnModuleInit {
     OAuthClientIdentityBootstrap,
     OAuthClientCleanupHandler,
     OAuthClientCleanupTask,
+    // Token housekeeping (PP-15.8): the hourly job and its enqueue-only cron.
+    OAuthTokenCleanupHandler,
+    OAuthTokenCleanupTask,
+    // Doctor checks (PP-15.8): see `DoctorCheckRegistry` in `@marinoscar/platform-api/doctor`.
+    OAuthPublicUrlDoctorCheck,
+    OAuthWellKnownDoctorCheck,
+    OAuthClientPolicyDoctorCheck,
+    OAuthResourcesDoctorCheck,
+    OAuthTokenCleanupDoctorCheck,
     ClientIdentityResolver,
     { provide: OAUTH_CLIENT_RESOLVER, useExisting: ClientIdentityResolver },
   ],

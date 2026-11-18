@@ -33,7 +33,7 @@ import { PlatformHostProvider, createPlatformApiClient, postSse } from '@marinos
 import { useTelemetryFeatures } from '@marinoscar/platform-web/telemetry/headless';
 import type { PlatformApiClient, PlatformSseOptions, PlatformWebHost } from '@marinoscar/platform-web/core';
 
-import { useAuth, usePermissions } from '@marinoscar/platform-web/identity/headless';
+import { useAuth, useOAuthServerFeature, usePermissions } from '@marinoscar/platform-web/identity/headless';
 import { useAiFeatures } from '@marinoscar/platform-web/ai/headless';
 import { useThemeContext } from '../contexts/ThemeContext';
 import { API_BASE_URL, api } from '../services/api';
@@ -81,6 +81,7 @@ export function useAppPlatformHost(): PlatformWebHost {
   const { hasPermission } = usePermissions();
   const { ai } = useAiFeatures();
   const { telemetry } = useTelemetryFeatures();
+  const oauthServer = useOAuthServerFeature();
   const { setMode } = useThemeContext();
   // #726: org management exists only in multi-org mode.
   const orgs = user?.tenancyMode === 'multi';
@@ -94,7 +95,7 @@ export function useAppPlatformHost(): PlatformWebHost {
   const refresh = useCallback(() => refreshUserRef.current(), []);
 
   return useMemo<PlatformWebHost>(() => {
-    const features: Record<string, boolean> = { ai, telemetry, orgs };
+    const features: Record<string, boolean> = { ai, telemetry, orgs, oauthServer };
     return {
       api: appPlatformApi,
       viewer: {
@@ -109,7 +110,7 @@ export function useAppPlatformHost(): PlatformWebHost {
       // The Appearance page pushes the stored theme into the app's theme context.
       applyTheme: setMode,
     };
-  }, [userId, email, hasPermission, ai, telemetry, orgs, refresh, setMode]);
+  }, [userId, email, hasPermission, ai, telemetry, orgs, oauthServer, refresh, setMode]);
 }
 
 /** `PlatformHostProvider` bound to the app's host. Mount it once, inside the auth provider. */

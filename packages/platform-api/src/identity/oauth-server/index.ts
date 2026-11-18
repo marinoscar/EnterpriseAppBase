@@ -73,3 +73,25 @@ export { InsufficientScopeException, assertOAuthScopes } from './oauth-insuffici
 export { requireSessionCredential } from './session-only';
 export * from './clients/index';
 export { OAUTH_CLIENTS_PERMISSIONS } from './oauth-clients.permissions';
+
+// ---- token housekeeping, metrics and Doctor checks (PP-15.8) -------------------------------
+export { OAUTH_TOKEN_CLEANUP_TYPE, OAUTH_TOKEN_RETENTION, OAuthTokenCleanupHandler } from './oauth-token-cleanup.handler';
+export type { OAuthTokenCleanupResult } from './oauth-token-cleanup.handler';
+export { OAuthTokenCleanupTask } from './oauth-token-cleanup.task';
+export { OAUTH_APP_METRICS } from './oauth.metrics';
+export {
+  OAUTH_SETTINGS_PATH,
+  OAUTH_TOKEN_CLEANUP_GRACE_MS,
+  OAuthClientPolicyDoctorCheck,
+  OAuthPublicUrlDoctorCheck,
+  OAuthResourcesDoctorCheck,
+  OAuthTokenCleanupDoctorCheck,
+  OAuthWellKnownDoctorCheck,
+  decideOAuthClientPolicy,
+  decideOAuthPublicUrl,
+  decideOAuthResources,
+  decideOAuthTokenCleanup,
+  decideOAuthWellKnown,
+  isNonPublicHostName,
+} from './doctor/oauth-server.doctor-checks';
+export type { WellKnownProbe } from './doctor/oauth-server.doctor-checks';

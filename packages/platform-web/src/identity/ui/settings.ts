@@ -45,17 +45,20 @@ export type IdentitySettingsCard = PlatformSettingsPage<'orgs' | 'oauthServer'>[
 /**
  * The identity admin cards, by the admin section they belong to:
  *
- * - `access`: `Users & Allowlist` (`/admin/settings/users`, `users:read`), then
- *   `OAuth clients` (`/admin/settings/oauth-clients`, `oauth_clients:read`, no
- *   `feature`: it is where the OAuth server is switched on), appended.
+ * - `access`: `Users & Allowlist` (`/admin/settings/users`, `users:read`).
  * - `organizations`: `Organization` (`/admin/settings/organization`,
  *   `org_members:read`) and `Organizations` (`/admin/settings/organizations`,
  *   `organizations:read`), both `feature: 'orgs'` (multi-org deployments only).
+ * - `oauthClients`: `OAuth clients` (`/admin/settings/oauth-clients`,
+ *   `oauth_clients:read`, no `feature`: it is where the OAuth server is
+ *   switched on). Its own key, so an app opts in by spreading it AND routing
+ *   the page (a card in an existing key would reach every app without its
+ *   route), appended after its existing Access cards.
  *
  * @example
  * ```tsx
  * // apps/web/src/config/adminSections.tsx
- * { label: 'Access', cards: [...identityAdminSections.access] },
+ * { label: 'Access', cards: [...identityAdminSections.access, ...identityAdminSections.oauthClients] },
  * ```
  *
  * @extensionPoint component
@@ -66,6 +69,8 @@ export const identityAdminSections: {
   readonly access: readonly IdentitySettingsCard[];
   /** The Organizations section's cards. */
   readonly organizations: readonly IdentitySettingsCard[];
+  /** The `OAuth clients` card (PP-15.7), appended to the app's Access section. */
+  readonly oauthClients: readonly IdentitySettingsCard[];
 } = Object.freeze({
   access: Object.freeze([
     {
@@ -74,14 +79,6 @@ export const identityAdminSections: {
       Icon: PeopleIcon,
       path: '/admin/settings/users',
       permission: 'users:read',
-    },
-    {
-      title: 'OAuth clients',
-      description:
-        'Let other apps connect with OAuth: switch the server on, choose which client hosts may connect, and manage clients and token lifetimes.',
-      Icon: HubOutlinedIcon,
-      path: '/admin/settings/oauth-clients',
-      permission: 'oauth_clients:read',
     },
   ]),
   organizations: Object.freeze([
@@ -104,6 +101,16 @@ export const identityAdminSections: {
       feature: 'orgs' as const,
     },
   ]),
+  oauthClients: Object.freeze([
+    {
+      title: 'OAuth clients',
+      description:
+        'Let other apps connect with OAuth: switch the server on, choose which client hosts may connect, and manage clients and token lifetimes.',
+      Icon: HubOutlinedIcon,
+      path: '/admin/settings/oauth-clients',
+      permission: 'oauth_clients:read',
+    },
+  ]),
 });
 
 /**
@@ -113,8 +120,8 @@ export const identityAdminSections: {
  * - `connectedApps`: `Connected apps` (`/settings/connected-apps`, no
  *   permission: any signed-in user manages their own grants;
  *   `feature: 'oauthServer'`, hidden while the OAuth server is off). Its own
- *   key so an app APPENDS it after its existing Security cards instead of the
- *   package inserting it between them.
+ *   key so an app opts in (spreads it AND routes the page) and APPENDS it after
+ *   its existing Security cards instead of the package inserting it between them.
  *
  * @example
  * ```tsx

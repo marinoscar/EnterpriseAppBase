@@ -373,11 +373,11 @@ function SettingsSections({
             )}
           </Box>
           {canWrite && (
-            <Stack sx={{ alignItems: { sm: 'flex-start' } }}
+            <Stack
               component="form"
               direction={{ xs: 'column', sm: 'row' }}
               spacing={1}
-             
+              sx={{ alignItems: { sm: 'flex-start' } }}
               onSubmit={(event) => {
                 event.preventDefault();
                 setHostTouched(true);

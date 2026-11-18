@@ -396,6 +396,28 @@ export { OrgMembersService } from './organizations/org-members.service';
 export { OrgInvitesService } from './organizations/org-invites.service';
 export { OrganizationsAdminService } from './organizations/organizations-admin.service';
 
+// ---- OAuth token housekeeping, metrics and Doctor checks (PP-15.8) ------------------------
+export { OAUTH_TOKEN_CLEANUP_TYPE, OAUTH_TOKEN_RETENTION, OAuthTokenCleanupHandler } from './oauth-server/oauth-token-cleanup.handler';
+export type { OAuthTokenCleanupResult } from './oauth-server/oauth-token-cleanup.handler';
+export { OAuthTokenCleanupTask } from './oauth-server/oauth-token-cleanup.task';
+export { OAUTH_APP_METRICS } from './oauth-server/oauth.metrics';
+export {
+  OAUTH_SETTINGS_PATH,
+  OAUTH_TOKEN_CLEANUP_GRACE_MS,
+  OAuthClientPolicyDoctorCheck,
+  OAuthPublicUrlDoctorCheck,
+  OAuthResourcesDoctorCheck,
+  OAuthTokenCleanupDoctorCheck,
+  OAuthWellKnownDoctorCheck,
+  decideOAuthClientPolicy,
+  decideOAuthPublicUrl,
+  decideOAuthResources,
+  decideOAuthTokenCleanup,
+  decideOAuthWellKnown,
+  isNonPublicHostName,
+} from './oauth-server/doctor/oauth-server.doctor-checks';
+export type { WellKnownProbe } from './oauth-server/doctor/oauth-server.doctor-checks';
+
 // ---- the job types (permanent strings; both server-only) --------------------------------
 export { AUTH_TOKEN_CLEANUP_TYPE } from './auth/handlers/token-cleanup.handler';
 export { DEVICE_CODE_CLEANUP_TYPE } from './device-auth/handlers/device-code-cleanup.handler';

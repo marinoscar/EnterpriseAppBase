@@ -99,6 +99,13 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 });
   }),
 
+  // #1185: the OAuth server ships OFF, so its metadata document (the
+  // `oauthServer` feature probe of the shell) answers 404 by default. A test
+  // that needs the server on overrides it with `server.use`.
+  http.get(`${API_BASE}/oauth/.well-known/authorization-server`, () => {
+    return HttpResponse.json({ statusCode: 404, message: 'Not Found' }, { status: 404 });
+  }),
+
   http.post(`${API_BASE}/auth/refresh`, () => {
     return HttpResponse.json({
       accessToken: 'new-mock-token',

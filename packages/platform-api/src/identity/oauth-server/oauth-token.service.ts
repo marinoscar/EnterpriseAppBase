@@ -26,15 +26,18 @@
 
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { trace } from '@opentelemetry/api';
 import type { OAuthTokenResponse } from '@marinoscar/platform-contract/identity';
 
 import { PLATFORM_PRISMA } from '../../core/index';
+import { Trace } from '../../otel-core/index';
+import { IDENTITY_METRICS, NOOP_IDENTITY_METRICS, type IdentityMetrics } from '../ports';
 import type { IdentityOAuthGrantRow, IdentityOAuthTokenRow, IdentityPrisma, IdentityOAuthAuthorizationCodeRow } from '../data/identity-db';
 import { ClientTrustPolicy } from './clients/client-trust.policy';
 import { OAUTH_CLIENT_RESOLVER, type ClientResolver, type OAuthClientRecord } from './client-resolver';
 import { OAuthGrantService, OAUTH_AUDIT_ACTIONS, type OAuthGrantRef } from './oauth-grant.service';
-import { invalidClient, oauthError, rateLimited } from './oauth-protocol.error';
+import { OAuthProtocolError, invalidClient, oauthError, rateLimited } from './oauth-protocol.error';
 import { OAuthRateLimitService } from './oauth-rate-limiter';
 import {
   OAUTH_ACCESS_TOKEN_PREFIX,
@@ -43,6 +46,7 @@ import {
   OAUTH_REFRESH_TOKEN_PREFIX,
 } from './oauth-server.constants';
 import { OFFLINE_ACCESS_SCOPE } from './oauth-scope.registry';
+import { OAuthServerContext } from './oauth-server-context';
 import { OAuthServerSettingsReader } from './oauth-server-settings.reader';
 import { verifyPkce } from './pkce';
 
@@ -122,6 +126,8 @@ export class OAuthTokenService {
     private readonly settings: OAuthServerSettingsReader,
     private readonly grants: OAuthGrantService,
     private readonly trust: ClientTrustPolicy,
+    private readonly context: OAuthServerContext,
+    @Optional() @Inject(IDENTITY_METRICS) private readonly metrics: IdentityMetrics = NOOP_IDENTITY_METRICS,
   ) {}
 
   // ---- client authentication -----------------------------------------------------------------
@@ -166,8 +172,23 @@ export class OAuthTokenService {
    * @returns the RFC 6749 §5.1 body.
    * @throws OAuthProtocolError the RFC 6749 §5.2 errors.
    */
+  @Trace('oauth.token')
   async token(body: OAuthFormBody, authorization: string | undefined): Promise<OAuthTokenResponse> {
+    try {
+      const response = await this.issue(body, authorization);
+      this.metrics.add('oauthTokensIssued', 1, { grant_type: body.grant_type ?? 'unknown' });
+      return response;
+    } catch (error) {
+      // The refusal reason is the RFC 6749 error code: a closed set, never client input.
+      if (error instanceof OAuthProtocolError) this.metrics.add('oauthTokenRefusals', 1, { reason: error.code });
+      throw error;
+    }
+  }
+
+  private async issue(body: OAuthFormBody, authorization: string | undefined): Promise<OAuthTokenResponse> {
     const client = await this.authenticate(body, authorization, 'token');
+    // Span attributes: the client KIND (a closed value) and the grant type; never the client id or a token.
+    trace.getActiveSpan()?.setAttributes({ 'oauth.client.kind': client.kind, 'oauth.grant_type': body.grant_type ?? 'unknown' });
     // The host trust policy applies at /token too: a host removed from the allowlist stops refreshing (stored data only, no fetch).
     const verdict = await this.trust.evaluate({ kind: client.kind, host: client.host, redirectUris: client.redirectUris });
     if (!verdict.admitted) throw oauthError('unauthorized_client', 'The client is not allowed on this deployment.');
@@ -189,6 +210,8 @@ export class OAuthTokenService {
       include: { grant: true },
     });
     if (!row) throw this.invalidGrant('code');
+
+    this.tagResource(row.grant.resource);
 
     // 2. Already consumed: somebody replayed it. The grant dies.
     if (row.consumedAt !== null) {
@@ -265,6 +288,8 @@ export class OAuthTokenService {
       throw this.invalidGrant('refresh check');
     }
 
+    this.tagResource(token.grant.resource);
+
     // 2. A rotated token coming back: the grace window, or reuse.
     let graceOf: { successorId: string; rotatedAt: Date } | null = null;
     if (token.rotatedAt !== null) {
@@ -329,6 +354,16 @@ export class OAuthTokenService {
 
     this.logger.log(`oauth token: refresh ${graceOf ? 'retry' : 'rotated'}, grant ${token.grant.id} client ${client.id}`);
     return this.response(access.raw, accessExpiresAt, now, next.raw, scopes);
+  }
+
+  /** Puts the registered resource's id (a closed, app-declared value) on the active span. */
+  private tagResource(identifier: string): void {
+    try {
+      const resource = this.context.resourceForIdentifier(identifier);
+      if (resource) trace.getActiveSpan()?.setAttribute('oauth.resource.id', resource.id);
+    } catch {
+      // No APP_URL: the span simply carries no resource id.
+    }
   }
 
   /** Whether the successor of a rotated refresh token was never presented (and is still live). */
