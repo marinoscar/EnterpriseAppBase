@@ -213,7 +213,9 @@ describe('OAuthConsentPage: actions', () => {
         },
       },
     });
-    expect(await screen.findByRole('heading', { name: 'This request has expired' })).toHaveFocus();
+    const heading = await screen.findByRole('heading', { name: 'This request has expired' });
+    // Focus moves in an effect after the heading renders: wait for it rather than racing it.
+    await waitFor(() => expect(heading).toHaveFocus());
     expect(screen.getByText('Go back to the app that sent you here and connect again.')).toBeInTheDocument();
   });
 
