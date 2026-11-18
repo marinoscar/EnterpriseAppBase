@@ -156,7 +156,28 @@ export const OAUTH_APPLICATION_TYPES = ['web', 'native'] as const;
  */
 export type OAuthApplicationTypeEnum = { [K in (typeof OAUTH_APPLICATION_TYPES)[number]]: K };
 
+/**
+ * The entries of {@link OAUTH_GRANT_REVOKED_REASONS} as an object type.
+ *
+ * @stability experimental
+ */
+export type OAuthGrantRevokedReasonEnum = { [K in (typeof OAUTH_GRANT_REVOKED_REASONS)[number]]: K };
+
+/**
+ * The query-string booleans `'true'` and `'false'` as an object type.
+ *
+ * @stability experimental
+ */
+export type OAuthQueryBooleanEnum = {
+  /** The query value `true`. */
+  true: 'true';
+  /** The query value `false`. */
+  false: 'false';
+};
+
 // Factories, not shared instances: every field gets its own enum.
+const revokedReasonSchema = (): z.ZodEnum<OAuthGrantRevokedReasonEnum> => z.enum(OAUTH_GRANT_REVOKED_REASONS);
+const queryBooleanSchema = (): z.ZodEnum<OAuthQueryBooleanEnum> => z.enum(['true', 'false']);
 const errorCodeSchema = (): z.ZodEnum<OAuthErrorCodeEnum> => z.enum(OAUTH_ERROR_CODES);
 const scopeRiskSchema = (): z.ZodEnum<OAuthScopeRiskEnum> => z.enum(OAUTH_SCOPE_RISKS);
 const clientKindSchema = (): z.ZodEnum<OAuthClientKindEnum> => z.enum(OAUTH_CLIENT_KINDS);
@@ -696,8 +717,7 @@ export const oauthAdminGrantsQuerySchema = z.object({
   /** Only the grants of this user. */
   userId: z.string().uuid().optional(),
   /** `true` also lists revoked grants (default: active only). */
-  includeRevoked: z
-    .enum(['true', 'false'])
+  includeRevoked: queryBooleanSchema()
     .default('false')
     .transform((value) => value === 'true'),
 });
@@ -743,7 +763,14 @@ export const oauthAdminGrantViewSchema = z.object({
   /** The granted scope ids. */
   scopes: z.array(z.string()),
   /** The organization the grant acts in, or `null`. */
-  organization: z.object({ id: z.string().uuid(), name: z.string() }).nullable(),
+  organization: z
+    .object({
+      /** The organization id. */
+      id: z.string().uuid(),
+      /** The organization's name. */
+      name: z.string(),
+    })
+    .nullable(),
   /** When the user consented. */
   createdAt: z.string().datetime(),
   /** When a token of the grant was last used, or `null`. */
@@ -751,7 +778,7 @@ export const oauthAdminGrantViewSchema = z.object({
   /** When the grant was revoked, or `null` while active. */
   revokedAt: z.string().datetime().nullable(),
   /** Why it was revoked, or `null` while active. */
-  revokedReason: z.enum(OAUTH_GRANT_REVOKED_REASONS).nullable(),
+  revokedReason: revokedReasonSchema().nullable(),
 });
 
 /**
