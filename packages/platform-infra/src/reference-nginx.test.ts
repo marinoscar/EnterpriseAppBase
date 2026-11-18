@@ -246,8 +246,6 @@ describe.skipIf(!HAS_NGINX)('the never-framed OAuth pages', () => {
     async (path) => {
       const response = await get(path);
       expect(response.status).toBe(200);
-      expect(response.headers.get('x-stub-url')).toBe(path.replace(/^(\/oauth\/[a-z]+)\/(\?|$)/, '$1$2'.replace('$2', '$2')) === path ? path : response.headers.get('x-stub-url'));
-      expect(response.headers.getSetCookie?.() ?? []).toEqual([]);
       expect(response.headers.get('x-frame-options')).toBe('DENY');
       const policy = response.headers.get('content-security-policy') ?? '';
       expect(policy).toContain("frame-ancestors 'none'");

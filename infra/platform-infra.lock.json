@@ -28,9 +28,9 @@
     "nginx": {
       "files": {
         "infra/nginx/nginx.conf": "e9543d3d1e83781be09f4d3a7e2bb2e9340a10aef55d429edcd6a658e82bb119",
-        "infra/nginx/csp.conf": "fd5518cd235b9b400599758c579404886e5a588b503004bf700d24fc3c3902b4",
-        "infra/nginx/csp.dev.conf": "36d6d4ac04e950e53a990ef445cd5fd080646836f364d8d8ff4a6c7f89563f85",
-        "infra/nginx/platform/security-headers.conf": "1a390bbd1562e92f7a73b3c8b55387a3a73de3fa1a35907b3bd1f6bda88011ca",
+        "infra/nginx/csp.conf": "ba4bf880363112fc3a1780c1acddc2f394ddd9a208ba84216756504dceb3f839",
+        "infra/nginx/csp.dev.conf": "f5f1f5d84763b501ec76a1381e77e46cc95e36268afc78ebfca4e46dc9eefc02",
+        "infra/nginx/platform/security-headers.conf": "0beb0dfec1aab5c0215ff916b3ac0c26c318cd2da278673f5806b4f40d5ae3c1",
         "infra/nginx/platform/sse-proxy.conf": "09d146b21acf14a29c8b5b4341b764d23c9be8319ff5d02359bd2c6d0d1cabe0",
         "infra/nginx/platform/android-app.conf": "f8afebca96460e907d25586cb3fa7754adf82e6e1088cfc1c4a3ac099fe1962e",
         "infra/nginx/platform/oauth-server.conf": "fc534625b15271b3fc309dbcd678c9bd44874bbbac3f9c1895838c90e1f9c74c"
