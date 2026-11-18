@@ -172,6 +172,7 @@
     "shell-local-host-mode",
     "shell-seam-2",
     "slice-peer-dependencies",
+    "storage-conformance-proxied-part-deflake",
     "storage-copy-migration",
     "storage-driver-registry",
     "storage-multi-provider-seams",
