@@ -1,5 +1,17 @@
 # @marinoscar/platform-api
 
+## 0.1.0-next.36
+
+### Minor Changes
+
+- c995f30: OAuth server seam requests #1194 and #1195. API: `userPermissionsOf(request)` and `oauthAccessDecision(request, permission)` (both experimental, exported from `@marinoscar/platform-api/identity`) let a protected resource tell "the user holds the permission but the token's scopes do not grant it" (answer `403 insufficient_scope`) from "the user lacks it" (plain `403`): `userPermissionsOf` is the permissions the request's user holds before any `oat_` scope narrowing, `oauthAccessDecision` returns `granted`, `step_up` or `forbidden`; `PermissionsGuard`'s step-up uses the same code. `GET /api/admin/oauth/grants` (`oauth_clients:read`; `page`, `pageSize`, `clientId`, `userId`, `includeRevoked`; active grants by default, never a token) and `DELETE /api/admin/oauth/grants/:id` (`oauth_clients:write`) are served by the new `OAuthGrantsAdminController`; the delete revokes the grant and its tokens with `revoked_reason: admin` (now produced), audits `oauth:grant.revoke` with the administrator as actor, emits `identity.oauth.grant.revoked`, answers `404` for an unknown id and `204` again for an already-revoked grant. Apps revoke in process with `OAuthGrantService.revokeGrantAsAdmin(grantId, adminUserId)`. No new permission. Contract: `oauthAdminGrantsQuerySchema`, `oauthAdminGrantViewSchema`, `OAuthAdminGrantsQuery`, `OAuthAdminGrantView`.
+
+### Patch Changes
+
+- Updated dependencies [c995f30]
+  - @marinoscar/platform-contract@0.1.0-next.36
+  - @marinoscar/platform-ai-providers@0.1.0-next.36
+
 ## 0.1.0-next.35
 
 ### Minor Changes
