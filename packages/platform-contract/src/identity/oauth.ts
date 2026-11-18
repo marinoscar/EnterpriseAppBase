@@ -66,7 +66,7 @@ export const OAUTH_ERROR_PAGE_CODES = [
 export type OAuthErrorPageCode = (typeof OAUTH_ERROR_PAGE_CODES)[number];
 
 /**
- * Why a grant was revoked (`oauth_grants.revoked_reason`). `admin` is reserved.
+ * Why a grant was revoked (`oauth_grants.revoked_reason`). `admin` is an administrator's `DELETE /api/admin/oauth/grants/:id`.
  *
  * @stability experimental
  */
@@ -680,3 +680,83 @@ export const oauthPolicySchema = z.object({
  * @stability experimental
  */
 export type OAuthPolicy = z.infer<typeof oauthPolicySchema>;
+
+/**
+ * Query of `GET /api/admin/oauth/grants`.
+ *
+ * @stability experimental
+ */
+export const oauthAdminGrantsQuerySchema = z.object({
+  /** 1-based page. */
+  page: z.coerce.number().int().min(1).default(1),
+  /** Page size. */
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  /** Only the grants of this client (the `oauth_clients.id` row id). */
+  clientId: z.string().uuid().optional(),
+  /** Only the grants of this user. */
+  userId: z.string().uuid().optional(),
+  /** `true` also lists revoked grants (default: active only). */
+  includeRevoked: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+});
+
+/**
+ * The admin grant list query.
+ *
+ * @stability experimental
+ */
+export type OAuthAdminGrantsQuery = z.output<typeof oauthAdminGrantsQuerySchema>;
+
+/**
+ * One entry of `GET /api/admin/oauth/grants`: a user's grant to a client. Never a token.
+ *
+ * @stability experimental
+ */
+export const oauthAdminGrantViewSchema = z.object({
+  /** The grant id (`DELETE /api/admin/oauth/grants/:id`). */
+  id: z.string().uuid(),
+  /** The consenting user. */
+  user: z.object({
+    /** The user id. */
+    id: z.string().uuid(),
+    /** The user's email. */
+    email: z.string(),
+  }),
+  /** The client. */
+  client: z.object({
+    /** The `oauth_clients.id` row id. */
+    id: z.string().uuid(),
+    /** The self-asserted name. */
+    name: z.string(),
+    /** The client's host. */
+    host: z.string(),
+  }),
+  /** The resource it may use. */
+  resource: z.object({
+    /** The resource id, or `null` when it is no longer registered. */
+    id: z.string().nullable(),
+    /** The resource's display name. */
+    name: z.string(),
+  }),
+  /** The granted scope ids. */
+  scopes: z.array(z.string()),
+  /** The organization the grant acts in, or `null`. */
+  organization: z.object({ id: z.string().uuid(), name: z.string() }).nullable(),
+  /** When the user consented. */
+  createdAt: z.string().datetime(),
+  /** When a token of the grant was last used, or `null`. */
+  lastUsedAt: z.string().datetime().nullable(),
+  /** When the grant was revoked, or `null` while active. */
+  revokedAt: z.string().datetime().nullable(),
+  /** Why it was revoked, or `null` while active. */
+  revokedReason: z.enum(OAUTH_GRANT_REVOKED_REASONS).nullable(),
+});
+
+/**
+ * A grant as an administrator sees it.
+ *
+ * @stability experimental
+ */
+export type OAuthAdminGrantView = z.infer<typeof oauthAdminGrantViewSchema>;

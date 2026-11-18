@@ -147,6 +147,8 @@ export {
   OAUTH_GRANT_REVOKED_REASONS,
   OAUTH_GRANT_TYPES,
   OAUTH_SCOPE_RISKS,
+  oauthAdminGrantViewSchema,
+  oauthAdminGrantsQuerySchema,
   oauthClientCreateRequestSchema,
   oauthClientPatchRequestSchema,
   oauthClientViewSchema,
@@ -166,6 +168,8 @@ export {
   oauthTokenResponseSchema,
 } from './oauth.js';
 export type {
+  OAuthAdminGrantView,
+  OAuthAdminGrantsQuery,
   OAuthClientAuthMethodEnum,
   OAuthClientCreateRequest,
   OAuthClientPatchRequest,

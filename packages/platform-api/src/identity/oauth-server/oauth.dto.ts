@@ -9,6 +9,8 @@ import {
   oauthDecisionRequestSchema,
   oauthDecisionResponseSchema,
   oauthErrorResponseSchema,
+  oauthAdminGrantViewSchema,
+  oauthAdminGrantsQuerySchema,
   oauthClientCreateRequestSchema,
   oauthClientPatchRequestSchema,
   oauthClientViewSchema,
@@ -67,3 +69,15 @@ export class OAuthClientWithSecretDto extends createZodDto(oauthClientWithSecret
 export class OAuthRefusedHostDto extends createZodDto(oauthRefusedHostSchema) {}
 /** `GET /api/admin/oauth/policy` response. */
 export class OAuthPolicyDto extends createZodDto(oauthPolicySchema) {}
+/**
+ * Query of `GET /api/admin/oauth/grants`.
+ *
+ * @stability experimental
+ */
+export class OAuthAdminGrantsQueryDto extends createZodDto(oauthAdminGrantsQuerySchema) {}
+/**
+ * One grant of `GET /api/admin/oauth/grants`.
+ *
+ * @stability experimental
+ */
+export class OAuthAdminGrantViewDto extends createZodDto(oauthAdminGrantViewSchema) {}

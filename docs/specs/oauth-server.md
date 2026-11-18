@@ -199,6 +199,7 @@ All protocol endpoints use RFC wire formats. They are marked `@RawResponse()` ([
 | Register (DCR) | `POST /api/oauth/register` | public, rate limited | `application/json` |
 | Revoke | `POST /api/oauth/revoke` | public; client auth per client | `application/x-www-form-urlencoded` |
 | My connected apps | `GET /api/oauth/grants`, `DELETE /api/oauth/grants/:id` | `@Auth()`, session or PAT (an `oauth` credential is refused) | response JSON |
+| Admin grants | `GET /api/admin/oauth/grants`, `DELETE /api/admin/oauth/grants/:id` | `oauth_clients:read` for `GET`, `oauth_clients:write` for `DELETE` | `application/json` |
 | Admin clients | `GET /api/admin/oauth/clients`, `POST` (pre-register), `PATCH /api/admin/oauth/clients/:id`, `POST /api/admin/oauth/clients/:id/rotate-secret`, `DELETE /api/admin/oauth/clients/:id` | `oauth_clients:read` for `GET`, `oauth_clients:write` for the rest | `application/json` |
 
 Every public route declares `@Public()` on purpose. While the server is not enabled, every route in this table answers `404`, except `/authorize` (see below).
@@ -273,6 +274,13 @@ Request (form): `token`, `token_type_hint` (optional), client authentication as 
 #### `GET /api/oauth/grants` and `DELETE /api/oauth/grants/:id`
 
 `GET` returns the caller's active grants: id, client `{ name, host, logoUri }`, resource name, scopes with titles, `createdAt`, `lastUsedAt`, organization. Never a token. `DELETE` revokes one grant (`revoked_reason: user`), audits it and emits `identity.oauth.grant.revoked`; success `204`. Errors: `401`; `403` for an `oauth` credential; `404` for an id that is not the caller's.
+
+#### `GET /api/admin/oauth/grants` and `DELETE /api/admin/oauth/grants/:id`
+
+Served by `OAuthGrantsAdminController` (`packages/platform-api/src/identity/oauth-server/clients/oauth-clients-admin.controller.ts`); no new permission.
+
+- `GET` (`oauth_clients:read`) pages every user's grants, newest first: `{ items, total, page, pageSize, totalPages }`. Query: `page`, `pageSize` (at most 100), `clientId` (the `oauth_clients.id` row id), `userId`, `includeRevoked` (`true` or `false`; default `false`, active grants only). An item is `{ id, user: { id, email }, client: { id, name, host }, resource, scopes, organization, createdAt, lastUsedAt, revokedAt, revokedReason }`. Never a token.
+- `DELETE` (`oauth_clients:write`) revokes the grant and every token of it with `revoked_reason: admin`, audits `oauth:grant.revoke` with the administrator as actor (`meta: { clientId, userId, by: 'admin' }`) and emits `identity.oauth.grant.revoked` with `reason: 'admin'`. Success `204`; an unknown id is `404`; a grant that is already revoked is a no-op `204` (no second audit row or event), unlike the user route, which answers `404` for a grant that is not active. OAuth tables are user-owned and the permissions are system-scoped, so there is no organization filter: an organization administrator does not reach these routes. An app revokes in process with `OAuthGrantService.revokeGrantAsAdmin(grantId, adminUserId)` (same effects, returns whether it revoked).
 
 #### `GET /api/admin/oauth/refused-hosts` and `GET /api/admin/oauth/policy`
 
@@ -731,6 +739,23 @@ throw new InsufficientScopeException({ resourceId: 'notes', requiredScopes: ['no
 ```
 
 The answer is `403` with `WWW-Authenticate: Bearer error="insufficient_scope", scope="<granted and required>", resource_metadata="..."`. For a session or PAT caller `assertOAuthScopes` does nothing. A route that declares a permission and is denied to an `oauth` principal becomes the same `insufficient_scope` when a registered scope of the resource grants the missing permission and the user holds it. Never answer `200` with an error result: hosted clients start sign-in only from an HTTP status. `buildBearerChallenge({ resourceId, error, scope })` builds the header for a response the app writes itself. Proof: `oauth-resource-metadata.db.spec.ts` and the step-up in `oauth-e2e.db.spec.ts`.
+
+#### Decide step-up versus forbidden
+
+A resource that gates an operation itself (an MCP `tools/call`) needs to tell "the user holds the permission and the token's scopes do not grant it" (re-consent fixes it: `403 insufficient_scope`) from "the user lacks it" (a plain `403`). `principal.permissions` is already narrowed to the token's scopes, so it cannot answer that. Use:
+
+```ts
+import { oauthAccessDecision, userPermissionsOf } from '@marinoscar/platform-api/identity';
+
+switch (oauthAccessDecision(request, 'notes:write')) {
+  case 'granted': break;
+  case 'step_up': throw new InsufficientScopeException({ resourceId: 'notes', requiredScopes: ['notes:write'] });
+  case 'forbidden': throw new ForbiddenException();
+}
+userPermissionsOf(request).has('notes:write'); // the user's own set, before any scope narrowing
+```
+
+`userPermissionsOf(request)` is the permissions the request's user holds before any OAuth narrowing (equal to the principal's for a session or PAT; empty without a loaded user). `oauthAccessDecision` returns `step_up` only for an `oat_` token whose user holds the permission and some registered scope of its resource grants it and the token lacks; `PermissionsGuard` uses the same rule. Both are `experimental`.
 
 ### 4.6 Notify on connect
 

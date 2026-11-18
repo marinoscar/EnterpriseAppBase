@@ -15,7 +15,7 @@
 
 import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import type { OAuthGrantRevokedReason, OAuthGrantView } from '@marinoscar/platform-contract/identity';
+import type { OAuthAdminGrantView, OAuthAdminGrantsQuery, OAuthGrantRevokedReason, OAuthGrantView } from '@marinoscar/platform-contract/identity';
 
 import { PLATFORM_PRISMA } from '../../core/index';
 import { IDENTITY_EVENTS, emitIdentityEvent } from '../identity.events';
@@ -125,6 +125,24 @@ export interface OAuthAuditEntry {
 }
 
 /**
+ * One page of the admin grant list.
+ *
+ * @stability experimental
+ */
+export interface OAuthAdminGrantViewPage {
+  /** The grants of this page, newest first. */
+  items: OAuthAdminGrantView[];
+  /** All grants matching the filter. */
+  total: number;
+  /** The 1-based page. */
+  page: number;
+  /** The page size. */
+  pageSize: number;
+  /** The number of pages. */
+  totalPages: number;
+}
+
+/**
  * Revokes grants and records what happened.
  *
  * @stability experimental
@@ -184,17 +202,10 @@ export class OAuthGrantService {
       orderBy: { createdAt: 'desc' },
     });
     return rows.map((row) => {
-      let resource: { id: string | null; name: string };
-      try {
-        const def = this.context.resourceForIdentifier(row.resource);
-        resource = { id: def?.id ?? null, name: def?.name ?? row.resource };
-      } catch {
-        resource = { id: null, name: row.resource };
-      }
       return {
         id: row.id,
         client: { name: row.client.name, host: row.client.host, logoUri: row.client.logoUri },
-        resource,
+        resource: this.resourceView(row.resource),
         scopes: row.scopes
           .filter((scope) => oauthScopeRegistry.has(scope))
           .map((scope) => ({ id: scope, title: oauthScopeRegistry.get(scope)!.title })),
@@ -203,6 +214,71 @@ export class OAuthGrantService {
         lastUsedAt: row.lastUsedAt ? row.lastUsedAt.toISOString() : null,
       };
     });
+  }
+
+  /**
+   * A page of grants for the admin API (`GET /api/admin/oauth/grants`): active ones unless
+   * `includeRevoked`, newest first. Never a token.
+   *
+   * @param query - page, filters and the revoked flag.
+   */
+  async listForAdmin(query: OAuthAdminGrantsQuery): Promise<OAuthAdminGrantViewPage> {
+    type Row = IdentityOAuthGrantRow & {
+      client: IdentityOAuthClientRow;
+      user: { id: string; email: string };
+      org: { id: string; name: string } | null;
+    };
+    const { page, pageSize, clientId, userId, includeRevoked } = query;
+    const where: Record<string, unknown> = {};
+    if (clientId) where.clientId = clientId;
+    if (userId) where.userId = userId;
+    if (!includeRevoked) where.revokedAt = null;
+    const [rows, total] = await Promise.all([
+      this.prisma.oAuthGrant.findMany<Row>({
+        where,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        include: { client: true, user: { select: { id: true, email: true } }, org: { select: { id: true, name: true } } },
+      }),
+      this.prisma.oAuthGrant.count({ where }),
+    ]);
+    const items = rows.map(
+      (row): OAuthAdminGrantView => ({
+        id: row.id,
+        user: { id: row.user.id, email: row.user.email },
+        client: { id: row.client.id, name: row.client.name, host: row.client.host },
+        resource: this.resourceView(row.resource),
+        scopes: [...row.scopes],
+        organization: row.org ? { id: row.org.id, name: row.org.name } : null,
+        createdAt: row.createdAt.toISOString(),
+        lastUsedAt: row.lastUsedAt ? row.lastUsedAt.toISOString() : null,
+        revokedAt: row.revokedAt ? row.revokedAt.toISOString() : null,
+        revokedReason: (row.revokedReason as OAuthAdminGrantView['revokedReason']) ?? null,
+      }),
+    );
+    return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
+  }
+
+  /**
+   * Revokes one user's grant on an administrator's behalf: the grant and every token of it die at
+   * once (`revoked_reason: admin`), `oauth:grant.revoke` is audited with the administrator as the actor
+   * and `identity.oauth.grant.revoked` is emitted. Stable for apps that call it in process.
+   * Idempotent: a grant that is already revoked is left as it is.
+   *
+   * @param grantId - the `oauth_grants.id`.
+   * @param adminUserId - the administrator, recorded as the audit actor.
+   * @returns whether this call revoked it (`false` when it already was).
+   * @throws NotFoundException for an unknown id.
+   */
+  async revokeGrantAsAdmin(grantId: string, adminUserId: string): Promise<boolean> {
+    const grant = await this.prisma.oAuthGrant.findUnique<IdentityOAuthGrantRow>({ where: { id: grantId } });
+    if (!grant) throw new NotFoundException('Grant not found');
+    return this.revokeGrant(
+      { id: grant.id, userId: grant.userId, orgId: grant.orgId, clientId: grant.clientId, resource: grant.resource },
+      'admin',
+      { audit: { action: OAUTH_AUDIT_ACTIONS.GRANT_REVOKE, actorUserId: adminUserId, meta: { clientId: grant.clientId, userId: grant.userId, by: 'admin' } } },
+    );
   }
 
   /**
@@ -264,6 +340,15 @@ export class OAuthGrantService {
       resourceId: this.resourceIdOf(grant.resource),
       reason,
     };
+  }
+
+  private resourceView(identifier: string): { id: string | null; name: string } {
+    try {
+      const def = this.context.resourceForIdentifier(identifier);
+      return { id: def?.id ?? null, name: def?.name ?? identifier };
+    } catch {
+      return { id: null, name: identifier };
+    }
   }
 
   private resourceIdOf(identifier: string): string | null {

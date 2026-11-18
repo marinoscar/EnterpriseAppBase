@@ -14,7 +14,8 @@ import { ApiDataResponse } from '../../../core/index';
 import { Auth } from '../../auth/decorators/auth.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../identity.constants';
-import { OAuthClientCreateRequestDto, OAuthPolicyDto, OAuthRefusedHostDto, OAuthClientPatchRequestDto, OAuthClientViewDto, OAuthClientWithSecretDto, OAuthClientsQueryDto } from '../oauth.dto';
+import { OAuthAdminGrantViewDto, OAuthAdminGrantsQueryDto, OAuthClientCreateRequestDto, OAuthPolicyDto, OAuthRefusedHostDto, OAuthClientPatchRequestDto, OAuthClientViewDto, OAuthClientWithSecretDto, OAuthClientsQueryDto } from '../oauth.dto';
+import { OAuthGrantService } from '../oauth-grant.service';
 import { OAuthClientsAdminService } from './oauth-clients-admin.service';
 
 /**
@@ -116,5 +117,46 @@ export class OAuthAdminHintsController {
   @ApiDataResponse(OAuthPolicyDto, { description: 'The policy hints' })
   policy() {
     return this.clients.getPolicy();
+  }
+}
+
+/**
+ * The admin side of grants: `/api/admin/oauth/grants`. A grant is user-owned and
+ * the permissions are system-scoped, so there is no organization filter: an
+ * administrator sees every grant. Never a token.
+ *
+ * @stability experimental
+ */
+@ApiTags('OAuth clients')
+@Controller('admin/oauth/grants')
+export class OAuthGrantsAdminController {
+  constructor(private readonly grants: OAuthGrantService) {}
+
+  /** `GET /api/admin/oauth/grants`: a page of grants. */
+  @Get()
+  @Auth({ permissions: [PERMISSIONS.OAUTH_CLIENTS_READ] })
+  @ApiOperation({
+    summary: "List users' OAuth grants (Admin only)",
+    description: 'Paged, newest first. Filter by `clientId` (the client row id) and `userId`; active grants only unless `includeRevoked=true`. Never a token.',
+  })
+  @ApiDataResponse(OAuthAdminGrantViewDto, { pagination: 'flat', description: 'A page of grants' })
+  list(@Query() query: OAuthAdminGrantsQueryDto) {
+    return this.grants.listForAdmin(query);
+  }
+
+  /** `DELETE /api/admin/oauth/grants/:id`: revokes one user's grant. */
+  @Delete(':id')
+  @Auth({ permissions: [PERMISSIONS.OAUTH_CLIENTS_WRITE] })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: "Revoke one user's OAuth grant (Admin only)",
+    description:
+      'Revokes the grant and every token of it (`revoked_reason: admin`); takes effect on the next request. Audited (`oauth:grant.revoke`, the administrator as actor); emits `identity.oauth.grant.revoked`. Revoking an already-revoked grant is a no-op `204`.',
+  })
+  @ApiParam({ name: 'id', type: String, format: 'uuid' })
+  @ApiResponse({ status: 204, description: 'Revoked' })
+  @ApiResponse({ status: 404, description: 'Grant not found' })
+  async revoke(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('id') adminUserId: string) {
+    await this.grants.revokeGrantAsAdmin(id, adminUserId);
   }
 }

@@ -193,7 +193,7 @@ export { assertAnyRoleAssignable, assertRoleAssignable, describeRole, isAppManag
 export { USERS_PERMISSIONS } from './users/users.permissions';
 export { ALLOWLIST_PERMISSIONS } from './allowlist/allowlist.permissions';
 export { ORGANIZATIONS_PERMISSIONS } from './organizations/organizations.permissions';
-export { OAuthClientCreateRequestDto, OAuthClientPatchRequestDto, OAuthClientsQueryDto } from './oauth-server/oauth.dto';
+export { OAuthAdminGrantViewDto, OAuthAdminGrantsQueryDto, OAuthClientCreateRequestDto, OAuthClientPatchRequestDto, OAuthClientsQueryDto } from './oauth-server/oauth.dto';
 export { OAUTH_CLIENTS_PERMISSIONS } from './oauth-server/oauth-clients.permissions';
 export { ORGANIZATIONS_APP_METRICS } from './organizations/organizations.metrics';
 export type { IdentityAppMetricDef } from './organizations/organizations.metrics';
@@ -230,6 +230,7 @@ export {
 export type { OAuthScopeDefinition, OAuthScopeRisk } from './oauth-server/oauth-scope.registry';
 export { OAUTH_CREDENTIAL_KIND } from './oauth-server/oauth-credential-kind';
 export { OAuthGrant, oauthGrantOf } from './oauth-server/oauth-grant.decorator';
+export { oauthAccessDecision, userPermissionsOf } from './oauth-server/oauth-access-decision';
 export { OAuthServerModule, isOAuthServerMounted } from './oauth-server/oauth-server.module';
 export { OAUTH_SETTINGS_CACHE_MS, OAuthServerSettingsReader } from './oauth-server/oauth-server-settings.reader';
 export {
@@ -249,7 +250,7 @@ export { InMemoryOAuthRateLimiter, OAUTH_RATE_LIMITER, OAuthRateLimitService } f
 export type { OAuthRateLimitVerdict, OAuthRateLimiter } from './oauth-server/oauth-rate-limiter';
 export { OAuthServerContext, OAuthServerFeatures } from './oauth-server/oauth-server-context';
 export { OAUTH_AUDIT_ACTIONS, OAUTH_AUDIT_TARGET_TYPE, OAUTH_CLIENT_AUDIT_TARGET_TYPE, OAuthGrantService } from './oauth-server/oauth-grant.service';
-export type { OAuthAuditEntry, OAuthGrantRef } from './oauth-server/oauth-grant.service';
+export type { OAuthAdminGrantViewPage, OAuthAuditEntry, OAuthGrantRef } from './oauth-server/oauth-grant.service';
 export { OAuthProtocolError } from './oauth-server/oauth-protocol.error';
 export { buildAuthorizationServerMetadata } from './oauth-server/oauth-metadata';
 export type { OAuthAuthorizationServerMetadata } from './oauth-server/oauth-metadata';
@@ -291,6 +292,7 @@ export {
   OAuthClientCleanupTask,
   OAuthAdminHintsController,
   OAuthClientsAdminController,
+  OAuthGrantsAdminController,
   OAuthClientsAdminService,
   cimdExpiry,
   evaluateClientTrust,

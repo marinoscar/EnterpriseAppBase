@@ -201,6 +201,8 @@ describe('RBAC System (Integration)', () => {
       { method: 'patch', path: `/api/admin/oauth/clients/${ID}`, write: true },
       { method: 'post', path: `/api/admin/oauth/clients/${ID}/rotate-secret`, write: true },
       { method: 'delete', path: `/api/admin/oauth/clients/${ID}`, write: true },
+      { method: 'get', path: '/api/admin/oauth/grants', write: false },
+      { method: 'delete', path: `/api/admin/oauth/grants/${ID}`, write: true },
     ];
 
     it('is refused to a contributor and a viewer on every route (403)', async () => {
@@ -226,6 +228,20 @@ describe('RBAC System (Integration)', () => {
       context.prismaMock.oAuthClient.count.mockResolvedValue(0);
       const response = await request(context.app.getHttpServer()).get('/api/admin/oauth/clients').set(authHeader(admin.accessToken)).expect(200);
       expect(response.body.data.items).toEqual([]);
+    });
+  });
+
+  describe('OAuth grants admin routes (#1195)', () => {
+    const ID = '11111111-1111-4111-8111-111111111111';
+
+    it('lets an administrator list grants and 404s an unknown grant on revoke', async () => {
+      const admin = await createMockAdminUser(context);
+      context.prismaMock.oAuthGrant.findMany.mockResolvedValue([]);
+      context.prismaMock.oAuthGrant.count.mockResolvedValue(0);
+      const list = await request(context.app.getHttpServer()).get('/api/admin/oauth/grants').set(authHeader(admin.accessToken)).expect(200);
+      expect(list.body.data.items).toEqual([]);
+      context.prismaMock.oAuthGrant.findUnique.mockResolvedValue(null);
+      await request(context.app.getHttpServer()).delete(`/api/admin/oauth/grants/${ID}`).set(authHeader(admin.accessToken)).expect(404);
     });
   });
 
