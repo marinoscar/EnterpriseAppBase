@@ -341,12 +341,15 @@ Every credential the system accepts or holds, and where it is valid.
 | Device-flow token | Session JWT + refresh token, or a `pat_` | As above | `DEVICE_TOKEN_EXPIRY_DAYS` (7) or `DEVICE_PAT_EXPIRY_DAYS` (90) | As above, in the approver's org | `DELETE /api/auth/device/sessions/{id}`, immediately, for either kind |
 | Per-job node secret | Short-lived PostgreSQL login role | Only its handle, in `job_node_secrets` | The job's lease + 60 s | The database, from one node, for one job | Job settles, sweep cron, or `VALID UNTIL` |
 | Runtime-configured secret | Provider key, SMTP password, VAPID key, etc. | AES-256-GCM ciphertext | Until replaced | Server-side only, never returned | Replace or delete in the admin UI |
+| OAuth access token | `oat_` + 32 random bytes, base64url; refresh `ort_`, authorization code `oac_` | SHA-256 hash in `oauth_tokens` / `oauth_authorization_codes` (plus an 8-character display prefix), shown once | Access `accessTokenTtlMinutes` (60); refresh `refreshTokenTtlDays` (30, sliding, capped by `refreshTokenMaxAgeDays`, 180); code 60 s, single use | Only the route prefixes of the protected resource its grant names, with the user's permissions narrowed to the grant's scopes ([§19](#19-oauth-access-tokens-oat_)) | `DELETE /api/oauth/grants/{id}`, `POST /api/oauth/revoke`, disabling the client, reuse detection, organization offboarding, deactivating the user; expiry |
 | Link-share token | `lnk_` + 43 base64url (32 random bytes) | SHA-256 hash (`grants.link_token_hash`, unique) plus AES-256-GCM ciphertext bound to the grant id; returned once | `links.defaultTtlDays` (30), capped at `links.maxTtlDays` (365) | The `X-Link-Token` header on `GET /api/public/links/current` and app routes behind `LinkGrantGuard`, for ONE record and role | `DELETE /api/grants/{id}`, immediately; expiry |
 | `STACK_AGENT_TOKEN` | 32 random hex bytes | Plaintext in `.env`, on both the `api` and `stack-agent` services | Until rotated | Bearer on `stack-agent`'s `/v1/*` routes only, reachable from `app-network` only | Edit `.env` and recreate `stack-agent`/`api` |
 
 `JwtAuthGuard` recognizes the bearer families by prefix before Passport runs:
 `Bearer pat_…` goes to `PatService.validateToken`, `Bearer nod_…` to
-`NodeCredentialService.validateToken`, anything else to the JWT strategy.
+`NodeCredentialService.validateToken`, `Bearer oat_…` to the OAuth token
+resolver (only while the OAuth server is mounted and enabled), anything else to
+the JWT strategy.
 
 **Org binding per kind (#724).** Every user credential is bound to exactly
 one organization and acts only there; none can hop orgs:
@@ -357,6 +360,7 @@ one organization and acts only there; none can hop orgs:
 | Device session (`did`) | The approver's active org at approval | `device_codes.org_id`, the token's `org` (must match), `refresh_tokens.org_id` | No (403 on switch-org) |
 | PAT | The caller's active org at creation, or an explicit `orgId` the caller is an active member of | `personal_access_tokens.org_id` | No (403 on switch-org) |
 | Node (`nod_`) | **No org: system-scoped.** Only the owner's system grants count | — | Not applicable |
+| OAuth (`oat_`) | The org the user chose on the consent page (`multi` mode) | `oauth_grants.org_id`; the guard re-checks that the user is still an active member | No (403 on switch-org) |
 
 Each path re-checks its binding on every request against the user's active
 memberships and refuses (401) a credential whose membership was removed or
@@ -1922,13 +1926,29 @@ it. The coverage tripwire fails until each step is done.
 
 ## 19. OAuth access tokens (`oat_`)
 
-> **Status:** planned. Design and decision: [OAuth server spec](specs/oauth-server.md), [ADR 0003](adr/0003-oauth-authorization-server.md). This section is a stub; it is filled when the feature ships.
+> **Status:** shipped. Design: [OAuth server spec](specs/oauth-server.md); decision: [ADR 0003](adr/0003-oauth-authorization-server.md); operators: [runbook](runbooks/oauth-server.md).
 
-The identity slice is planned to issue a fourth bearer credential to third-party clients that a user approves on a consent page. The rules this section will describe:
+The identity slice issues a fourth bearer credential to third-party clients (a hosted AI assistant, an MCP client) that a user approves on a consent page. It exists only when the app mounts the sub-slice (`IdentityModule.forRoot({ oauthServer })`) and an administrator sets `oauthServer.enabled`; otherwise an `oat_` header is `401` and no route exists. A personal access token keeps its full authority; the `oauth` kind is its narrow, revocable, audience-bound counterpart.
 
-- **Kind `oauth`.** Opaque `oat_` access token and `ort_` refresh token, stored as SHA-256 hashes. Short-lived, revocable at once.
-- **Confinement.** The guard admits an `oat_` token only on the routes of the protected resource its grant names, decided from the request path before any lookup.
-- **Narrowing.** Effective permissions are the user's permissions intersected with the permissions of the granted scopes. A scope never grants what the user lacks.
-- **Consent and client trust.** Approved by a session credential only. The consent page names the client's host. Clients are admitted by a deployment host allowlist, closed by default. Client metadata is fetched through the egress guard.
-- **Rotation.** Refresh tokens rotate on every use. A reused one revokes the whole grant.
-- **In-process delegation.** A signed in-memory header, valid only inside the process and only while the originating request lives.
+| Rule | Mechanism |
+|---|---|
+| **Kind `oauth`** | `Bearer oat_<43 characters>`. `request.authCredential` is `{ kind: 'oauth', tokenId, grantId, clientId, resourceId, scopes }`; the principal is the user's, with non-enumerable `oauth` metadata (`@OAuthGrant()`). Never cached on the principal cache |
+| **Token storage** | Opaque. The access token (`oat_`), refresh token (`ort_`) and authorization code (`oac_`) are random 32-byte values stored only as SHA-256 hashes with an 8-character prefix, shown once in the token response. No log line, span, audit row, error body, export or fixture carries one; logs carry the token id or prefix. The `oauth-server` conformance suite's `secret-egress` check scans responses, audit rows and captured log lines |
+| **Confinement** | `JwtAuthGuard` decides from the request path (query string stripped) before any lookup: the path must equal or lie under a route prefix of a registered protected resource, else `403`. The grant's resource must be the one whose prefix matched. A refused request causes no query and gives no liveness hint. `/api/oauth`, `/api/auth` and `/api/nodes` can never be a prefix (a boot error), and two resources never share or nest prefixes |
+| **Narrowing** | Effective permissions are the user's own (system and org) intersected with the permissions of the grant's scopes, computed on a copy at resolution and never written to the principal cache. A scope grants nothing the user lacks; a scope naming an unregistered permission stops the boot. `RolesGuard` never admits an `oauth` credential on role alone: a route guarded only by `@Roles()` refuses it |
+| **Session-only routes** | The consent read and decision, grant management, PAT creation and revocation, device authorization, session deletion, logout-all and switch-org refuse an `oauth` credential (`refuseOAuthCredential`, `requireSessionCredential`). Only a session credential may approve a consent |
+| **Consent** | Every authorization shows the consent page, never skipped for a returning client, so a prompt-injected client cannot widen its scope silently. The page leads with the client's host (the self-asserted name is secondary), names the host the user returns to, groups scopes by risk (`high` scopes start unticked), lets the user pick the organization and disables `Allow` for the first second. The pending request id is bound to the first user who reads it; the page sets `frame-ancestors 'none'` |
+| **Client trust** | Closed by default. A client is admitted when an administrator registered it, or its host is in `allowedClientHosts`, or it is loopback with `allowLoopbackClients`, or `allowAnyClientHost` is on (the Doctor warns). The policy runs at `/authorize`, at `/register` and at `/token`, so removing a host stops refreshing. A metadata-document (`client_id` is an HTTPS URL) fetch happens only at `/authorize`, through the egress guard (HTTPS, public addresses, pinned connection, no redirect, 5 s, 64 KiB), never at `/token`. A bad client or redirect URI is an error page, never a redirect; redirect URIs match exactly (loopback ignores the port). Refusals are audited as `oauth:client.refused`, one row per host per hour |
+| **PKCE and issuer** | PKCE `S256` is required on every request (`plain` is refused); the authorization response carries `iss`; the code lives 60 seconds and is single use |
+| **Rotation and reuse** | A refresh token rotates on every use (a new refresh and access token). A rotated token presented outside the 10-second grace window, or an authorization code used twice, revokes the whole grant and every token of it (`reuse_detected`, audit `oauth:token.reuse_detected`). The grace window answers a client retrying a lost response with a new pair, because only hashes are stored. Dead tokens are all one `invalid_grant` |
+| **Revocation** | The user (`DELETE /api/oauth/grants/{id}`), the client (`POST /api/oauth/revoke`, always `200`), an administrator disabling the client (`client_disabled`), reuse (`reuse_detected`) and organization offboarding (`offboarding`) revoke a grant; the next request is `401`. Every resolution re-checks the token, grant, client, user and membership |
+| **In-process delegation** | A resource that calls the app's own routes uses `InProcessDelegation` (`Bearer ipd_<id>.<mac>`): an HMAC-SHA-256 under a key generated at process start and never stored, an in-memory entry for 60 seconds that is dropped when the originating request ends. The invariant: **a delegation is unusable from the network and unusable after its originating request ends**. The guard accepts it only on a request that did not arrive over a socket (a per-process marker passed to `fastify.inject`; a real peer address is always an IP); a network request carrying an `ipd_` header is `401` with a warning. The `oat_` header is never forwarded |
+
+Other facts:
+
+- **Challenges.** A `401` or `403 insufficient_scope` under a resource prefix carries `WWW-Authenticate: Bearer resource_metadata="..."`; step-up needs a fresh consent. A resource refuses with a real HTTP status, never a `200` carrying an error.
+- **Rate limits.** `/authorize` 30 per minute per address, `/token` and `/revoke` 60 per minute per client id, `/register` 10 per hour per address (in memory per process; `OAUTH_RATE_LIMITER` replaces it). Behind a proxy the address is the proxy's unless `trustProxy` is set.
+- **CORS.** The token, register and revoke endpoints and the metadata documents answer `Access-Control-Allow-Origin: *` with no credentials (they take no cookie); the authorize and consent routes and the rest of the API keep the `CORS_ORIGIN` allowlist.
+- **Data.** Five user-owned tables (no row-level security, like `personal_access_tokens`): `oauth_clients`, `oauth_authorization_requests`, `oauth_grants`, `oauth_authorization_codes`, `oauth_tokens`. A user-data purge deletes the user's grants, codes, tokens and pending requests; the export lists grants without any hash, token or prefix. The `oauth.token.cleanup` job deletes expired rows (retention in [the spec](specs/oauth-server.md#222-housekeeping-jobs)).
+- **Audit and events.** `oauth:grant.create|update|revoke`, `oauth:consent.deny`, `oauth:token.reuse_detected`, `oauth:client.create|update|disable|enable|delete|rotate_secret|refused`, `oauth:settings.update`; events `identity.oauth.grant.created` and `.revoked` after commit.
+- **Threat model.** The table of threats and mitigations is [spec §2.23](specs/oauth-server.md#223-threat-model). Tested by `apps/api/test/identity/oauth/` and the `oauth-server` conformance suite.

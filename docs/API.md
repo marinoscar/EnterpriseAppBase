@@ -56,6 +56,7 @@ health, the device-code and device-token polls, avatar images).
 | Refresh token (opaque, 14 days default) | `refresh_token` cookie, `HttpOnly`, `SameSite=Lax`, `Path=/api/auth` | `POST /api/auth/refresh`, `POST /api/auth/switch-org`, `POST /api/auth/logout` | OAuth callback, rotated on every refresh and switch-org |
 | Personal access token (`pat_…`) | `Authorization: Bearer pat_…` | Every authenticated route | `POST /api/pat`, or the device flow |
 | Node credential (`nod_…`) | `Authorization: Bearer nod_…` | Only `/api/nodes` and `/api/nodes/*`; `403` elsewhere | `POST /api/node-credentials` |
+| OAuth access token (`oat_…`) | `Authorization: Bearer oat_…` | Only the route prefixes of the protected resource its grant names; `403` elsewhere | `POST /api/oauth/token`, after the user's consent ([OAuth server](#oauth-server)) |
 | Link-share token (`lnk_…`) | `X-Link-Token: lnk_…` (the SPA reads it from the share URL's fragment, `/s#lnk_…`); never a path segment or a query parameter | `GET /api/public/links/current` and app routes behind `LinkGrantGuard`, for one record | `POST /api/grants/links` |
 
 - The access token is read from the `Authorization` header only, never from a
@@ -215,8 +216,59 @@ the app's `APP_FILTER`), which builds this body:
 - Outside production, an unexpected non-HTTP error puts its stack in `details`.
 - A `429` whose `details.retryAfterMs` is set also carries a `Retry-After`
   header, in whole seconds rounded up.
-- One route opts out of the envelope: `POST /api/auth/device/token` returns
-  the RFC 8628 body `{ "error": "…", "error_description": "…" }` verbatim.
+- A route opts out of the envelope when an external standard dictates its body:
+  `POST /api/auth/device/token` returns the RFC 8628 body `{ "error": "…",
+  "error_description": "…" }` verbatim, and the OAuth protocol endpoints below
+  use `@RawResponse()`.
+
+## OAuth server
+
+An app that mounts the OAuth server (`IdentityModule.forRoot({ oauthServer })`,
+off until an administrator enables it) offers third-party clients a token that
+is scoped, audience-bound and revocable. Its protocol endpoints follow the RFCs,
+not this document's conventions:
+
+- **No `{ data }` envelope.** The handlers are marked `@RawResponse()`
+  (`@marinoscar/platform-api/core`); the generated OpenAPI operation carries
+  `x-raw-response: true` and its success schema is the RFC body itself (the token
+  response `{ access_token, token_type, expires_in, refresh_token?, scope }`, the
+  metadata documents, the registration response).
+- **No platform error body.** Errors are `{ "error": "invalid_grant",
+  "error_description": "…" }` with the RFC 6749, 7591 and 8707 codes (the closed
+  list is `OAUTH_ERROR_CODES` of `@marinoscar/platform-contract/identity`).
+  `invalid_grant` always means "reconnect". A rate limit is `429` with
+  `Retry-After` and `{ "error": "temporarily_unavailable" }`.
+- **Form bodies.** `/token` and `/revoke` accept only
+  `application/x-www-form-urlencoded`, at most 16 KiB; JSON is `400
+  invalid_request`. `/register` accepts only `application/json`.
+- **Public on purpose.** Every protocol route is `@Public()` and authenticates
+  the caller itself; while the server is off they answer `404` (`/authorize`
+  redirects to an error page, because a person is looking at it).
+- **Ordinary platform routes.** The consent API (`/api/oauth/requests/:id` and
+  `.../decision`, session credential only), the grants API (`/api/oauth/grants`)
+  and the admin API (`/api/admin/oauth/clients`, `oauth_clients:*`) use the
+  envelope and the standard error body.
+
+A route under a protected resource's prefix answers a missing or invalid
+credential with `401` and a `WWW-Authenticate` challenge, and a scope the token
+lacks with `403 insufficient_scope`:
+
+```http
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer resource_metadata="https://app.example.test/.well-known/oauth-protected-resource/api/mcp"
+
+HTTP/1.1 403 Forbidden
+WWW-Authenticate: Bearer error="insufficient_scope", scope="runs:read runs:write", resource_metadata="https://app.example.test/.well-known/oauth-protected-resource/api/mcp"
+```
+
+`error="invalid_token"` appears only when a token was presented; the `scope`
+lists the granted and the required scopes, because clients do not reliably carry
+earlier scopes into a step-up. Routes outside any protected resource keep their
+existing `401`. The `oauth` credential cannot create a personal access token,
+start a device flow, switch organization or manage sessions and grants.
+Discovery documents live at `/.well-known/oauth-authorization-server` and
+`/.well-known/oauth-protected-resource[/<path>]`. Design and every endpoint:
+[specs/oauth-server.md](specs/oauth-server.md).
 
 ## Pagination
 
@@ -292,13 +344,19 @@ Three routes stream `text/event-stream`:
 ## Rate Limiting
 
 There is no global HTTP rate limiter in the API or in Nginx. Add one (for
-example `@nestjs/throttler`, or `limit_req` in Nginx) if you need it. Three
+example `@nestjs/throttler`, or `limit_req` in Nginx) if you need it. These
 targeted limits exist:
 
 - **AI**: administrators set per-user, org-key and per-model limits in the `ai`
   settings namespace. A request over a limit gets `429` with
   `details.reason: "AI_RATE_LIMITED"`, `details.limit`, `details.retryAfterMs`
   and a `Retry-After` header. See [AI Platform](specs/ai-platform.md).
+- **OAuth server** (when mounted): `/api/oauth/authorize` 30 per minute per
+  address, `/token` and `/revoke` 60 per minute per client id, `/register` 10 per
+  hour per address; `429` with `Retry-After`. The counts live in each API
+  process; behind a proxy the address is the proxy's unless `trustProxy` is set
+  ([runbook](runbooks/oauth-server.md)). An app replaces the limiter with the
+  `OAUTH_RATE_LIMITER` token.
 - **Device token polling**: polling faster than the issued `interval` returns
   the RFC 8628 `slow_down` error.
 - **Member lookup by email** (`POST /api/groups/:id/members` and
@@ -380,6 +438,8 @@ Every group below is under `/api`. Exact routes are in `/api/docs`.
 | `system-settings` | Global settings (JSONB namespaces) | `system_settings:*` | [settings-ui](specs/settings-ui.md) |
 | `org-settings` | The active organization's overrides of the org-overridable system namespaces, with each namespace's effective value; `PATCH` takes `If-Match`, `null` clears a namespace or a field, an unknown or non-overridable namespace is `400`; each namespace's own permissions filter `GET` and refuse `PATCH` (`403`) | `org_settings:read`, `org_settings:write` (org) | [settings README](../packages/platform-api/src/settings/README.md) |
 | `email-settings` | Outbound email transport configuration | `system_settings:*` | [browser-notifications](specs/browser-notifications.md) |
+| `oauth` | The OAuth server: metadata, authorize, token, register, revoke (protocol, `@RawResponse()`), `oauth/requests/:id` (consent), `oauth/grants` (the caller's connected apps); only while mounted | public (protocol); authenticated, session only (consent); authenticated (grants) | [oauth-server](specs/oauth-server.md) |
+| `admin/oauth/clients` | OAuth clients: list, pre-register, edit, disable, rotate secret, delete; only while mounted | `oauth_clients:*` | [oauth-server](specs/oauth-server.md) |
 | `pat` | Personal access tokens | authenticated (own) | [personal-access-tokens](personal-access-tokens.md) |
 | `storage/objects` | File uploads (simple and resumable) and downloads | authenticated (owner) | [storage-providers](specs/storage-providers.md) |
 | `admin/storage-config` | Object-storage provider, bucket, credential | `storage_config:*` | [storage-providers](specs/storage-providers.md) |

@@ -119,6 +119,7 @@ function scopeToken(scope: string): string {
  * buildBearerChallenge({ resourceId: 'notes', error: 'insufficient_scope', scope: ['notes:read', 'notes:write'] });
  * ```
  *
+ * @extensionPoint hook
  * @stability experimental
  */
 export function buildBearerChallenge(input: BearerChallengeInput): string {

@@ -26,6 +26,7 @@ Developers extending the platform start at [README.md](README.md) instead.
 | General | Setup guide | `/admin/settings/setup` | `system_settings:read` |
 | General | Android app | `/admin/settings/android` | `system_settings:read` |
 | Access | Users & Allowlist | `/admin/settings/users` | `users:read` |
+| Access | OAuth clients | `/admin/settings/oauth-clients` | `oauth_clients:read`, shown only when the app offers OAuth |
 | Operations | Jobs, Job Insights | `/admin/settings/jobs`, `/admin/settings/jobs/insights` | `jobs:read` |
 | Operations | Worker Nodes | `/admin/settings/workers` | `nodes:read` |
 | Operations | Database Backup | `/admin/settings/db-backup` | `db_backup:read` |
@@ -55,6 +56,7 @@ No user card declares a permission, apart from the ones noted. Every signed-in u
 | Account | Notifications | `/settings/notifications` | |
 | Account | Getting started | `/settings/getting-started` | Also in the user menu |
 | Security | Access Tokens | `/settings/tokens` | Personal access tokens: [personal-access-tokens.md](personal-access-tokens.md) |
+| Security | Connected apps | `/settings/connected-apps` | Hidden until an administrator lets other apps connect |
 | Security | AI Keys | `/settings/ai` | `ai:use`, hidden while AI is off |
 | Sharing | Groups | `/settings/groups` | `groups:read` |
 | Integrations | Webhooks | `/settings/webhooks` | `webhooks:read` |
@@ -270,6 +272,22 @@ Every long-running activity (backups, exports, resets, broadcasts, AI runs) is a
 AI jobs always run on the server and never on a node.
 
 Procedures: [runbooks/run-worker-nodes.md](runbooks/run-worker-nodes.md), [runbooks/node-job-secrets.md](runbooks/node-job-secrets.md). Design: [specs/job-queue.md](specs/job-queue.md), [specs/worker-nodes.md](specs/worker-nodes.md).
+
+## Let another app connect
+
+- **Where:** OAuth clients, `/admin/settings/oauth-clients` (administrators); Connected apps, `/settings/connected-apps` (every user).
+- **Who:** `oauth_clients:read` opens the page, `oauth_clients:write` changes it and manages clients. Every signed-in user manages their own connections.
+
+OAuth lets an app you do not run, such as a hosted AI assistant, act for a user without their password or a personal access token. The user approves what it may do, the app gets a short-lived token limited to that, and the user can take it back at any time. The app must offer OAuth (it registers what a connected app may touch), and the server is off until you turn it on.
+
+1. Open OAuth clients and switch on "Let other apps connect with OAuth". Copy the Issuer URL if the other side asks for it.
+2. Under "Who may connect", add the host of each app you trust (for example `client.example.test`, no `https://`). Nothing connects from a host you did not add, unless you pick "Allow apps from any host" (for testing only; the Doctor warns). When an unknown app is turned away, it appears under "Refused attempts" with an Allow button.
+3. Give the user the address of the app's connection endpoint to type into the other app. The other app shows a consent page of this deployment.
+4. The user sees the app's host first (not just the name it gives itself), where they return to afterwards, and what it asks for, grouped by risk. Risky scopes start unticked. In multi-organization mode they choose the organization it acts in. They press Allow or Deny.
+5. Connected apps lists each connection with its host, what it may do and when it was last used. Disconnect revokes it at once.
+6. As an administrator you can also pre-register a client (an id and, for a confidential one, a secret shown once), disable a client (this revokes all its grants) or rotate its secret.
+
+If something fails, the Doctor reports `oauth.public_url` (the deployment must be a public `https` address), `oauth.well_known` (a proxy must not hide the discovery documents) and the other `oauth.*` checks. Procedures: [runbooks/oauth-server.md](runbooks/oauth-server.md). Design: [specs/oauth-server.md](specs/oauth-server.md).
 
 ## Webhooks
 

@@ -27,6 +27,7 @@ import { oauthResourceRegistry } from './oauth-resource.registry';
  * when the caller authenticated with an `oat_` token, and a plain `403` for
  * every other credential.
  *
+ * @extensionPoint hook
  * @stability experimental
  * @example
  * ```ts
@@ -71,6 +72,7 @@ export class InsufficientScopeException extends ForbiddenException {
  * @param scopes - the scopes the operation needs.
  * @throws InsufficientScopeException when the token lacks a scope.
  *
+ * @extensionPoint hook
  * @stability experimental
  * @example
  * ```ts

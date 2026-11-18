@@ -31,7 +31,7 @@ describe('useSettingsFeatures', () => {
         createElement(TelemetryConfigContext.Provider, { value: telemetry }, children),
       );
     const { result, rerender } = renderHook(() => useSettingsFeatures(), { wrapper });
-    expect(result.current).toEqual({ ai: true, telemetry: true, orgs: false });
+    expect(result.current).toEqual({ ai: true, telemetry: true, orgs: false, oauthServer: false });
     const first = result.current;
     rerender();
     expect(result.current).toBe(first);
@@ -39,7 +39,7 @@ describe('useSettingsFeatures', () => {
 
   it('answers every feature off with no shell providers, without fetching', () => {
     const { result } = renderHook(() => useSettingsFeatures());
-    expect(result.current).toEqual({ ai: false, telemetry: false, orgs: false });
+    expect(result.current).toEqual({ ai: false, telemetry: false, orgs: false, oauthServer: false });
   });
 
   // #726: `orgs` is on iff `/api/auth/me` reports `tenancyMode: 'multi'`.
@@ -56,5 +56,14 @@ describe('useSettingsFeatures', () => {
       );
     const { result } = renderHook(() => useSettingsFeatures(), { wrapper });
     expect(result.current.orgs).toBe(expected);
+  });
+});
+
+// #1185: `oauthServer` comes from the shell's `OAuthServerStatusProvider`
+// (one probe of the metadata document); without the provider it is off.
+describe('useSettingsFeatures - oauthServer (#1185)', () => {
+  it('is off without the status provider and never fetches for it', () => {
+    const { result } = renderHook(() => useSettingsFeatures());
+    expect(result.current.oauthServer).toBe(false);
   });
 });
