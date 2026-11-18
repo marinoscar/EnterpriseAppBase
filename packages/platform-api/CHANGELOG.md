@@ -1,5 +1,13 @@
 # @marinoscar/platform-api
 
+## 0.1.0-next.37
+
+### Patch Changes
+
+- Updated dependencies [2048bf1]
+  - @marinoscar/platform-contract@0.1.0-next.37
+  - @marinoscar/platform-ai-providers@0.1.0-next.37
+
 ## 0.1.0-next.36
 
 ### Minor Changes
