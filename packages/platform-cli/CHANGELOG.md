@@ -1,5 +1,16 @@
 # @marinoscar/platform-cli
 
+## 0.1.0-next.35
+
+### Patch Changes
+
+- Updated dependencies [cbf4877]
+- Updated dependencies [cbf4877]
+- Updated dependencies [cbf4877]
+- Updated dependencies [cbf4877]
+  - @marinoscar/platform-contract@0.1.0-next.35
+  - @marinoscar/platform-infra@0.1.0-next.35
+
 ## 0.1.0-next.34
 
 ### Patch Changes
