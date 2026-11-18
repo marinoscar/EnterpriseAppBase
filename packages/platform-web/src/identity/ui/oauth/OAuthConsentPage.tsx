@@ -49,7 +49,7 @@ import type { OAuthConsentRequest } from '@marinoscar/platform-contract/identity
 import type { PageSlotsBase } from '../../../core/index.js';
 import { useAuth, useIdentityWebAdapters, useOAuthRequest } from '../../headless/index.js';
 import type { OAuthServerApi } from '../../headless/index.js';
-import { displayableClientLogo, isNewClient } from './oauth-display.js';
+import { displayableClientLogo } from './oauth-display.js';
 
 type ConsentScope = OAuthConsentRequest['scopes'][number];
 type ScopeRisk = ConsentScope['risk'];
@@ -290,7 +290,8 @@ function ConsentForm({
 
   const logo = displayableClientLogo(request.client.logoUri, request.client.host);
   const [logoFailed, setLogoFailed] = useState(false);
-  const isNew = isNewClient(request.client.firstSeenAt);
+  // The API decides: first seen under 24 hours ago, or nobody else on this deployment has connected it.
+  const isNew = request.client.isNewToDeployment;
   const grouped = RISK_ORDER.map((risk) => ({ risk, scopes: request.scopes.filter((scope) => scope.risk === risk) })).filter(
     (group) => group.scopes.length > 0,
   );

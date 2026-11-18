@@ -14,7 +14,7 @@ import { ApiDataResponse } from '../../../core/index';
 import { Auth } from '../../auth/decorators/auth.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../identity.constants';
-import { OAuthClientCreateRequestDto, OAuthClientPatchRequestDto, OAuthClientViewDto, OAuthClientWithSecretDto, OAuthClientsQueryDto } from '../oauth.dto';
+import { OAuthClientCreateRequestDto, OAuthPolicyDto, OAuthRefusedHostDto, OAuthClientPatchRequestDto, OAuthClientViewDto, OAuthClientWithSecretDto, OAuthClientsQueryDto } from '../oauth.dto';
 import { OAuthClientsAdminService } from './oauth-clients-admin.service';
 
 /**
@@ -78,5 +78,36 @@ export class OAuthClientsAdminController {
   @ApiResponse({ status: 404, description: 'Client not found' })
   async remove(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('id') adminUserId: string) {
     await this.clients.remove(id, adminUserId);
+  }
+}
+
+/**
+ * The read-only hints of the admin page, beside the clients: `/api/admin/oauth/refused-hosts`
+ * and `/api/admin/oauth/policy`. Same permission as the clients list.
+ *
+ * @stability experimental
+ */
+@ApiTags('OAuth clients')
+@Controller('admin/oauth')
+export class OAuthAdminHintsController {
+  constructor(private readonly clients: OAuthClientsAdminService) {}
+
+  @Get('refused-hosts')
+  @Auth({ permissions: [PERMISSIONS.OAUTH_CLIENTS_READ] })
+  @ApiOperation({
+    summary: 'List refused client hosts (Admin only)',
+    description: 'Hosts the client trust policy turned away in the last 30 days, from the `oauth:client.refused` audit rows: host, attempts (one row per host per hour at most) and the latest time. Newest first, at most 100.',
+  })
+  @ApiDataResponse(OAuthRefusedHostDto, { isArray: true, description: 'Refused hosts' })
+  refusedHosts() {
+    return this.clients.listRefusedHosts();
+  }
+
+  @Get('policy')
+  @Auth({ permissions: [PERMISSIONS.OAUTH_CLIENTS_READ] })
+  @ApiOperation({ summary: 'Read the OAuth admin policy hints (Admin only)', description: "The app's suggested client hosts (`defaultAllowedClientHosts`), offered with \"Add\" on the admin page." })
+  @ApiDataResponse(OAuthPolicyDto, { description: 'The policy hints' })
+  policy() {
+    return this.clients.getPolicy();
   }
 }

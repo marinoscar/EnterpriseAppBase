@@ -288,6 +288,7 @@ export {
   OAUTH_CLIENT_CLEANUP_TYPE,
   OAuthClientCleanupHandler,
   OAuthClientCleanupTask,
+  OAuthAdminHintsController,
   OAuthClientsAdminController,
   OAuthClientsAdminService,
   cimdExpiry,

@@ -31,6 +31,7 @@ export function consentRequest(overrides: Partial<OAuthConsentRequest> = {}): OA
       logoUri: 'https://chat.example.test/logo.png',
       kind: 'cimd',
       firstSeenAt: OLD,
+      isNewToDeployment: false,
     },
     redirectHost: 'callback.example.test',
     isLoopbackRedirect: false,

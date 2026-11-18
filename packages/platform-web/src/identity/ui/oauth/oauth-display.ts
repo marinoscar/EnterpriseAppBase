@@ -57,22 +57,6 @@ export function displayableClientLogo(logoUri: string | null | undefined, host: 
   return url.href;
 }
 
-/** A client first seen less than this long ago is "new here". */
-export const NEW_CLIENT_WINDOW_MS = 24 * 60 * 60 * 1000;
-
-/**
- * Whether the client is new on this deployment: first seen under 24 hours ago.
- *
- * @param firstSeenAt - ISO 8601.
- * @param now - the clock.
- * @returns `true` when new.
- */
-export function isNewClient(firstSeenAt: string, now: number = Date.now()): boolean {
-  const seen = Date.parse(firstSeenAt);
-  if (Number.isNaN(seen)) return false;
-  return now - seen < NEW_CLIENT_WINDOW_MS;
-}
-
 const UNITS: { limit: number; ms: number; unit: Intl.RelativeTimeFormatUnit }[] = [
   { limit: 3_600_000, ms: 60_000, unit: 'minute' },
   { limit: 86_400_000, ms: 3_600_000, unit: 'hour' },

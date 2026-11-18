@@ -34,5 +34,5 @@ export { ClientTrustPolicy, evaluateClientTrust, isHostAdmitted } from './client
 export type { TrustRefusalReason, TrustSettings, TrustSubject, TrustVerdict } from './client-trust.policy';
 export { OAUTH_CLIENT_CLEANUP_TYPE, OAuthClientCleanupHandler } from './oauth-client-cleanup.handler';
 export { OAuthClientCleanupTask } from './oauth-client-cleanup.task';
-export { OAuthClientsAdminController } from './oauth-clients-admin.controller';
+export { OAuthAdminHintsController, OAuthClientsAdminController } from './oauth-clients-admin.controller';
 export { OAuthClientsAdminService } from './oauth-clients-admin.service';

@@ -20,6 +20,7 @@ import type {
   OAuthConsentRequest,
   OAuthDecisionResponse,
   OAuthGrantView,
+  OAuthPolicy,
 } from '@marinoscar/platform-contract/identity';
 
 import type { PlatformApiClient } from '../../core/index.js';
@@ -198,6 +199,12 @@ export interface OAuthServerApi {
    * answers `404`; the admin page then says the list is not available.
    */
   listRefusedHosts(): Promise<OAuthRefusedHost[]>;
+  /**
+   * `GET /api/admin/oauth/policy` (`oauth_clients:read`): the app's suggested
+   * client hosts (`defaultAllowedClientHosts`). A server without the route
+   * answers `404`; the page then suggests nothing.
+   */
+  getPolicy(): Promise<OAuthPolicy>;
   /** `GET /api/system-settings` (`system_settings:read`), narrowed to the `oauthServer` namespace. */
   getServerSettings(): Promise<VersionedOAuthServerSettings>;
   /**
@@ -268,6 +275,7 @@ export function createOAuthServerApi(api: PlatformApiClient): OAuthServerApi {
       await api.delete<void>(`/admin/oauth/clients/${encode(id)}`);
     },
     listRefusedHosts: () => api.get<OAuthRefusedHost[]>('/admin/oauth/refused-hosts'),
+    getPolicy: () => api.get<OAuthPolicy>('/admin/oauth/policy'),
     getServerSettings: async () => narrow(await api.get<SystemSettingsDocument>('/system-settings')),
     updateServerSettings: async (patch, version) =>
       narrow(await api.patch<SystemSettingsDocument>('/system-settings', { oauthServer: patch }, { ifMatch: String(version) })),

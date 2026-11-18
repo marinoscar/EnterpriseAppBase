@@ -894,7 +894,7 @@ describe('Sharing routes (#731)', () => {
           HttpResponse.json({
             data: {
               id: '11111111-1111-4111-8111-111111111111',
-              client: { name: 'Example Assistant', host: 'chat.example.test', logoUri: null, kind: 'cimd', firstSeenAt: '2026-01-01T00:00:00.000Z' },
+              client: { name: 'Example Assistant', host: 'chat.example.test', logoUri: null, kind: 'cimd', firstSeenAt: '2026-01-01T00:00:00.000Z', isNewToDeployment: false },
               redirectHost: 'callback.example.test',
               isLoopbackRedirect: false,
               resource: { id: 'runs', name: 'Runs' },

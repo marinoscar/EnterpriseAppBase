@@ -131,6 +131,22 @@ describe('OAuthClientsPage: writes', () => {
     expect(patches(host.requests)[0]?.body).toEqual({ oauthServer: { allowedClientHosts: ['chat.example.test', 'blocked.example.test'] } });
   });
 
+  it('falls back to the API policy for suggested hosts when the prop is absent, and the prop wins when given', async () => {
+    mountPage(WRITE, { 'GET /admin/oauth/policy': { suggestedHosts: ['policy.example.test', 'chat.example.test'] } });
+    expect(await screen.findByRole('button', { name: 'Add policy.example.test' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add chat.example.test' })).not.toBeInTheDocument();
+  });
+
+  it('suggests nothing when the API has no policy route', async () => {
+    mountPage(WRITE, {
+      'GET /admin/oauth/policy': () => {
+        throw createTestApiError(404, 'Not Found');
+      },
+    });
+    await screen.findByRole('button', { name: 'Allow blocked.example.test' });
+    expect(screen.queryByRole('button', { name: /^Add .*\.example\.test$/ })).not.toBeInTheDocument();
+  });
+
   it('says so when the API does not list refused attempts', async () => {
     mountPage(WRITE, {
       'GET /admin/oauth/refused-hosts': () => {

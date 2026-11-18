@@ -215,6 +215,34 @@ export function useOAuthRefusedHosts(api?: OAuthServerApi): UseOAuthRefusedHosts
 }
 
 /**
+ * The client hosts the app suggests for the allowlist (its
+ * `defaultAllowedClientHosts`), from `GET /api/admin/oauth/policy`. Empty while
+ * loading and when the server has no such route or the read fails: the hint is
+ * optional, so a failure is never an error.
+ *
+ * @param api - the OAuth client; default {@link useOAuthServerApi}'s.
+ * @returns the suggested hosts.
+ *
+ * @stability experimental
+ */
+export function useOAuthPolicy(api?: OAuthServerApi): { suggestedHosts: string[] } {
+  const oauth = useOAuthServerApi(api);
+  const isMounted = useIsMounted();
+  const [suggestedHosts, setSuggestedHosts] = useState<string[]>([]);
+
+  useEffect(() => {
+    oauth
+      .getPolicy()
+      .then((policy) => {
+        if (isMounted()) setSuggestedHosts(policy.suggestedHosts);
+      })
+      .catch(() => undefined);
+  }, [oauth, isMounted]);
+
+  return { suggestedHosts };
+}
+
+/**
  * What {@link useOAuthServerSettings} returns.
  *
  * @stability experimental

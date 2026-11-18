@@ -12,15 +12,31 @@
 // =============================================================================
 
 import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
-import type { OAuthClientPatchRequest, OAuthClientCreateRequest, OAuthClientView, OAuthClientWithSecret, OAuthClientsQuery } from '@marinoscar/platform-contract/identity';
+import type {
+  OAuthClientPatchRequest,
+  OAuthClientCreateRequest,
+  OAuthClientView,
+  OAuthClientWithSecret,
+  OAuthClientsQuery,
+  OAuthPolicy,
+  OAuthRefusedHost,
+} from '@marinoscar/platform-contract/identity';
 
 import { PLATFORM_PRISMA } from '../../../core/index';
 import type { IdentityOAuthClientRow, IdentityOAuthGrantRow, IdentityPrisma } from '../../data/identity-db';
+import { DEFAULT_IDENTITY_OPTIONS, IDENTITY_OPTIONS, type ResolvedIdentityModuleOptions } from '../../identity.options';
 import { IDENTITY_METRICS, NOOP_IDENTITY_METRICS, type IdentityMetrics } from '../../ports';
 import { OAUTH_AUDIT_ACTIONS, OAUTH_CLIENT_AUDIT_TARGET_TYPE, OAuthGrantService } from '../oauth-grant.service';
 import { registeredRedirectUris } from '../redirect-uri';
 import { sharedRedirectHost, validateRedirectUris } from './client-redirects';
 import { hashClientSecret, newClientId, newClientSecret } from './client-secret';
+
+/** The window of the refused-hosts list. */
+export const REFUSED_HOSTS_WINDOW_MS = 30 * 24 * 60 * 60_000;
+/** Most hosts the refused-hosts list returns. */
+export const REFUSED_HOSTS_MAX = 100;
+/** Most audit rows one refused-hosts read scans (one row per host per hour at most). */
+const REFUSED_ROWS_SCAN_MAX = 20_000;
 
 type ClientWithCount = IdentityOAuthClientRow & { _count: { grants: number } };
 
@@ -40,7 +56,45 @@ export class OAuthClientsAdminService {
     @Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma,
     private readonly grants: OAuthGrantService,
     @Optional() @Inject(IDENTITY_METRICS) private readonly metrics: IdentityMetrics = NOOP_IDENTITY_METRICS,
+    @Optional() @Inject(IDENTITY_OPTIONS) private readonly options: ResolvedIdentityModuleOptions = DEFAULT_IDENTITY_OPTIONS,
   ) {}
+
+  /**
+   * The hosts the trust policy refused in the last 30 days, from the
+   * `oauth:client.refused` audit rows (target id = host), newest first.
+   *
+   * @param now - the clock, for tests.
+   * @returns at most 100 hosts with their row count and latest time.
+   */
+  async listRefusedHosts(now: number = Date.now()): Promise<OAuthRefusedHost[]> {
+    const rows = await this.prisma.auditEvent.findMany<{ targetId: string; createdAt: Date }>({
+      where: {
+        action: OAUTH_AUDIT_ACTIONS.CLIENT_REFUSED,
+        targetType: OAUTH_CLIENT_AUDIT_TARGET_TYPE,
+        createdAt: { gte: new Date(now - REFUSED_HOSTS_WINDOW_MS) },
+      },
+      select: { targetId: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+      take: REFUSED_ROWS_SCAN_MAX,
+    });
+    const byHost = new Map<string, OAuthRefusedHost>();
+    for (const row of rows) {
+      const entry = byHost.get(row.targetId);
+      if (entry) entry.count += 1;
+      else byHost.set(row.targetId, { host: row.targetId, count: 1, lastSeenAt: row.createdAt.toISOString() });
+    }
+    // Rows arrive newest first, so the map is already ordered by latest refusal.
+    return [...byHost.values()].slice(0, REFUSED_HOSTS_MAX);
+  }
+
+  /**
+   * What the app configured for the admin page: the suggested client hosts.
+   *
+   * @returns the policy hints.
+   */
+  getPolicy(): OAuthPolicy {
+    return { suggestedHosts: [...(this.options.oauthServer?.defaultAllowedClientHosts ?? [])] };
+  }
 
   /**
    * A page of clients, newest first.

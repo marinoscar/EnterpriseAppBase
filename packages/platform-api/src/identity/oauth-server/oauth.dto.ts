@@ -15,6 +15,8 @@ import {
   oauthClientWithSecretSchema,
   oauthClientsQuerySchema,
   oauthGrantViewSchema,
+  oauthPolicySchema,
+  oauthRefusedHostSchema,
   oauthRegistrationRequestSchema,
   oauthRegistrationResponseSchema,
   oauthTokenRequestSchema,
@@ -49,3 +51,7 @@ export class OAuthClientCreateRequestDto extends createZodDto(oauthClientCreateR
 export class OAuthClientPatchRequestDto extends createZodDto(oauthClientPatchRequestSchema) {}
 /** A client with its one-time secret (create and rotate). */
 export class OAuthClientWithSecretDto extends createZodDto(oauthClientWithSecretSchema) {}
+/** One host of `GET /api/admin/oauth/refused-hosts`. */
+export class OAuthRefusedHostDto extends createZodDto(oauthRefusedHostSchema) {}
+/** `GET /api/admin/oauth/policy` response. */
+export class OAuthPolicyDto extends createZodDto(oauthPolicySchema) {}

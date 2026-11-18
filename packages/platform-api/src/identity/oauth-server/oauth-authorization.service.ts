@@ -59,6 +59,9 @@ import { isWellFormedChallenge } from './pkce';
 import { isLoopbackRedirectUri, matchesRedirectUri, redirectHostOf } from './redirect-uri';
 
 /** A request row with its client. */
+/** A client first seen within this window is new to the deployment. */
+const NEW_TO_DEPLOYMENT_WINDOW_MS = 24 * 60 * 60_000;
+
 type RequestWithClient = IdentityOAuthAuthorizationRequestRow & { client: IdentityOAuthClientRow };
 
 /** A query-string value: one string, or absent. Anything else (a repeated parameter) is invalid. */
@@ -260,6 +263,7 @@ export class OAuthAuthorizationService {
         logoUri: row.client.logoUri,
         kind: row.client.kind,
         firstSeenAt: row.client.createdAt.toISOString(),
+        isNewToDeployment: await this.isNewToDeployment(row.client.createdAt, row.clientId, principal.userId),
       },
       redirectHost: redirectHostOf(row.redirectUri),
       isLoopbackRedirect: isLoopbackRedirectUri(row.redirectUri),
@@ -269,6 +273,19 @@ export class OAuthAuthorizationService {
       organizations: await this.organizationsOf(principal),
       expiresAt: row.expiresAt.toISOString(),
     };
+  }
+
+  /**
+   * First seen less than 24 hours ago, or no OTHER user holds an active grant
+   * with the client (one indexed lookup, only for a client older than a day).
+   */
+  private async isNewToDeployment(firstSeen: Date, clientRowId: string, userId: string): Promise<boolean> {
+    if (Date.now() - firstSeen.getTime() < NEW_TO_DEPLOYMENT_WINDOW_MS) return true;
+    const other = await this.prisma.oAuthGrant.findFirst<{ id: string }>({
+      where: { clientId: clientRowId, revokedAt: null, userId: { not: userId } },
+      select: { id: true },
+    });
+    return other === null;
   }
 
   /** The active memberships the grant may act in; empty in single mode. */

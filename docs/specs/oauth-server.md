@@ -225,6 +225,7 @@ Auth: session credential only. Binds the request to the caller on first read (`u
 | `redirectHost`, `isLoopbackRedirect` | Where the user goes after deciding |
 | `resource` | `{ id, name }` |
 | `scopes` | Requested scopes as `{ id, title, description, risk, grantable, required, alreadyGranted }`; `offline_access` is not listed here. `grantable` is false when the user lacks every permission the scope maps to. `required` marks the resource's default scopes the user cannot untick |
+| `isNewToDeployment` | `true` when the client is new on this deployment (the consent page says so) |
 | `offlineAccess` | `true` when the client asked to stay connected (`offline_access` was requested); the page shows it as a line, not a tickable scope |
 | `organizations` | The user's active memberships the grant may act in (`multi` tenancy), with the default |
 | `expiresAt` | End of the 10-minute window |
@@ -273,6 +274,10 @@ Request (form): `token`, `token_type_hint` (optional), client authentication as 
 #### `GET /api/oauth/grants` and `DELETE /api/oauth/grants/:id`
 
 `GET` returns the caller's active grants: id, client `{ name, host, logoUri }`, resource name, scopes with titles, `createdAt`, `lastUsedAt`, organization. Never a token. `DELETE` revokes one grant (`revoked_reason: user`), audits it and emits `identity.oauth.grant.revoked`; success `204`. Errors: `401`; `403` for an `oauth` credential; `404` for an id that is not the caller's.
+
+#### `GET /api/admin/oauth/refused-hosts`
+
+Auth: `oauth_clients:read`. The client hosts turned away in the last 30 days, read from the `oauth:client.refused` audit rows (no extra table), so the admin page can offer "Allow this host". The page also lists the hosts the app suggests through `defaultAllowedClientHosts`.
 
 #### `/api/admin/oauth/clients`
 
@@ -495,7 +500,7 @@ The consent page is `/oauth/consent?request=<id>` in the signed-in web app, outs
 - `Allow` is disabled for one second after render and while submitting. A signed-out user logs in and returns to the same URL.
 - Consent is never skipped for a returning public client. The page may pre-tick and say "already connected".
 - Only a session credential may approve. A PAT, device token or `oat_` token cannot.
-- The page is not framable (`frame-ancestors 'none'`).
+- The page is not framable: an nginx location gives `/oauth/consent` and `/oauth/error` `frame-ancestors 'none'`.
 
 ### 2.20 Data model
 
@@ -616,10 +621,10 @@ Fixed in code, not settings: authorization code life (60 s), pending request lif
 
 | Permission | Scope | Default grants | Gates |
 |---|---|---|---|
-| `oauth_clients:read` | system | `admin` | `GET /api/admin/oauth/clients` and the admin card |
+| `oauth_clients:read` | system | `admin` | `GET /api/admin/oauth/clients`, `GET /api/admin/oauth/refused-hosts` and the admin card |
 | `oauth_clients:write` | system | `admin` | `POST`, `PATCH`, `DELETE` and rotate on `/api/admin/oauth/clients`; the settings controls inside the page |
 
-The consent API and grants API need no permission: any signed-in user manages their own grants. The full matrix goes into [ARCHITECTURE.md §7.2](../ARCHITECTURE.md#72-permission-matrix) when the permissions are built.
+The consent API and grants API need no permission: any signed-in user manages their own grants. The full matrix is in [ARCHITECTURE.md §7.2](../ARCHITECTURE.md#72-permission-matrix).
 
 **Rate limits** (in-memory fixed window, `429` with `Retry-After` and body `{ "error": "temporarily_unavailable", "error_description": "Too many requests." }`):
 
@@ -644,7 +649,7 @@ The consent API and grants API need no permission: any signed-in user manages th
 | `oauth.resources` | `warn` when enabled with no protected resource; else `pass`, listing resources and scope counts | `/admin/settings/oauth-clients` |
 | `oauth.token_cleanup` | `warn` when a token that expired more than 7 days ago is still stored (the cleanup job is not running); else `pass`. Depends on `db.connection` | `/admin/settings/jobs` |
 
-**Settings cards** (declared as data, appended to the app registries): `Connected apps` in the user hub (`/settings/connected-apps`, `feature: 'oauthServer'`, no permission) and `OAuth clients` in the admin hub (`/admin/settings/oauth-clients`, `permission: 'oauth_clients:read'`, no `feature`, because it is where the server is switched on). See [settings-ui.md](settings-ui.md).
+**Settings cards** (opt-in data an app spreads into its registries: `identityUserSettingsSections.connectedApps` and `identityAdminSections.oauthClients`): `Connected apps` in the user hub (`/settings/connected-apps`, `feature: 'oauthServer'`, no permission) and `OAuth clients` in the admin hub (`/admin/settings/oauth-clients`, `permission: 'oauth_clients:read'`, no `feature`, because it is where the server is switched on; the settings sections need `system_settings:read`, editing needs `system_settings:write` and `oauth_clients:write`). The `oauthServer` feature is probed by `OAuthServerStatusProvider` through `GET /api/oauth/.well-known/authorization-server`. See [settings-ui.md](settings-ui.md).
 
 ## 4. Extending it in a fork
 

@@ -66,13 +66,18 @@ describe('OAuthConsentPage: who is asking and where you go', () => {
       consentRequest({
         isLoopbackRedirect: true,
         redirectHost: 'localhost',
-        client: { ...consentRequest().client, firstSeenAt: new Date(Date.now() - 60_000).toISOString() },
+        client: { ...consentRequest().client, isNewToDeployment: true },
       }),
     );
     expect(
       await screen.findByText('This app runs on your own computer. Only continue if you started this yourself, just now.'),
     ).toBeInTheDocument();
     expect(screen.getByText('New here: nobody on this Product X has connected this app before.')).toBeInTheDocument();
+  });
+
+  it('shows the first-time notice for an old client when no other user has connected it', async () => {
+    mountConsent(consentRequest({ client: { ...consentRequest().client, firstSeenAt: '2020-01-01T00:00:00.000Z', isNewToDeployment: true } }));
+    expect(await screen.findByText('New here: nobody on this Product X has connected this app before.')).toBeInTheDocument();
   });
 
   it('shows neither notice for an old client and a web redirect', async () => {

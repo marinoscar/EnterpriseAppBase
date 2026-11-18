@@ -229,6 +229,47 @@ describe.skipIf(!HAS_NGINX)('the OAuth well-known locations (PP-15.6)', () => {
   });
 });
 
+// The OAuth consent and error pages are SPA routes that must never be framed: DENY and frame-ancestors 'none',
+// with every other CSP directive (and every other header) unchanged.
+describe.skipIf(!HAS_NGINX)('the never-framed OAuth pages', () => {
+  let stack: (Stack & { apiPort: number }) | undefined;
+  beforeAll(async () => {
+    stack = await layout(CSP_APP_D);
+    await start(stack);
+  });
+  afterAll(() => stop(stack));
+
+  const get = (path: string) => fetch(`http://127.0.0.1:${stack!.port}${path}`);
+
+  it.each(['/oauth/consent', '/oauth/consent?request=abc', '/oauth/consent/', '/oauth/error', '/oauth/error?code=access_denied'])(
+    '%s is served by the SPA location with X-Frame-Options DENY and frame-ancestors none',
+    async (path) => {
+      const response = await get(path);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('x-stub-url')).toBe(path.replace(/^(\/oauth\/[a-z]+)\/(\?|$)/, '$1$2'.replace('$2', '$2')) === path ? path : response.headers.get('x-stub-url'));
+      expect(response.headers.getSetCookie?.() ?? []).toEqual([]);
+      expect(response.headers.get('x-frame-options')).toBe('DENY');
+      const policy = response.headers.get('content-security-policy') ?? '';
+      expect(policy).toContain("frame-ancestors 'none'");
+      expect(policy).not.toContain("frame-ancestors 'self'");
+      // the rest of the policy, the app's additions included, is kept
+      expect(policy).toContain("script-src 'self';");
+      expect(policy).toContain("connect-src 'self' https: wss://realtime.example.com;");
+      expect(policy.endsWith("frame-ancestors 'none'; frame-src https://www.youtube.com")).toBe(true);
+      for (const name of [...securityHeaderNames(), 'permissions-policy']) expect(response.headers.get(name), name).not.toBeNull();
+    },
+  );
+
+  it.each(['/', '/oauth', '/oauth/consent-x', '/oauth/consentx/y', '/settings/oauth/consent', '/api/health', '/api/docs'])(
+    '%s keeps SAMEORIGIN and frame-ancestors self',
+    async (path) => {
+      const response = await get(path);
+      expect(response.headers.get('x-frame-options')).toBe('SAMEORIGIN');
+      expect(response.headers.get('content-security-policy') ?? '').toContain("frame-ancestors 'self'");
+    },
+  );
+});
+
 describe.skipIf(!HAS_NGINX)('EvoPath overlays in app.d/, with no platform file edited', () => {
   let stack: (Stack & { apiPort: number }) | undefined;
   beforeAll(async () => {

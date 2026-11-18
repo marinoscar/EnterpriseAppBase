@@ -114,7 +114,7 @@ export { useOAuthRequest } from './hooks/use-oauth-request.js';
 export type { OAuthRequestStatus, UseOAuthRequestReturn } from './hooks/use-oauth-request.js';
 export { useOAuthGrants } from './hooks/use-oauth-grants.js';
 export type { UseOAuthGrantsReturn } from './hooks/use-oauth-grants.js';
-export { useOAuthClients, useOAuthRefusedHosts, useOAuthServerSettings } from './hooks/use-oauth-clients.js';
+export { useOAuthClients, useOAuthPolicy, useOAuthRefusedHosts, useOAuthServerSettings } from './hooks/use-oauth-clients.js';
 export type {
   UseOAuthClientsReturn,
   UseOAuthRefusedHostsReturn,

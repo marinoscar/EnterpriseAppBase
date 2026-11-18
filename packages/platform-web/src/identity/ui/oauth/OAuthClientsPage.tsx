@@ -66,6 +66,7 @@ import { NUMERIC_DATE, formatDate, useDisplayTimeZone, useOptionalPlatformHost }
 import {
   OAUTH_SERVER_SETTING_BOUNDS,
   useOAuthClients,
+  useOAuthPolicy,
   useOAuthRefusedHosts,
   useOAuthServerSettings,
   useOAuthServerStatus,
@@ -123,7 +124,7 @@ export interface OAuthClientsPageProps {
    * Client hosts the app suggests, each offered with "Add" until it is allowed:
    * the same list the app passes to the API as
    * `IdentityModule.forRoot({ oauthServer: { defaultAllowedClientHosts } })`.
-   * Default none (the platform ships none).
+   * Default: what the API reports (`GET /api/admin/oauth/policy`), else none.
    */
   suggestedHosts?: readonly string[];
 }
@@ -137,7 +138,7 @@ export interface OAuthClientsPageProps {
  * @extensionPoint component
  * @stability experimental
  */
-export function OAuthClientsPage({ slots, api, suggestedHosts = [] }: OAuthClientsPageProps = {}): ReactElement {
+export function OAuthClientsPage({ slots, api, suggestedHosts }: OAuthClientsPageProps = {}): ReactElement {
   const { hasPermission } = usePermissions();
   const canWriteClients = hasPermission('oauth_clients:write');
   const canReadSettings = hasPermission('system_settings:read');
@@ -265,7 +266,7 @@ function SettingsArea({
 }: {
   api: OAuthServerApi | undefined;
   canWrite: boolean;
-  suggestedHosts: readonly string[];
+  suggestedHosts: readonly string[] | undefined;
   clients: ReactNode;
 }): ReactElement {
   const state = useOAuthServerSettings(api);
@@ -287,11 +288,12 @@ function SettingsSections({
   api: OAuthServerApi | undefined;
   state: UseOAuthServerSettingsReturn;
   canWrite: boolean;
-  suggestedHosts: readonly string[];
+  suggestedHosts: readonly string[] | undefined;
 }): ReactElement {
   const { settings, isLoading, isSaving, error, update } = state;
   const status = useOAuthServerStatus();
   const refused = useOAuthRefusedHosts(api);
+  const policy = useOAuthPolicy(api);
   const [hostInput, setHostInput] = useState('');
   const [hostTouched, setHostTouched] = useState(false);
   const [confirmAnyHost, setConfirmAnyHost] = useState(false);
@@ -320,7 +322,7 @@ function SettingsSections({
   const hostProblem = clientHostProblem(trimmed) ?? (allowed.includes(trimmed) ? 'This host is already allowed.' : null);
   const addHost = (host: string) => save({ allowedClientHosts: [...allowed, host] });
   const removeHost = (host: string) => save({ allowedClientHosts: allowed.filter((entry) => entry !== host) });
-  const suggestions = suggestedHosts.filter((host) => !allowed.includes(host));
+  const suggestions = (suggestedHosts ?? policy.suggestedHosts).filter((host) => !allowed.includes(host));
 
   return (
     <>

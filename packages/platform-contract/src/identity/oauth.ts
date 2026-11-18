@@ -216,6 +216,12 @@ export const oauthConsentRequestSchema = z.object({
     kind: clientKindSchema(),
     /** When the client first appeared. */
     firstSeenAt: z.string().datetime(),
+    /**
+     * `true` when the client first appeared less than 24 hours ago OR no other
+     * user on this deployment holds an active grant with it: the consent page
+     * then warns that nobody here has connected it before.
+     */
+    isNewToDeployment: z.boolean(),
   }),
   /** Where the user goes after deciding. */
   redirectHost: z.string().describe('Where the user goes after deciding.'),
@@ -620,3 +626,42 @@ export const oauthClientPatchRequestSchema = z
  * @stability experimental
  */
 export type OAuthClientPatchRequest = z.infer<typeof oauthClientPatchRequestSchema>;
+
+/**
+ * One client host the trust policy refused, aggregated from the
+ * `oauth:client.refused` audit rows (`GET /api/admin/oauth/refused-hosts`).
+ *
+ * @stability experimental
+ */
+export const oauthRefusedHostSchema = z.object({
+  /** The refused host (lower-case). */
+  host: z.string(),
+  /** Refusal rows in the window (at most one per host per hour). */
+  count: z.number().int().positive(),
+  /** ISO 8601 time of the latest refusal. */
+  lastSeenAt: z.string().datetime(),
+});
+
+/**
+ * A refused client host.
+ *
+ * @stability experimental
+ */
+export type OAuthRefusedHost = z.infer<typeof oauthRefusedHostSchema>;
+
+/**
+ * `GET /api/admin/oauth/policy`: what the app configured for the admin page.
+ *
+ * @stability experimental
+ */
+export const oauthPolicySchema = z.object({
+  /** The app's `defaultAllowedClientHosts`, offered with "Add" until allowed. */
+  suggestedHosts: z.array(z.string()),
+});
+
+/**
+ * The OAuth admin policy hints.
+ *
+ * @stability experimental
+ */
+export type OAuthPolicy = z.infer<typeof oauthPolicySchema>;

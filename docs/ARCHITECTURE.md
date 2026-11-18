@@ -463,6 +463,25 @@ Two slices that tell the outside world, and administrators, what the deployment 
 - **Permissions:** `webhooks:*`, `org_webhooks:*`, `system_webhooks:*`, `alerts:read/write` ([§7.2](#72-permission-matrix))
 - **Read more:** [specs/webhooks.md](specs/webhooks.md), [specs/alerts.md](specs/alerts.md), [runbooks/webhooks.md](runbooks/webhooks.md), [runbooks/alerts.md](runbooks/alerts.md), [webhooks README](../packages/platform-api/src/webhooks/README.md), [alerts README](../packages/platform-api/src/alerts/README.md)
 
+### 5.28 OAuth server (`@marinoscar/platform-api/identity`, optional)
+
+An OAuth 2.1 authorization and resource server in the identity slice, so a third-party client the user does not control (a hosted AI assistant, an MCP client) can act for a user with a short-lived, scoped, audience-bound, revocable `oat_` token instead of a personal access token. An app mounts it with `IdentityModule.forRoot({ oauthServer: {} })`; it stays off until an administrator sets `oauthServer.enabled`. The app registers what a client may touch with `registerOAuthScope` and `registerOAuthProtectedResource`.
+
+- **Flow.** Discovery from a `401` (`/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource`), client identity by metadata document, dynamic registration or an administrator's pre-registration, authorization code with PKCE `S256` through a consent page, refresh with rotation and reuse detection, revocation, step-up on `403 insufficient_scope`.
+- **Guard.** `JwtAuthGuard` admits `Bearer oat_` only under a registered resource's route prefixes and narrows the user's permissions to the grant's scopes ([SECURITY-ARCHITECTURE.md §19](SECURITY-ARCHITECTURE.md#19-oauth-access-tokens-oat_)).
+- **Code:** `packages/platform-api/src/identity/oauth-server/` (`clients/`, `doctor/`), `packages/platform-api/src/identity/testing/oauth*.ts` (test kit and conformance suite), `packages/platform-api/src/core/egress/` (shared egress guard), `packages/platform-db/schema/oauth.prisma`, `packages/platform-infra/nginx/platform/oauth-server.conf`; web `packages/platform-web/src/identity/ui/oauth/`
+- **Routes:** `/api/oauth/*` (protocol routes use `@RawResponse()`, no `{ data }` envelope; consent and grants are ordinary routes), `/api/admin/oauth/clients`, `/.well-known/oauth-*`
+- **UI:** `/oauth/consent`, `/oauth/error`, `/settings/connected-apps`, `/admin/settings/oauth-clients`
+- **Permissions:** `oauth_clients:read/write` ([§7.2](#72-permission-matrix)); the consent and grants routes need none
+- **Settings:** the `oauthServer` namespace ([§6.2](#62-settings-storage))
+- **Tables:** `oauth_clients`, `oauth_authorization_requests`, `oauth_grants`, `oauth_authorization_codes`, `oauth_tokens` ([§6.1](#61-prisma-models))
+- **Jobs:** `oauth.token.cleanup` (hourly), `oauth.client.cleanup` (daily) ([§8.1](#81-job-type-inventory))
+- **Events:** `identity.oauth.grant.created`, `identity.oauth.grant.revoked` on `EventEmitter2`, after commit (`{ userId, grantId, clientId, resourceId, reason }`); the platform sends no notification
+- **Audit actions:** `oauth:grant.create|update|revoke`, `oauth:consent.deny`, `oauth:token.reuse_detected`, `oauth:client.create|update|disable|enable|delete|rotate_secret|refused`, `oauth:settings.update`
+- **Observability:** metrics `app.oauth.authorizations`, `app.oauth.tokens.issued`, `app.oauth.token.refusals`, `app.oauth.client.registrations`; spans `oauth.authorize`, `oauth.decision`, `oauth.token`; Doctor checks `oauth.public_url`, `oauth.well_known`, `oauth.client_policy`, `oauth.resources`, `oauth.token_cleanup`
+- **Conformance:** the `oauth-server` suite ([TESTING.md](TESTING.md#platform-conformance))
+- **Read more:** [specs/oauth-server.md](specs/oauth-server.md), [runbooks/oauth-server.md](runbooks/oauth-server.md), [ADR 0003](adr/0003-oauth-authorization-server.md), [identity README](../packages/platform-api/src/identity/README.md#oauth-server)
+
 ---
 
 ## 6. Data architecture
@@ -564,6 +583,7 @@ Namespaces of the `global` document (`systemSettingsSchema`, composed from the s
 | `ai` | Kill switch, key policy, per-provider settings, hosted tools, limits, usage retention |
 | `telemetry` | Collection switch, retention, query bounds, instance id, telemetry assistant |
 | `retention` | `{ enabled, days }` per table: `notifications`, `notificationDeliveries`, `auditEvents` (off by default), `aiRuns`. See [runbooks/data-retention.md](runbooks/data-retention.md) |
+| `oauthServer` | The OAuth server: `enabled` (off), token lifetimes, `alwaysIssueRefreshToken`, `clientIdMetadataDocuments`, `dynamicClientRegistration`, `allowedClientHosts`, `allowAnyClientHost`, `allowLoopbackClients`, `dynamicClientUnusedDays`. Present only when the app mounts the OAuth server. See [specs/oauth-server.md](specs/oauth-server.md#3-configuration-and-permissions) |
 
 Every read completes missing namespaces from each namespace's declared defaults, so the stored document is always whole. The seed writes the same defaults from the generated `apps/api/prisma/catalog/system-settings-defaults.json` (`npm run catalog:settings --workspace=api`).
 
@@ -657,8 +677,8 @@ This is the single home for the matrix. Source: each permission's `defaultGrants
 | `org_webhooks:write` | org | | ✓ | | | `POST`/`PATCH`/`DELETE /api/org/webhooks`, `rotate-secret`, `test`, `redeliver`: manage the organization's endpoints (#1046) |
 | `system_webhooks:read` | system | ✓ | | | | `GET /api/admin/webhooks/*`: the deployment's endpoints (node and job events) and deliveries (#1046) |
 | `system_webhooks:write` | system | ✓ | | | | `POST`/`PATCH`/`DELETE /api/admin/webhooks`, `rotate-secret`, `test`, `redeliver`: manage the deployment's endpoints (#1046) |
-| `oauth_clients:read` | system | ✓ | | | | `GET /api/admin/oauth/clients`: the OAuth clients (metadata-document, dynamic and pre-registered) with host, grants and last use (`@marinoscar/platform-api/identity`, #1183) |
-| `oauth_clients:write` | system | ✓ | | | | `POST`/`PATCH`/`DELETE /api/admin/oauth/clients`, `POST .../:id/rotate-secret`: pre-register, edit, disable, re-secret and delete clients; disabling revokes the client's grants (#1183) |
+| `oauth_clients:read` | system | ✓ | | | | `GET /api/admin/oauth/clients`: the OAuth clients (metadata-document, dynamic and pre-registered) with host, active grants and last use; opens the `OAuth clients` card (`@marinoscar/platform-api/identity`) |
+| `oauth_clients:write` | system | ✓ | | | | `POST`/`PATCH`/`DELETE /api/admin/oauth/clients`, `POST .../:id/rotate-secret`: pre-register, edit, disable (revokes the client's grants), re-secret and delete clients; the settings controls of the `OAuth clients` page |
 
 **App grants.** The matrix lists the platform's four roles. An app role holds permissions through `role_permissions` like any other: the `defaultGrants` of the app's own permissions, and, for a PLATFORM permission, `registerPlatformPermissions({ app: { grants: [{ role: 'support', permissions: ['users:read'] }] } })`. Each grant is validated at import time (the role and the permission exist, their scopes match, the permission does not already grant it by default, and the target is not a platform role), lands in the catalog's `rolePermissions` and is written by the seed; the principal factory reads those rows, so the seed and the guards cannot disagree. The four platform columns above never change because an app registered a grant. See [the manifest README](../packages/platform-api/src/manifest/README.md).
 
@@ -715,7 +735,8 @@ All 41 registered job types (pinned by `apps/api/test/jobs/job-type-snapshot.spe
 | `db.restore.run` | Database restore | `packages/platform-api/src/db-backup/handlers/db-restore-run.handler.ts` (the db-backup slice) | Restores the database from a backup | No |
 | `db.restore.old-db-drop` | Restore cleanup | `packages/platform-api/src/db-backup/handlers/db-restore-old-db-drop.handler.ts` (the db-backup slice) | Drops databases a restore displaced once their retention closes | No |
 | `device-auth.code.cleanup` | Device code cleanup | `packages/platform-api/src/identity/device-auth/handlers/device-code-cleanup.handler.ts` (the identity slice) | Deletes expired device codes | No |
-| `oauth.client.cleanup` | OAuth client cleanup | `packages/platform-api/src/identity/oauth-server/clients/oauth-client-cleanup.handler.ts` (the identity slice, OAuth server) | Deletes `dynamic` OAuth clients with no grant and no use for `dynamicClientUnusedDays`; queued daily by a cron that only enqueues (#1183) | No |
+| `oauth.client.cleanup` | OAuth client cleanup | `packages/platform-api/src/identity/oauth-server/clients/oauth-client-cleanup.handler.ts` (the identity slice, OAuth server) | Deletes `dynamic` OAuth clients with no grant and no use for `dynamicClientUnusedDays`; queued daily (`17 4 * * *`) by a cron that only enqueues | No |
+| `oauth.token.cleanup` | OAuth token cleanup | `packages/platform-api/src/identity/oauth-server/oauth-token-cleanup.handler.ts` (the identity slice, OAuth server) | Deletes expired or decided authorization requests, spent codes, expired access and refresh tokens, the tokens of long-revoked grants and revoked grants after 90 days, in batches; queued hourly (`7 * * * *`) by a cron that only enqueues | No |
 | `telemetry.retention.apply` | Telemetry retention | `packages/platform-api/src/telemetry/handlers/telemetry-retention.handler.ts` (the telemetry slice) | Sets the telemetry store's retention to `telemetry.retentionDays` (GreptimeDB's database-level TTL for the built-in store; a store without a retention control skips it); daily and on policy change | No |
 | `telemetry.stack.deploy` | Telemetry services deploy | `packages/platform-api/src/telemetry/stack/telemetry-stack-deploy.handler.ts` (the telemetry slice) | Starts GreptimeDB and the collector through `stack-agent`, on admin request | No |
 | `user.data.purge` | User data deletion | `packages/platform-api/src/user-data/handlers/user-data-purge.handler.ts` (the user-data slice) | Deletes one user's data for one scope (registry-driven, delete order from the schema), then their storage objects; subject `user:<userId>` | No |
@@ -782,6 +803,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/setup` | Setup guide | General | `system_settings:read` | none (lists AI and the other features while they are off); the Activation section is part of the page ([onboarding](specs/onboarding.md)) |
 | `/admin/settings/android` | Android app | General | `system_settings:read` | none; trusted apps, releases and the test notification (writes need `system_settings:write`) ([native companion](specs/native-companion-architecture.md)) |
 | `/admin/settings/users` | Users & Allowlist | Access | `users:read` | |
+| `/admin/settings/oauth-clients` | OAuth clients | Access | `oauth_clients:read` | none (the page that turns the OAuth server on; opt-in card `identityAdminSections.oauthClients`; the settings sections need `system_settings:read`, editing `system_settings:write` and `oauth_clients:write`) |
 | `/admin/settings/jobs` | Jobs | Operations | `jobs:read` | |
 | `/admin/settings/jobs/insights` | Job Insights | Operations | `jobs:read` | |
 | `/admin/settings/workers` | Worker Nodes | Operations | `nodes:read` | |
@@ -807,6 +829,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/settings/notifications` | Notifications | Account | | |
 | `/settings/getting-started` | Getting started | Account | | |
 | `/settings/tokens` | Access Tokens | Security | | |
+| `/settings/connected-apps` | Connected apps | Security | | `oauthServer` (opt-in card `identityUserSettingsSections.connectedApps`) |
 | `/settings/ai` | AI Keys | Security | `ai:use` | `ai` |
 | `/settings/groups` | Groups (and `/settings/groups/:id`, the group's page) | Sharing | `groups:read` (org) | |
 | `/settings/data-export` | Download your data | Your data | | |
