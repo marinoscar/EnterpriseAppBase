@@ -664,6 +664,8 @@ describeWithDb('OAuth client identity and the trust policy through the whole app
       const id = randomUUID();
       const routes: Array<[string, string, Record<string, unknown>]> = [
         ['get', base, {}],
+        ['get', '/api/admin/oauth/refused-hosts', {}],
+        ['get', '/api/admin/oauth/policy', {}],
         ['post', base, body],
         ['patch', `${base}/${id}`, { disabled: true }],
         ['post', `${base}/${id}/rotate-secret`, {}],
@@ -679,6 +681,49 @@ describeWithDb('OAuth client identity and the trust policy through the whole app
         expect([method, path, (await call()).status]).toEqual([method, path, 401]);
       }
       await http().get(base).set(bearer(adminToken)).expect(200);
+    });
+
+    it('GET /refused-hosts aggregates the last 30 days of oauth:client.refused rows by host, newest first, at most 100', async () => {
+      const day = 86_400_000;
+      const now = Date.now();
+      const hostA = `agg-a-${run}.example.test`;
+      const hostB = `agg-b-${run}.example.test`;
+      const hostOld = `agg-old-${run}.example.test`;
+      const row = (targetId: string, ageMs: number, action = 'oauth:client.refused') =>
+        client.auditEvent.create({ data: { action, targetType: 'oauth_client', targetId, actorUserId: null, meta: { reason: 'host_not_allowed' }, createdAt: new Date(now - ageMs) } });
+      await row(hostA, 5 * day);
+      await row(hostA, 2 * day);
+      await row(hostA, 3 * day);
+      await row(hostB, 1 * day);
+      await row(hostOld, 31 * day);
+      await row(`other-action-${run}.example.test`, 1 * day, 'oauth:client.create');
+
+      const res = await http().get('/api/admin/oauth/refused-hosts').set(bearer(adminToken)).expect(200);
+      const list = res.body.data as Array<{ host: string; count: number; lastSeenAt: string }>;
+      const mine = list.filter((entry) => entry.host.startsWith('agg-') && entry.host.endsWith(`-${run}.example.test`));
+      expect(mine.map((entry) => entry.host)).toEqual([hostB, hostA]);
+      expect(mine[0]).toEqual({ host: hostB, count: 1, lastSeenAt: new Date(now - 1 * day).toISOString() });
+      expect(mine[1]).toEqual({ host: hostA, count: 3, lastSeenAt: new Date(now - 2 * day).toISOString() });
+      expect(list.length).toBeLessThanOrEqual(100);
+      for (let i = 1; i < list.length; i++) expect(list[i - 1]!.lastSeenAt >= list[i]!.lastSeenAt).toBe(true);
+      // nothing but host, count and time
+      expect(Object.keys(list[0]!).sort()).toEqual(['count', 'host', 'lastSeenAt']);
+      // the back-dated rows are older than the suite start: remove them here
+      await client.auditEvent.deleteMany({ where: { targetType: 'oauth_client', targetId: { endsWith: `-${run}.example.test` } } });
+    });
+
+    it('GET /refused-hosts returns at most 100 hosts', async () => {
+      const prefix = `cap-${run}`;
+      await client.auditEvent.createMany({
+        data: Array.from({ length: 105 }, (_, i) => ({ action: 'oauth:client.refused', targetType: 'oauth_client', targetId: `${prefix}-${i}.example.test`, actorUserId: null, meta: {} })),
+      });
+      const res = await http().get('/api/admin/oauth/refused-hosts').set(bearer(adminToken)).expect(200);
+      expect(res.body.data).toHaveLength(100);
+    });
+
+    it('GET /policy returns the app\'s suggested client hosts (the reference app configures none)', async () => {
+      const res = await http().get('/api/admin/oauth/policy').set(bearer(adminToken)).expect(200);
+      expect(res.body.data).toEqual({ suggestedHosts: [] });
     });
 
     it('pre-registers a client: the secret is returned once and stored hashed; the list never shows it; the write is audited', async () => {

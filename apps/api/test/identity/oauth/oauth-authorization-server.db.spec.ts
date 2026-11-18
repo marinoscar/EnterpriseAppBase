@@ -422,6 +422,34 @@ describeWithDb('the OAuth authorization server core through the whole app (real 
   });
 
   describe('the consent API', () => {
+    it('isNewToDeployment: true for a client under a day old; for an older one only until ANOTHER user holds an active grant', async () => {
+      const c = await newClient();
+      const alice = await makeUser('new-alice');
+      const bob = await makeUser('new-bob');
+      const readAs = async (userId: string): Promise<boolean> => {
+        const pkce = createOAuthTestPkce();
+        const requestId = requestIdOf((await authorize(c, pkce.challenge)).headers.location!);
+        const read = await http().get(`/api/oauth/requests/${requestId}`).set(bearer(await sessionToken(userId))).expect(200);
+        return read.body.data.client.isNewToDeployment as boolean;
+      };
+
+      // first seen just now: new, whoever reads
+      expect(await readAs(alice)).toBe(true);
+      await client.oAuthClient.update({ where: { id: c.id }, data: { createdAt: new Date(Date.now() - 3 * 86_400_000) } });
+      // old, but nobody holds a grant yet
+      expect(await readAs(alice)).toBe(true);
+
+      await approveFlow(bob, c);
+      // another user (bob) now holds an active grant: no longer new to alice
+      expect(await readAs(alice)).toBe(false);
+      // bob's own grant does not count against bob: nobody ELSE holds one
+      expect(await readAs(bob)).toBe(true);
+
+      // a revoked grant does not count
+      await client.oAuthGrant.updateMany({ where: { clientId: c.id, userId: bob }, data: { revokedAt: new Date() } });
+      expect(await readAs(alice)).toBe(true);
+    });
+
     it('a read binds the request to the first user; a second user gets 404; the same user can read again', async () => {
       const c = await newClient();
       const first = await makeUser('first');

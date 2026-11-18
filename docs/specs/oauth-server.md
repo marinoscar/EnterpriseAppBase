@@ -221,11 +221,10 @@ Auth: session credential only. Binds the request to the caller on first read (`u
 
 | Field | Meaning |
 |---|---|
-| `client` | `{ name, host, logoUri, kind, firstSeenAt }` |
+| `client` | `{ name, host, logoUri, kind, firstSeenAt, isNewToDeployment }`. `isNewToDeployment` is `true` when the client was first seen less than 24 hours ago, or when no OTHER user holds an active grant with it (the consent page says so) |
 | `redirectHost`, `isLoopbackRedirect` | Where the user goes after deciding |
 | `resource` | `{ id, name }` |
 | `scopes` | Requested scopes as `{ id, title, description, risk, grantable, required, alreadyGranted }`; `offline_access` is not listed here. `grantable` is false when the user lacks every permission the scope maps to. `required` marks the resource's default scopes the user cannot untick |
-| `isNewToDeployment` | `true` when the client is new on this deployment (the consent page says so) |
 | `offlineAccess` | `true` when the client asked to stay connected (`offline_access` was requested); the page shows it as a line, not a tickable scope |
 | `organizations` | The user's active memberships the grant may act in (`multi` tenancy), with the default |
 | `expiresAt` | End of the 10-minute window |
@@ -275,9 +274,12 @@ Request (form): `token`, `token_type_hint` (optional), client authentication as 
 
 `GET` returns the caller's active grants: id, client `{ name, host, logoUri }`, resource name, scopes with titles, `createdAt`, `lastUsedAt`, organization. Never a token. `DELETE` revokes one grant (`revoked_reason: user`), audits it and emits `identity.oauth.grant.revoked`; success `204`. Errors: `401`; `403` for an `oauth` credential; `404` for an id that is not the caller's.
 
-#### `GET /api/admin/oauth/refused-hosts`
+#### `GET /api/admin/oauth/refused-hosts` and `GET /api/admin/oauth/policy`
 
-Auth: `oauth_clients:read`. The client hosts turned away in the last 30 days, read from the `oauth:client.refused` audit rows (no extra table), so the admin page can offer "Allow this host". The page also lists the hosts the app suggests through `defaultAllowedClientHosts`.
+Both are served by `OAuthAdminHintsController` (`packages/platform-api/src/identity/oauth-server/clients/oauth-clients-admin.controller.ts`), require `oauth_clients:read` and answer in the `{ data }` envelope.
+
+- `refused-hosts` returns `[{ host, count, lastSeenAt }]`: the client hosts turned away in the last 30 days, read from the `oauth:client.refused` audit rows (no extra table), newest first, at most 100 hosts. `count` is the number of audit rows for the host, which is at most one per host per hour. The admin page offers "Allow this host" from it.
+- `policy` returns `{ suggestedHosts }`: the app's `IdentityModule.forRoot({ oauthServer: { defaultAllowedClientHosts } })`. The admin page offers them with "Add". The page's `suggestedHosts` prop wins; without it the page uses this route.
 
 #### `/api/admin/oauth/clients`
 
@@ -500,7 +502,7 @@ The consent page is `/oauth/consent?request=<id>` in the signed-in web app, outs
 - `Allow` is disabled for one second after render and while submitting. A signed-out user logs in and returns to the same URL.
 - Consent is never skipped for a returning public client. The page may pre-tick and say "already connected".
 - Only a session credential may approve. A PAT, device token or `oat_` token cannot.
-- The page is not framable: an nginx location gives `/oauth/consent` and `/oauth/error` `frame-ancestors 'none'`.
+- The page is not framable. `csp.conf` and `csp.dev.conf` (`@marinoscar/platform-infra`) add `map $uri $frame_deny` (`1` for `^/oauth/(consent|error)(/|$)`), `$x_frame_options` (`DENY` or `SAMEORIGIN`) and `$csp_header`, which rewrites only `frame-ancestors 'self'` to `'none'` for those paths and keeps every other directive, the app's `app.d/csp/` additions included. `platform/security-headers.conf` sends `X-Frame-Options $x_frame_options` and `Content-Security-Policy $csp_header`; every other path is unchanged.
 
 ### 2.20 Data model
 
@@ -621,7 +623,7 @@ Fixed in code, not settings: authorization code life (60 s), pending request lif
 
 | Permission | Scope | Default grants | Gates |
 |---|---|---|---|
-| `oauth_clients:read` | system | `admin` | `GET /api/admin/oauth/clients`, `GET /api/admin/oauth/refused-hosts` and the admin card |
+| `oauth_clients:read` | system | `admin` | `GET /api/admin/oauth/clients`, `GET /api/admin/oauth/refused-hosts`, `GET /api/admin/oauth/policy` and the admin card |
 | `oauth_clients:write` | system | `admin` | `POST`, `PATCH`, `DELETE` and rotate on `/api/admin/oauth/clients`; the settings controls inside the page |
 
 The consent API and grants API need no permission: any signed-in user manages their own grants. The full matrix is in [ARCHITECTURE.md §7.2](../ARCHITECTURE.md#72-permission-matrix).

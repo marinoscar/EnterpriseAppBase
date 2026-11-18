@@ -445,6 +445,16 @@
       "file": "packages/platform-contract/src/identity/oauth.ts",
       "symbol": "z.enum(OAUTH_GRANT_TYPES)",
       "reason": "the schema of the same protocol discriminator"
+    },
+    {
+      "file": "packages/platform-contract/src/identity/oauth.ts",
+      "symbol": "OAUTH_APPLICATION_TYPES",
+      "reason": "RFC 7591 application_type (web or native): a protocol discriminator that decides the redirect URI rules, not an implementation id"
+    },
+    {
+      "file": "packages/platform-contract/src/identity/oauth.ts",
+      "symbol": "z.enum(OAUTH_APPLICATION_TYPES)",
+      "reason": "RFC 7591 application_type: web or native, a protocol discriminator that decides the redirect URI rules, not an implementation id"
     }
   ]
 }
