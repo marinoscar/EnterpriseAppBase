@@ -137,6 +137,7 @@
     "notifications-dismiss-on-disable",
     "notifications-state-counted",
     "oauth-admin-grants-and-step-up",
+    "oauth-admin-grants-docs",
     "oauth-authorization-server",
     "oauth-client-identity",
     "oauth-resource-server-helpers",

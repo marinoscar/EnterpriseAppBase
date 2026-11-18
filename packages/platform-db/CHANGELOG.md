@@ -1,5 +1,7 @@
 # @marinoscar/platform-db
 
+## 0.1.0-next.37
+
 ## 0.1.0-next.36
 
 ## 0.1.0-next.35

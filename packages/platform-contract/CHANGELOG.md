@@ -1,5 +1,11 @@
 # @marinoscar/platform-contract
 
+## 0.1.0-next.37
+
+### Patch Changes
+
+- 2048bf1: Document every field of the admin OAuth grant schemas (TypeDoc): `OAuthGrantRevokedReasonEnum` and `OAuthQueryBooleanEnum` are exported, and the organization fields carry their docs.
+
 ## 0.1.0-next.36
 
 ### Minor Changes
