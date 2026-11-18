@@ -107,3 +107,21 @@ export const OAUTH_RATE_LIMITS: Readonly<{
   revokePerClient: { limit: 60, windowMs: 60_000 },
   registerPerAddress: { limit: 10, windowMs: 60 * 60_000 },
 });
+
+/**
+ * Route prefixes of the OAuth endpoints a browser-based third-party client must
+ * be able to call cross-origin: the token, register and revoke endpoints and the
+ * metadata documents. Pass it to `buildCorsOptions(raw, { openPaths })` from
+ * `@marinoscar/platform-api/host`: those routes then answer
+ * `Access-Control-Allow-Origin: *` (no credentials) even when `CORS_ORIGIN` lists an
+ * allowlist, and nothing else in the API is loosened. `/api/oauth/authorize` and the
+ * consent routes are not listed: they are navigated to, or use the session.
+ *
+ * @stability experimental
+ */
+export const OAUTH_PUBLIC_CORS_PATHS: readonly string[] = Object.freeze([
+  '/api/oauth/token',
+  '/api/oauth/register',
+  '/api/oauth/revoke',
+  '/api/oauth/.well-known',
+]);

@@ -304,6 +304,22 @@ function listMemberships(memberships: ReadonlyArray<PrincipalMembership>): OrgMe
 export const principalFactory = new PrincipalFactory();
 
 /**
+ * The permissions `user` holds WITHOUT an `oat_` token's scope narrowing: what
+ * re-consent could add to the token (PP-15.6). Read-only and pure: the graph
+ * is not modified (the narrowing is shadowed on a prototype-linked view, so the
+ * non-enumerable active org still applies).
+ *
+ * @param user - the request's graph.
+ * @returns the user's own effective permissions.
+ *
+ * @internal
+ */
+export function permissionsWithoutOAuthNarrowing(user: PrincipalSource): string[] {
+  const wide = Object.create(user, { oauthNarrowing: { value: undefined } }) as PrincipalSource;
+  return resolveEffectiveAccess(wide, currentTenancyMode()).permissions;
+}
+
+/**
  * The runtime mapper ADR 0001 specifies (#724): the request's `Principal`
  * from the loaded user graph and the credential kind `JwtAuthGuard` admitted
  * it with. A node credential yields a system-scoped `NodePrincipal` (no

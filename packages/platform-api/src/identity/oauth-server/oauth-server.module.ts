@@ -17,7 +17,9 @@ import { OAuthAuthorizationService } from './oauth-authorization.service';
 import { installOAuthBodyGuard } from './oauth-body-guard';
 import { OAuthConsentController, OAuthGrantsController } from './oauth-consent.controller';
 import { OAuthGrantService } from './oauth-grant.service';
+import { configureOAuthChallengeBase } from './oauth-challenge';
 import { OAuthProtocolController } from './oauth-protocol.controller';
+import { OAuthResourceMetadataController } from './oauth-resource-metadata.controller';
 import { OAuthRateLimitService } from './oauth-rate-limiter';
 import { OAuthServerContext, OAuthServerFeatures } from './oauth-server-context';
 import { OAuthTokenService } from './oauth-token.service';
@@ -46,6 +48,27 @@ export class OAuthRegistryBootstrapCheck implements OnModuleInit {
       throw new Error(`OAuth server registries are inconsistent:\n  - ${problems.map((p) => p.message).join('\n  - ')}`);
     }
     this.logger.debug('OAuth scope and resource registries are consistent');
+  }
+}
+
+/**
+ * Tells the challenge builder which `APP_URL` its `resource_metadata` URLs are
+ * built on (PP-15.6). An unset `APP_URL` leaves it unset: a challenge then cannot
+ * be built and the `401` is answered without one.
+ *
+ * @internal
+ */
+@Injectable()
+export class OAuthChallengeBootstrap implements OnModuleInit {
+  constructor(private readonly context: OAuthServerContext) {}
+
+  /** Records the application root. */
+  onModuleInit(): void {
+    try {
+      configureOAuthChallengeBase(this.context.appUrl());
+    } catch {
+      configureOAuthChallengeBase(undefined);
+    }
   }
 }
 
@@ -103,12 +126,13 @@ export class OAuthBodyGuardInstaller implements OnModuleInit {
  */
 @Global()
 @Module({
-  controllers: [OAuthProtocolController, OAuthConsentController, OAuthGrantsController, OAuthClientsAdminController],
+  controllers: [OAuthProtocolController, OAuthResourceMetadataController, OAuthConsentController, OAuthGrantsController, OAuthClientsAdminController],
   providers: [
     OAuthServerSettingsReader,
     OAuthTokenResolver,
     InProcessDelegation,
     OAuthRegistryBootstrapCheck,
+    OAuthChallengeBootstrap,
     OAuthServerContext,
     OAuthServerFeatures,
     OAuthRateLimitService,

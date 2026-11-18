@@ -7,6 +7,8 @@ import { buildServiceWorkerOptions } from './pwa/service-worker';
 // config, `vitest.config.ts` and `visual/vite.config.ts` — three files with no
 // shared base. See that file's header for what breaks when only one has it.
 import { appVersionDefine } from './build-config/app-version';
+// The OAuth server's well-known documents in the dev server (PP-15.6).
+import { openIdConfigurationNotFound, wellKnownProxy } from './build-config/oauth-well-known';
 
 /**
  * Substitutes `%APP_NAME%` and `%THEME_COLOR%` in `index.html` with the
@@ -76,7 +78,7 @@ function pwa(): PluginOption {
 }
 
 export default defineConfig({
-  plugins: [react(), appName(), pwa()],
+  plugins: [react(), appName(), pwa(), openIdConfigurationNotFound()],
   // Baked in, never fetched: this reports the version of THE BUNDLE, so a
   // stale cached bundle served against a freshly deployed API shows a
   // mismatch instead of hiding one. Full argument in `build-config/app-version.ts`.
@@ -109,6 +111,8 @@ export default defineConfig({
         target: 'http://localhost:3000',
         changeOrigin: true,
       },
+      // `/.well-known/oauth-*` -> the API's `/api/oauth/.well-known/*`, as the nginx fragment does (PP-15.6).
+      ...wellKnownProxy('http://localhost:3000'),
     },
   },
   build: {

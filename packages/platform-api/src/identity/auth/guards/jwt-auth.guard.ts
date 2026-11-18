@@ -12,13 +12,14 @@ import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { PatService } from '../../pat/pat.service';
 import { IDENTITY_NODE_CREDENTIALS, type IdentityNodeCredentials } from '../../ports';
 import type { AuthCredentialInfo } from '../decorators/auth-credential.decorator';
-import type { CredentialKind } from '../../../core/index';
+import { withResponseHeaders, type CredentialKind } from '../../../core/index';
 import { toPrincipal } from '../principal.factory';
 import type { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 import { isUnderRoutePrefix, requestPathOf } from '../route-prefix';
 import '../../oauth-server/oauth-credential-kind';
 import { IPD_BEARER_PREFIX, InProcessDelegation } from '../../oauth-server/in-process-delegation.service';
 import { resourceForPath } from '../../oauth-server/oauth-resource.registry';
+import { buildBearerChallenge } from '../../oauth-server/oauth-challenge';
 import { OAuthServerSettingsReader } from '../../oauth-server/oauth-server-settings.reader';
 import { OAuthTokenResolver } from '../../oauth-server/oauth-token.resolver';
 
@@ -145,6 +146,44 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
    * authentication at all.
    */
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    try {
+      return await this.authenticate(context);
+    } catch (failure) {
+      throw await this.withDiscoveryChallenge(failure, context);
+    }
+  }
+
+  /**
+   * The `WWW-Authenticate` challenge of a `401` on a protected resource's
+   * routes (RFC 9728 §5.1, PP-15.6): the failed request is how a hosted client
+   * learns where to sign in. Applied to EVERY `401` the authentication above
+   * produced (no credential, a bad session or PAT, an invalid or expired
+   * `oat_`), keyed on the route prefix, so a resource needs no code of its own.
+   * `error="invalid_token"` only when a credential was presented. A route
+   * outside every resource, and a deployment without the OAuth server enabled,
+   * keep the `401` exactly as it was.
+   */
+  private async withDiscoveryChallenge(failure: unknown, context: ExecutionContext): Promise<unknown> {
+    if (!(failure instanceof UnauthorizedException) || !this.oauthSettings) return failure;
+    const request = context.switchToHttp().getRequest();
+    const path = requestPathOf(request);
+    const resource = path === null ? undefined : resourceForPath(path);
+    if (!resource) return failure;
+    try {
+      if (!(await this.oauthSettings.isEnabled())) return failure;
+      const presented = typeof request.headers?.authorization === 'string' && request.headers.authorization.trim() !== '';
+      const challenge = buildBearerChallenge({
+        resourceId: resource.id,
+        ...(presented ? { error: 'invalid_token' as const, errorDescription: 'The access token is invalid or expired' } : {}),
+      });
+      return withResponseHeaders(failure, { 'WWW-Authenticate': challenge });
+    } catch {
+      // A challenge that cannot be built (no APP_URL) must not hide the 401.
+      return failure;
+    }
+  }
+
+  private async authenticate(context: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
       context.getClass(),

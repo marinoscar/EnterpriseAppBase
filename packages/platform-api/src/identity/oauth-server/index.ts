@@ -56,6 +56,7 @@ export {
   OAUTH_REFRESH_GRACE_MS,
   OAUTH_REFRESH_TOKEN_PREFIX,
   OAUTH_REQUEST_TTL_MS,
+  OAUTH_PUBLIC_CORS_PATHS,
   OAUTH_ROUTE_PREFIX,
 } from './oauth-server.constants';
 export type { OAuthRateLimitSpec } from './oauth-server.constants';
@@ -63,6 +64,12 @@ export { OAuthAuthorizationService } from './oauth-authorization.service';
 export { OAuthTokenService, parseOAuthForm } from './oauth-token.service';
 export { OAuthConsentController, OAuthGrantsController } from './oauth-consent.controller';
 export { OAuthProtocolController } from './oauth-protocol.controller';
+export { OAuthResourceMetadataController } from './oauth-resource-metadata.controller';
+export { buildProtectedResourceMetadata } from './oauth-resource-metadata';
+export type { OAuthProtectedResourceMetadata } from './oauth-resource-metadata';
+export { buildBearerChallenge, protectedResourceMetadataUrl, quoteChallengeValue } from './oauth-challenge';
+export type { BearerChallengeInput, OAuthChallengeError } from './oauth-challenge';
+export { InsufficientScopeException, assertOAuthScopes } from './oauth-insufficient-scope';
 export { requireSessionCredential } from './session-only';
 export * from './clients/index';
 export { OAUTH_CLIENTS_PERMISSIONS } from './oauth-clients.permissions';

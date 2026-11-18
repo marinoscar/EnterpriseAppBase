@@ -188,6 +188,8 @@ export {
 } from './errors/error-codes';
 export type { ErrorCodeDef, ErrorMapper } from './errors/error-codes';
 export { withVerbatimErrorBody, hasVerbatimErrorBody } from './errors/verbatim-error-body.exception';
+export { withResponseHeaders, responseHeadersOf } from './errors/response-headers.exception';
+export type { ExceptionResponseHeaders } from './errors/response-headers.exception';
 export { DatabaseSeedException } from './errors/database-seed.exception';
 export { ErrorDto } from './errors/error.dto';
 

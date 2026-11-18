@@ -224,7 +224,7 @@ export type { ResponseMetaContributorDef, ResponseMetaRequest } from './http/res
 export { LoggingInterceptor } from './http/logging.interceptor';
 export { RequestIdMiddleware } from './http/request-id.middleware';
 export { InvalidCorsOriginError, buildCorsOptions, isSameOriginOnly } from './http/cors-options';
-export type { AllowlistCorsOptions, CorsOptions, ExtraCorsOptions, SameOriginCorsOptions } from './http/cors-options';
+export type { AllowlistCorsOptions, CorsDelegator, CorsOptions, ExtraCorsOptions, SameOriginCorsOptions } from './http/cors-options';
 
 // ---- Health probes (#901) and the indicator registry (PP-14.13) --------------
 export {

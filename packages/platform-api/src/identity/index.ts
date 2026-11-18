@@ -262,10 +262,18 @@ export {
   OAUTH_RATE_LIMITS,
   OAUTH_REFRESH_GRACE_MS,
   OAUTH_REFRESH_TOKEN_PREFIX,
+  OAUTH_PUBLIC_CORS_PATHS,
   OAUTH_REQUEST_TTL_MS,
   OAUTH_ROUTE_PREFIX,
 } from './oauth-server/oauth-server.constants';
 export type { OAuthRateLimitSpec } from './oauth-server/oauth-server.constants';
+// Resource-server helpers: protected resource metadata and the challenges (PP-15.6).
+export { OAuthResourceMetadataController } from './oauth-server/oauth-resource-metadata.controller';
+export { buildProtectedResourceMetadata } from './oauth-server/oauth-resource-metadata';
+export type { OAuthProtectedResourceMetadata } from './oauth-server/oauth-resource-metadata';
+export { buildBearerChallenge, protectedResourceMetadataUrl, quoteChallengeValue } from './oauth-server/oauth-challenge';
+export type { BearerChallengeInput, OAuthChallengeError } from './oauth-server/oauth-challenge';
+export { InsufficientScopeException, assertOAuthScopes } from './oauth-server/oauth-insufficient-scope';
 // Client identity and the trust policy (PP-15.5).
 export {
   CIMD_MAX_BYTES,

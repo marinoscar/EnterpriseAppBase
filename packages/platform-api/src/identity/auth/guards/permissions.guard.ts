@@ -8,6 +8,7 @@ import { Reflector } from '@nestjs/core';
 import { ANY_PERMISSIONS_KEY, PERMISSIONS_KEY } from '../decorators/permissions.decorator';
 import type { Principal } from '../../../core/index';
 import { toRequestUser, AuthenticatedUser } from '../interfaces/authenticated-user.interface';
+import { stepUpForDeniedPermissions } from '../../oauth-server/oauth-step-up';
 
 /**
  * Admits a caller holding ALL the permissions `@Permissions(...)` names, in
@@ -69,15 +70,22 @@ export class PermissionsGuard implements CanActivate {
       const missing = required.filter(
         (p) => !granted.includes(p),
       );
-      throw new ForbiddenException(
-        `Missing permissions: ${missing.join(', ')}`,
+      // An `oat_` token whose scopes are the only thing missing is answered
+      // `403 insufficient_scope` so re-consent can fix it (PP-15.6); any other
+      // caller, or one re-consent cannot help, gets the plain 403.
+      throw (
+        stepUpForDeniedPermissions(request, missing) ??
+        new ForbiddenException(`Missing permissions: ${missing.join(', ')}`)
       );
     }
 
     // Attach simplified user to request for convenience
     // `@Auth({ anyPermissions })` (#738): at least one of them.
     if (alternatives.length > 0 && !alternatives.some((permission) => granted.includes(permission))) {
-      throw new ForbiddenException(`Missing permissions: one of ${alternatives.join(', ')}`);
+      throw (
+        stepUpForDeniedPermissions(request, alternatives, true) ??
+        new ForbiddenException(`Missing permissions: one of ${alternatives.join(', ')}`)
+      );
     }
 
     request.requestUser = requestUser;

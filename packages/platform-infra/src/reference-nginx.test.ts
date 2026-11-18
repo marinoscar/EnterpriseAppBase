@@ -120,7 +120,8 @@ function nginxTest(dir: string): { status: number | null; output: string } {
 async function start(stack: Stack & { apiPort: number }): Promise<void> {
   stack.api = createServer((request, response) => {
     const sse = request.url?.endsWith('/stream') === true;
-    response.writeHead(200, { 'Content-Type': sse ? 'text/event-stream' : 'application/json' });
+    // `x-stub-url`: the path the API received, so a test can prove what nginx rewrote it to.
+    response.writeHead(200, { 'Content-Type': sse ? 'text/event-stream' : 'application/json', 'x-stub-url': request.url ?? '' });
     response.end(sse ? 'data: {"ok":true}\n\n' : '{"ok":true}');
   });
   await new Promise<void>((resolveListen) => stack.api!.listen(stack.apiPort, '127.0.0.1', resolveListen));
@@ -171,6 +172,61 @@ describe.skipIf(!HAS_NGINX)('the reference app nginx configuration', () => {
       expect(response.headers.get('permissions-policy')).toBe('camera=(), microphone=(self), geolocation=(), payment=()');
     },
   );
+});
+
+// The OAuth server's well-known documents (PP-15.6): published at the site root from platform/oauth-server.conf,
+// which the reference app opts into in app.d/locations/oauth-server.conf. JSON, never the SPA (the stub API answers
+// `location /` too, as the web upstream, with the same JSON, so what proves "not the SPA" is the x-stub-url header:
+// an openid-configuration 404 is answered by nginx and never reaches any upstream).
+describe.skipIf(!HAS_NGINX)('the OAuth well-known locations (PP-15.6)', () => {
+  let stack: (Stack & { apiPort: number }) | undefined;
+  beforeAll(async () => {
+    stack = await layout();
+    await start(stack);
+  });
+  afterAll(() => stop(stack));
+
+  const get = (path: string) => fetch(`http://127.0.0.1:${stack!.port}${path}`);
+
+  it.each([
+    ['/.well-known/oauth-authorization-server', '/api/oauth/.well-known/authorization-server'],
+    ['/.well-known/oauth-authorization-server/', '/api/oauth/.well-known/authorization-server'],
+    ['/.well-known/oauth-authorization-server/api/mcp', '/api/oauth/.well-known/authorization-server'],
+    ['/.well-known/oauth-protected-resource', '/api/oauth/.well-known/protected-resource'],
+    ['/.well-known/oauth-protected-resource/api/mcp', '/api/oauth/.well-known/protected-resource/api/mcp'],
+  ])('%s is proxied to the API as %s', async (path, apiPath) => {
+    const response = await get(path);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-stub-url')).toBe(apiPath);
+    expect(response.headers.get('content-type')).toContain('application/json');
+  });
+
+  it('keeps the query string and the server-level security headers (nosniff included) on a proxied document', async () => {
+    const response = await get('/.well-known/oauth-protected-resource/api/mcp?x=1');
+    expect(response.headers.get('x-stub-url')).toBe('/api/oauth/.well-known/protected-resource/api/mcp?x=1');
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+    for (const name of [...securityHeaderNames(), 'permissions-policy']) expect(response.headers.get(name), name).not.toBeNull();
+  });
+
+  it.each(['/.well-known/openid-configuration', '/.well-known/openid-configuration/api/mcp', '/.well-known/oauth-nothing-here'])(
+    '%s is a JSON 404 answered by nginx, with every security header, never the SPA',
+    async (path) => {
+      const response = await get(path);
+      expect(response.status).toBe(404);
+      expect(response.headers.get('content-type')).toContain('application/json');
+      expect(response.headers.get('x-stub-url')).toBeNull();
+      expect(response.headers.get('access-control-allow-origin')).toBe('*');
+      expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+      for (const name of [...securityHeaderNames(), 'permissions-policy']) expect(response.headers.get(name), name).not.toBeNull();
+      expect(JSON.parse(await response.text()).error).toBe('not_found');
+    },
+  );
+
+  it('does not capture neighbours: assetlinks and a lookalike still follow their own rules', async () => {
+    expect((await get('/.well-known/assetlinks.json')).headers.get('x-stub-url')).toBe('/api/well-known/assetlinks.json');
+    // a lookalike that is not in the oauth- family falls through to the web upstream like any other path
+    expect((await get('/.well-known/other')).headers.get('x-stub-url')).toBe('/.well-known/other');
+  });
 });
 
 describe.skipIf(!HAS_NGINX)('EvoPath overlays in app.d/, with no platform file edited', () => {
