@@ -186,6 +186,8 @@ export type {
   OAuthErrorCodeEnum,
   OAuthGrantTypeEnum,
   OAuthScopeRiskEnum,
+  OAuthGrantRevokedReasonEnum,
+  OAuthQueryBooleanEnum,
   OAuthConsentRequest,
   OAuthDecisionRequest,
   OAuthDecisionResponse,
