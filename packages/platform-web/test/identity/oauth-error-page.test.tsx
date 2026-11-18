@@ -1,7 +1,7 @@
 // The OAuth error page (PP-15.7, #1185): the closed code list, and nothing
 // echoed from the query string.
 
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { OAUTH_ERROR_PAGE_CODES } from '@marinoscar/platform-contract/identity';
 
@@ -21,10 +21,11 @@ const SENTENCES: Record<(typeof OAUTH_ERROR_PAGE_CODES)[number], RegExp> = {
 };
 
 describe('OAuthErrorPage', () => {
-  it.each(OAUTH_ERROR_PAGE_CODES)('has a sentence for %s', (code) => {
+  it.each(OAUTH_ERROR_PAGE_CODES)('has a sentence for %s', async (code) => {
     mountError(`?code=${code}`);
     expect(screen.getByText(SENTENCES[code])).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+    // Focus moves in an effect after render: wait for it rather than racing it.
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveFocus());
     expect(screen.queryByText(/Something went wrong/)).not.toBeInTheDocument();
   });
 
