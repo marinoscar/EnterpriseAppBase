@@ -2,12 +2,15 @@
 // the narrowing is stamped on the request's copy, `last_used_at` is throttled.
 import { ConfigService } from '@nestjs/config';
 
+import { Logger } from '@nestjs/common';
+
 import { withTemporaryEntries } from '../../../src/core/index';
 import {
   OAuthTokenResolver,
   OAUTH_LAST_USED_INTERVAL_MS,
   oauthResourceRegistry,
   oauthScopeRegistry,
+  type OAuthScopeDefinition,
 } from '../../../src/identity/index';
 import { recordTenancyMode } from '../../../src/identity/index';
 import { toRequestUser, type AuthenticatedUser } from '../../../src/identity/auth/interfaces/authenticated-user.interface';
@@ -122,6 +125,86 @@ describe('OAuthTokenResolver', () => {
       // The same underlying row graph viewed WITHOUT the narrowing (a copy as the cache makes it) has everything.
       const copy = { ...resolved!.user } as AuthenticatedUser;
       expect(toRequestUser(copy).permissions.sort()).toEqual(['notes:read', 'notes:write']);
+    });
+  });
+
+  describe('scope availability (#1215)', () => {
+    /** notes:read always; notes:write with `write` as its predicate. */
+    const withWrite = <T>(write: OAuthScopeDefinition['available'], fn: () => Promise<T>) =>
+      withTemporaryEntries(oauthScopeRegistry, [NOTES_SCOPES[0]!, { ...NOTES_SCOPES[1]!, available: write }], () =>
+        withTemporaryEntries(oauthResourceRegistry, [NOTES_RESOURCE], fn),
+      ) as Promise<T>;
+    const bothScopes = () => (found = tokenRow({ scopes: ['notes:read', 'notes:write'] }, { scopes: ['notes:read', 'notes:write'] }));
+    let warn: jest.SpyInstance;
+    beforeEach(() => {
+      warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    });
+    afterEach(() => warn.mockRestore());
+
+    it('an unavailable scope confers no permission and is absent from the narrowing scopes and the resolved scopes', async () => {
+      bothScopes();
+      const resolved = await withWrite(() => false, () => resolver.resolve('oat_x'));
+      expect(resolved!.scopes).toEqual(['notes:read']);
+      const user = resolved!.user as AuthenticatedUser;
+      // the user holds notes:write, but the only scope that would confer it is unavailable
+      expect(toRequestUser(user).permissions).toEqual(['notes:read']);
+      const principal = principalFactory.forUser(user, 'oauth');
+      expect(principal.permissions).toEqual(['notes:read']);
+      expect(principal.oauth).toEqual({ clientId: 'client-1', grantId: 'grant-1', resourceId: 'notes', scopes: ['notes:read'] });
+    });
+
+    it('with every scope available the result is as before', async () => {
+      bothScopes();
+      const resolved = await withWrite(async () => true, () => resolver.resolve('oat_x'));
+      expect(resolved!.scopes).toEqual(['notes:read', 'notes:write']);
+      expect(toRequestUser(resolved!.user as AuthenticatedUser).permissions.sort()).toEqual(['notes:read', 'notes:write']);
+    });
+
+    it('does not modify the grant row, and the scope returns when the predicate does', async () => {
+      bothScopes();
+      const before = JSON.stringify(found);
+      let on = false;
+      await withWrite(() => on, async () => {
+        expect((await resolver.resolve('oat_x'))!.scopes).toEqual(['notes:read']);
+        expect(JSON.stringify(found)).toBe(before);
+        expect(found!.grant.scopes).toEqual(['notes:read', 'notes:write']);
+        expect(prisma.oAuthGrant.update).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ scopes: expect.anything() }) }));
+        on = true;
+        const back = await resolver.resolve('oat_x');
+        expect(back!.scopes).toEqual(['notes:read', 'notes:write']);
+        expect(toRequestUser(back!.user as AuthenticatedUser).permissions.sort()).toEqual(['notes:read', 'notes:write']);
+      });
+    });
+
+    it('a throwing or rejecting predicate gives no permissions from that scope', async () => {
+      found = tokenRow({ scopes: ['notes:write'] }, { scopes: ['notes:write'] });
+      for (const predicate of [() => { throw new Error('boom'); }, async () => { throw new Error('boom'); }] as Array<NonNullable<OAuthScopeDefinition['available']>>) {
+        const resolved = await withWrite(predicate, () => resolver.resolve('oat_x'));
+        expect(resolved!.scopes).toEqual([]);
+        expect(toRequestUser(resolved!.user as AuthenticatedUser).permissions).toEqual([]);
+      }
+    });
+
+    it('hands the predicate { userId: grant.user.id, orgId }', async () => {
+      bothScopes();
+      const write = jest.fn(() => true);
+      await withWrite(write, () => resolver.resolve('oat_x'));
+      expect(write).toHaveBeenCalledWith({ userId: 'user-1', orgId: ORG_ID });
+    });
+
+    it('hands orgId null for an unbound grant in single mode', async () => {
+      recordTenancyMode('single');
+      found = tokenRow({ scopes: ['notes:write'] }, { orgId: null, scopes: ['notes:write'] }, userGraph(['notes:write'], { orgId: null }));
+      const write = jest.fn(() => true);
+      await withWrite(write, () => resolver.resolve('oat_x'));
+      expect(write).toHaveBeenCalledWith({ userId: 'user-1', orgId: null });
+    });
+
+    it('is not consulted for a scope the grant no longer holds', async () => {
+      found = tokenRow({ scopes: ['notes:read', 'notes:write'] }, { scopes: ['notes:read'] });
+      const write = jest.fn(() => true);
+      expect((await withWrite(write, () => resolver.resolve('oat_x')))!.scopes).toEqual(['notes:read']);
+      expect(write).not.toHaveBeenCalled();
     });
   });
 

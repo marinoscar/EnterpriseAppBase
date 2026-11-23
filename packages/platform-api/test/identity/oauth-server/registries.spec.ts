@@ -1,9 +1,12 @@
 // The OAuth scope and protected-resource registries (PP-15.3, #1181): id rules,
 // the built-in offline_access scope, and every boot error the issue names
 // (unknown permission, overlapping prefixes, forbidden prefixes).
+import { Logger } from '@nestjs/common';
+
 import { RegistryError, withTemporaryEntries } from '../../../src/core/index';
 import {
   FORBIDDEN_OAUTH_ROUTE_PREFIXES,
+  availableScopes,
   OFFLINE_ACCESS_SCOPE,
   findOAuthRegistryProblems,
   oauthResourceRegistry,
@@ -161,5 +164,135 @@ describe('cross-registry boot checks', () => {
       expect(() => new OAuthRegistryBootstrapCheck().onModuleInit()).toThrow(/OAuth scope "ghost:read" names the unregistered permission "ghost:read"/);
     });
     expect(() => new OAuthRegistryBootstrapCheck().onModuleInit()).not.toThrow();
+  });
+});
+
+describe('OAuth scope availability', () => {
+  let warn: jest.SpyInstance;
+  beforeEach(() => {
+    warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+  });
+  afterEach(() => warn.mockRestore());
+
+  const SECRET_USER = 'user-secret-123';
+  const SECRET_ORG = 'org-secret-456';
+  const withScopes = <T>(entries: OAuthScopeDefinition[], fn: () => Promise<T>) => withTemporaryEntries(oauthScopeRegistry, entries, fn) as Promise<T>;
+
+  it.each([['a string', 'yes'], ['true', true], ['an object', {}]])('refuses an available that is %s at register time', async (_label, bad) => {
+    await expect(withTemporaryEntries(oauthScopeRegistry, [scope({ available: bad as never })], () => undefined)).rejects.toBeInstanceOf(RegistryError);
+  });
+
+  it('accepts a sync and an async predicate at register time', async () => {
+    await withScopes([scope({ id: 'a:one', available: () => true }), scope({ id: 'a:two', available: async () => true })], async () => {
+      expect(oauthScopeRegistry.has('a:one')).toBe(true);
+      expect(oauthScopeRegistry.has('a:two')).toBe(true);
+    });
+  });
+
+  it('keeps the order of the ids it is given and drops a scope whose predicate says false', async () => {
+    await withScopes(
+      [scope({ id: 'a:one', available: () => true }), scope({ id: 'b:two', available: () => false }), scope({ id: 'c:three', available: async () => true })],
+      async () => {
+        expect(await availableScopes(['c:three', 'b:two', 'a:one'], {})).toEqual(['c:three', 'a:one']);
+        expect(warn).not.toHaveBeenCalled();
+      },
+    );
+  });
+
+  it('counts only a literal true as available', async () => {
+    await withScopes(
+      [
+        scope({ id: 'a:truthy', available: (() => 1) as never }),
+        scope({ id: 'b:string', available: (() => 'true') as never }),
+        scope({ id: 'c:undef', available: (() => undefined) as never }),
+        scope({ id: 'd:yes', available: () => true }),
+      ],
+      async () => {
+        expect(await availableScopes(['a:truthy', 'b:string', 'c:undef', 'd:yes'], {})).toEqual(['d:yes']);
+      },
+    );
+  });
+
+  it('drops a scope whose predicate throws, with one warning naming the scope and no context values', async () => {
+    await withScopes(
+      [
+        scope({ id: 'a:boom', available: () => { throw new Error('predicate exploded'); } }),
+        scope({ id: 'b:ok', available: () => true }),
+      ],
+      async () => {
+        expect(await availableScopes(['a:boom', 'b:ok'], { userId: SECRET_USER, orgId: SECRET_ORG })).toEqual(['b:ok']);
+        expect(warn).toHaveBeenCalledTimes(1);
+        const message = String(warn.mock.calls[0]![0]);
+        expect(message).toContain('a:boom');
+        expect(message).not.toContain('b:ok');
+        expect(message).not.toContain(SECRET_USER);
+        expect(message).not.toContain(SECRET_ORG);
+        expect(message).not.toContain('predicate exploded');
+      },
+    );
+  });
+
+  it('drops a scope whose predicate rejects, with one warning naming the scope and no context values', async () => {
+    await withScopes([scope({ id: 'a:reject', available: async () => { throw new Error('nope'); } })], async () => {
+      expect(await availableScopes(['a:reject'], { userId: SECRET_USER, orgId: SECRET_ORG })).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      const message = String(warn.mock.calls[0]![0]);
+      expect(message).toContain('a:reject');
+      expect(message).not.toContain(SECRET_USER);
+      expect(message).not.toContain(SECRET_ORG);
+    });
+  });
+
+  it('writes ONE warning per call for several failing scopes, naming each', async () => {
+    await withScopes(
+      [scope({ id: 'a:x', available: () => { throw new Error('1'); } }), scope({ id: 'b:y', available: async () => { throw new Error('2'); } })],
+      async () => {
+        expect(await availableScopes(['a:x', 'b:y'], {})).toEqual([]);
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(String(warn.mock.calls[0]![0])).toMatch(/a:x.*b:y/);
+      },
+    );
+  });
+
+  it('passes unregistered ids, scopes without a predicate and offline_access through', async () => {
+    await withScopes([scope({ id: 'a:plain' }), scope({ id: 'b:off', available: () => false })], async () => {
+      expect(oauthScopeRegistry.get(OFFLINE_ACCESS_SCOPE)?.available).toBeUndefined();
+      expect(await availableScopes(['gone:scope', 'b:off', 'a:plain', OFFLINE_ACCESS_SCOPE], {})).toEqual(['gone:scope', 'a:plain', OFFLINE_ACCESS_SCOPE]);
+      expect(await availableScopes([], {})).toEqual([]);
+    });
+  });
+
+  it('hands the exact context to the predicate, and an async predicate is awaited', async () => {
+    const seen = jest.fn(async (_ctx: unknown) => true);
+    await withScopes([scope({ id: 'a:ctx', available: seen })], async () => {
+      const ctx = { userId: 'u-1', orgId: 'o-1' };
+      expect(await availableScopes(['a:ctx'], ctx)).toEqual(['a:ctx']);
+      expect(seen).toHaveBeenCalledWith(ctx);
+      await availableScopes(['a:ctx'], {});
+      expect(seen).toHaveBeenLastCalledWith({});
+      await availableScopes(['a:ctx'], { userId: 'u-1', orgId: null });
+      expect(seen).toHaveBeenLastCalledWith({ userId: 'u-1', orgId: null });
+    });
+  });
+
+  it('can depend on the context (true for one org, false for another)', async () => {
+    await withScopes([scope({ id: 'a:org', available: (ctx) => ctx.orgId === 'org-a' })], async () => {
+      expect(await availableScopes(['a:org'], { orgId: 'org-a' })).toEqual(['a:org']);
+      expect(await availableScopes(['a:org'], { orgId: 'org-b' })).toEqual([]);
+      expect(await availableScopes(['a:org'], {})).toEqual([]);
+    });
+  });
+
+  it('leaves permissionsOfScopes synchronous and unchanged by a predicate', async () => {
+    await withScopes([scope({ id: 'a:off', permissions: ['a:read'], available: () => false })], async () => {
+      const permissions = permissionsOfScopes(['a:off']);
+      expect(Array.isArray(permissions)).toBe(true);
+      expect(permissions).toEqual(['a:read']);
+    });
+  });
+
+  it('does not leak a temporary scope out of the registry', () => {
+    expect(oauthScopeRegistry.has('a:one')).toBe(false);
+    expect(oauthScopeRegistry.has('a:org')).toBe(false);
   });
 });
