@@ -1,5 +1,7 @@
 # @marinoscar/platform-contract
 
+## 0.1.0-next.40
+
 ## 0.1.0-next.39
 
 ## 0.1.0-next.38
