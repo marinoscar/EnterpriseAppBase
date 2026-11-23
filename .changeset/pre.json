@@ -143,6 +143,7 @@
     "oauth-client-identity",
     "oauth-resource-server-helpers",
     "oauth-resource-server",
+    "oauth-scope-availability",
     "oauth-server-conformance",
     "oauth-server-gaps",
     "oauth-server-schema",
