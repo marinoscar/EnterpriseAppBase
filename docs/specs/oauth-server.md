@@ -485,6 +485,28 @@ Rules:
 - Two resources may not share or nest route prefixes (boot error).
 - `/api/oauth`, `/api/auth` and `/api/nodes` can never be a route prefix (boot error).
 - Each resource lists at least one `default: true` scope.
+- A scope may carry an `available` predicate (below). `offline_access` has none.
+
+#### Scope availability
+
+`available?: (ctx: OAuthScopeAvailabilityContext) => boolean | Promise<boolean>`, with `OAuthScopeAvailabilityContext = { userId?: string; orgId?: string | null }`, decides whether a registered scope is offered right now. Absent means always available, so an app that defines no predicate sees no change. The usual owner is an app feature switch (a feature an administrator can turn off at runtime) that owns some scopes.
+
+| Surface | Effect of "unavailable" | `ctx` |
+|---|---|---|
+| Authorization server metadata (`/.well-known/oauth-authorization-server`) | left out of `scopes_supported` | `{}` |
+| Protected resource metadata (`/.well-known/oauth-protected-resource...`) | left out of `scopes_supported` | `{}` |
+| `/authorize` | an explicitly requested scope is dropped; when nothing other than `offline_access` is left, `invalid_scope`; default scopes are filtered the same way | `{}` (no user is signed in yet) |
+| Consent page (`readRequest`) | not shown | `{ userId, orgId: activeOrgId ?? null }` |
+| Grant decision (`decide`) | never granted and not counted as required | `{ userId, orgId }`, the organization the grant acts in |
+| Token resolution | confers no permission and is absent from the token's effective scopes | `{ userId: grant user, orgId: grant org }` |
+
+Rules:
+
+- **Fails closed.** Only a literal `true` counts. A predicate that throws or rejects makes its scope unavailable, with one warning per call that names the scope ids and never the context.
+- **Hot path.** Token resolution calls it once per request: keep it cheap and cache what it reads.
+- **The grant row is unchanged.** A grant keeps the scope while it is unavailable and the scope works again when the predicate returns `true`. Revoking the grant is a separate act ([runbook](../runbooks/oauth-server.md#6-revoke-everything-for-a-user-or-a-client)).
+- `availableScopes(scopeIds, ctx)` is the exported helper behind every row above. An unregistered id and a scope without a predicate pass through.
+- `buildAuthorizationServerMetadata` and `buildProtectedResourceMetadata` stay synchronous. Each takes an optional `availableScopeIds` (the result of `availableScopes(ids, {})`); `offline_access` is always listed.
 
 ### 2.18 In-process delegation
 
@@ -702,6 +724,18 @@ registerOAuthScope({
 
 A scope narrows, never widens: a token's effective permissions are the user's own, intersected with the scopes'. Proof: `oauth-resource-server.db.spec.ts`.
 
+To tie a scope to a runtime condition, add `available`. This example owns a "Reports" feature an administrator can switch off:
+
+```ts
+registerOAuthScope({
+  id: 'reports:read', title: 'Read your reports', description: 'See the reports you can see.',
+  permissions: ['reports:read'], risk: 'low',
+  available: async ({ orgId }) => (await reportsFeature.isEnabled(orgId ?? null)) === true,
+});
+```
+
+While `available` does not return `true`, `reports:read` is not advertised, not offered or granted at consent, and confers nothing on tokens already holding it; the grants keep it and it returns with the feature. A throw counts as unavailable. Keep the predicate cheap: it runs once per request at token resolution. The effect on each surface: [§2.17](#scope-availability).
+
 ### 4.3 Register a protected resource
 
 ```ts
@@ -801,6 +835,7 @@ Also:
 
 - `apps/api/test/identity/oauth/oauth-e2e.db.spec.ts`: a scripted client that knows only the resource URL (discovery from the `401`, CIMD, DCR, pre-registered confidential with step-up and reuse detection, loopback with a different port, revoke).
 - `oauth-authorization-server.db.spec.ts` (protocol, the five-statement `/token` budget), `oauth-clients.db.spec.ts` (client identity and trust), `oauth-resource-server.db.spec.ts` (guard, narrowing, delegation), `oauth-resource-metadata.db.spec.ts` (challenges, metadata, step-up), `oauth-token-cleanup.db.spec.ts` (rows on both sides of each threshold), `oauth-schema.db.spec.ts` (schema).
+- Scope availability, at every surface: `registries.spec.ts` (the predicate, `availableScopes`, fail closed), `scope-availability-metadata.spec.ts` (both metadata documents), `authorize-validation.spec.ts` (`/authorize`), `consent-scope-availability.spec.ts` (consent page and decision), `token-resolver.spec.ts` (token resolution), all under `packages/platform-api/test/identity/oauth-server/`.
 - `pat-universality.integration.spec.ts` and the `nod_` confinement tests stay green; `cron-enqueue-only` covers both crons; `job-type-snapshot.spec.ts` pins both job types; `check:closed-lists` covers the scope registry.
 - The Doctor checks `oauth.public_url`, `oauth.well_known`, `oauth.client_policy`, `oauth.resources`, `oauth.token_cleanup`.
 
