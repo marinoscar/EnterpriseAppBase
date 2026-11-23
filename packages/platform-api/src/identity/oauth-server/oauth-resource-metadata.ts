@@ -39,12 +39,15 @@ export function buildProtectedResourceMetadata(input: {
   issuer: string;
   identifier: string;
   resource: OAuthProtectedResourceDefinition;
+  /** When given, `scopes_supported` lists only these ids (`offline_access` is always kept). Compute it with `availableScopes(resource.scopes, {})`. */
+  availableScopeIds?: readonly string[];
 }): OAuthProtectedResourceMetadata {
   const { resource } = input;
+  const allowed = input.availableScopeIds ? new Set(input.availableScopeIds) : undefined;
   return {
     resource: input.identifier,
     authorization_servers: [input.issuer],
-    scopes_supported: [...new Set([...resource.scopes, OFFLINE_ACCESS_SCOPE])],
+    scopes_supported: [...new Set([...resource.scopes, OFFLINE_ACCESS_SCOPE])].filter((id) => id === OFFLINE_ACCESS_SCOPE || !allowed || allowed.has(id)),
     bearer_methods_supported: ['header'],
     resource_name: resource.name,
     ...(resource.documentation ? { resource_documentation: resource.documentation } : {}),

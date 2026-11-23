@@ -25,7 +25,7 @@ import { PRINCIPAL_USER_INCLUDE } from '../auth/principal.factory';
 import { hasActiveMembership, stampCredential, stampOAuthNarrowing } from '../auth/credential-binding';
 import { currentTenancyMode } from '../auth/tenancy-mode';
 import { oauthResourceRegistry, type OAuthProtectedResourceDefinition } from './oauth-resource.registry';
-import { permissionsOfScopes } from './oauth-scope.registry';
+import { availableScopes, permissionsOfScopes } from './oauth-scope.registry';
 
 /**
  * `last_used_at` is written at most this often per token, in milliseconds.
@@ -140,7 +140,11 @@ export class OAuthTokenResolver {
 
     // The token's scopes, limited to what its grant still holds.
     const held = new Set(grant.scopes);
-    const scopes = token.scopes.filter((scope) => held.has(scope));
+    // A scope that is unavailable now confers nothing (the grant keeps it, so it returns with the predicate).
+    const scopes = await availableScopes(
+      token.scopes.filter((scope) => held.has(scope)),
+      { userId: grant.user.id, orgId },
+    );
 
     const user = stampCredential(grant.user, { activeOrgId: orgId ?? undefined, tokenKind: 'oauth' });
     stampOAuthNarrowing(user, {

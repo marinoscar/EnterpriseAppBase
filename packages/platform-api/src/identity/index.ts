@@ -223,11 +223,12 @@ export {
   OAUTH_SCOPE_ID_MAX_LENGTH,
   OAUTH_SCOPE_ID_PATTERN,
   OFFLINE_ACCESS_SCOPE,
+  availableScopes,
   oauthScopeRegistry,
   permissionsOfScopes,
   registerOAuthScope,
 } from './oauth-server/oauth-scope.registry';
-export type { OAuthScopeDefinition, OAuthScopeRisk } from './oauth-server/oauth-scope.registry';
+export type { OAuthScopeAvailabilityContext, OAuthScopeDefinition, OAuthScopeRisk } from './oauth-server/oauth-scope.registry';
 export { OAUTH_CREDENTIAL_KIND } from './oauth-server/oauth-credential-kind';
 export { OAuthGrant, oauthGrantOf } from './oauth-server/oauth-grant.decorator';
 export { oauthAccessDecision, userPermissionsOf } from './oauth-server/oauth-access-decision';

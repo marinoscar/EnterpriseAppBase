@@ -14,6 +14,8 @@
 // scope (`validateOAuthRegistries`, run by the OAuth server module on init).
 // =============================================================================
 
+import { Logger } from '@nestjs/common';
+
 import { defineRegistry, type Registry } from '../../core/index';
 
 /**
@@ -75,6 +77,44 @@ export interface OAuthScopeDefinition {
   readonly risk: OAuthScopeRisk;
   /** Requested when the client asks for no scope. */
   readonly default?: boolean;
+  /**
+   * Whether the scope is available in this context. Absent means always
+   * available. When it returns `false` the scope is left out of the metadata
+   * documents, is not offered or granted at consent, and confers nothing on a
+   * token that already carries it (the grant row is not changed, so the scope
+   * returns when the predicate does). It FAILS CLOSED: a predicate that throws
+   * or rejects makes the scope unavailable. It runs on hot paths (token
+   * resolution): keep it cheap, with no I/O it cannot cache.
+   *
+   * @extensionPoint registry
+   * @stability experimental
+   * @example
+   * ```ts
+   * registerOAuthScope({
+   *   id: 'notes:beta',
+   *   title: 'Beta notes',
+   *   description: 'Use the notes beta.',
+   *   permissions: ['notes:read'],
+   *   risk: 'low',
+   *   available: (ctx) => ctx.orgId === undefined || ctx.orgId === null || betaOrgs.has(ctx.orgId),
+   * });
+   * ```
+   */
+  readonly available?: (ctx: OAuthScopeAvailabilityContext) => boolean | Promise<boolean>;
+}
+
+/**
+ * What an {@link OAuthScopeDefinition.available} predicate may look at. Both
+ * fields are optional: the metadata documents and `/authorize` have no
+ * signed-in user (an empty context), the consent page and a token have both.
+ *
+ * @stability experimental
+ */
+export interface OAuthScopeAvailabilityContext {
+  /** The user, when known. */
+  readonly userId?: string;
+  /** The organization the request acts in; `null` or absent when none. */
+  readonly orgId?: string | null;
 }
 
 const RISKS: readonly string[] = ['low', 'elevated', 'high'];
@@ -90,6 +130,9 @@ function validateScope(scope: OAuthScopeDefinition): void {
   }
   if (!RISKS.includes(scope.risk)) {
     throw new Error(`scope "${scope.id}": risk must be one of ${RISKS.join(', ')}`);
+  }
+  if (scope.available !== undefined && typeof scope.available !== 'function') {
+    throw new Error(`scope "${scope.id}": available must be a function`);
   }
   if (!Array.isArray(scope.permissions) || scope.permissions.some((p) => typeof p !== 'string' || p === '')) {
     throw new Error(`scope "${scope.id}": permissions must be an array of permission ids`);
@@ -147,6 +190,40 @@ export function permissionsOfScopes(scopeIds: readonly string[]): string[] {
     for (const permission of oauthScopeRegistry.get(id)?.permissions ?? []) out.add(permission);
   }
   return [...out];
+}
+
+const availabilityLogger = new Logger('OAuthScopeAvailability');
+
+/**
+ * The scope ids of `scopeIds` that are available in `ctx`, in order. A scope
+ * without an `available` predicate, and an unregistered id, pass through
+ * unchanged. A predicate that throws or rejects makes its scope unavailable
+ * (fail closed); one warning per call names the scope ids, never the context.
+ *
+ * @param scopeIds - scope ids.
+ * @param ctx - who and where; may be empty.
+ * @returns the available ids.
+ *
+ * @stability experimental
+ */
+export async function availableScopes(scopeIds: readonly string[], ctx: OAuthScopeAvailabilityContext): Promise<string[]> {
+  const failed: string[] = [];
+  const verdicts = await Promise.all(
+    scopeIds.map(async (id) => {
+      const predicate = oauthScopeRegistry.get(id)?.available;
+      if (!predicate) return true;
+      try {
+        return (await predicate(ctx)) === true;
+      } catch {
+        failed.push(id);
+        return false;
+      }
+    }),
+  );
+  if (failed.length > 0) {
+    availabilityLogger.warn(`oauth scope availability predicate failed; treated as unavailable: ${[...new Set(failed)].join(', ')}`);
+  }
+  return scopeIds.filter((_, index) => verdicts[index]);
 }
 
 if (!oauthScopeRegistry.has(OFFLINE_ACCESS_SCOPE)) {

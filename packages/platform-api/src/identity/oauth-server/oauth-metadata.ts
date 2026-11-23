@@ -57,9 +57,14 @@ export function buildAuthorizationServerMetadata(input: {
   settings: Pick<OAuthServerSettingsValue, 'dynamicClientRegistration' | 'clientIdMetadataDocuments'>;
   hasDynamicClientRegistration: boolean;
   hasClientIdMetadataDocuments: boolean;
+  /** When given, `scopes_supported` lists only these ids (`offline_access` is always kept). Compute it with `availableScopes(ids, {})`. */
+  availableScopeIds?: readonly string[];
 }): OAuthAuthorizationServerMetadata {
   const { issuer } = input;
-  const scopes = [...new Set([...oauthScopeRegistry.ids(), OFFLINE_ACCESS_SCOPE])];
+  const allowed = input.availableScopeIds ? new Set(input.availableScopeIds) : undefined;
+  const scopes = [...new Set([...oauthScopeRegistry.ids(), OFFLINE_ACCESS_SCOPE])].filter(
+    (id) => id === OFFLINE_ACCESS_SCOPE || !allowed || allowed.has(id),
+  );
   return {
     issuer,
     authorization_endpoint: `${issuer}/api/oauth/authorize`,
