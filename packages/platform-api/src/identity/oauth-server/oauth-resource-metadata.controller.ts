@@ -21,6 +21,7 @@ import { RawResponse } from '../../core/index';
 import { Public } from '../auth/decorators/public.decorator';
 import { requestPathOf } from '../auth/route-prefix';
 import { buildProtectedResourceMetadata } from './oauth-resource-metadata';
+import { availableScopes } from './oauth-scope.registry';
 import { oauthResourceRegistry, type OAuthProtectedResourceDefinition } from './oauth-resource.registry';
 import { OAuthProtocolExceptionFilter } from './oauth-protocol.filter';
 import { OAuthServerContext } from './oauth-server-context';
@@ -46,8 +47,13 @@ export class OAuthResourceMetadataController {
     if (!(await this.settings.isEnabled())) throw new NotFoundException();
   }
 
-  private document(resource: OAuthProtectedResourceDefinition) {
-    return buildProtectedResourceMetadata({ issuer: this.context.issuer(), identifier: this.context.identifierOf(resource), resource });
+  private async document(resource: OAuthProtectedResourceDefinition) {
+    return buildProtectedResourceMetadata({
+      issuer: this.context.issuer(),
+      identifier: this.context.identifierOf(resource),
+      resource,
+      availableScopeIds: await availableScopes(resource.scopes, {}),
+    });
   }
 
   // PUBLIC: RFC 9728 discovery, step two of the sign-in a client starts from a 401.

@@ -23,6 +23,7 @@ import { Public } from '../auth/decorators/public.decorator';
 import { OAuthAuthorizationService } from './oauth-authorization.service';
 import { ClientRegistrationService } from './clients/client-registration.service';
 import { buildAuthorizationServerMetadata } from './oauth-metadata';
+import { availableScopes, oauthScopeRegistry } from './oauth-scope.registry';
 import { OAuthErrorResponseDto, OAuthRegistrationRequestDto, OAuthRegistrationResponseDto, OAuthTokenRequestDto, OAuthTokenResponseDto } from './oauth.dto';
 import { oauthError, rateLimited } from './oauth-protocol.error';
 import { OAuthProtocolExceptionFilter } from './oauth-protocol.filter';
@@ -84,6 +85,7 @@ export class OAuthProtocolController {
       settings: await this.settings.read(),
       hasDynamicClientRegistration: this.features.hasDynamicClientRegistration,
       hasClientIdMetadataDocuments: this.features.hasClientIdMetadataDocuments,
+      availableScopeIds: await availableScopes(oauthScopeRegistry.ids(), {}),
     });
   }
 

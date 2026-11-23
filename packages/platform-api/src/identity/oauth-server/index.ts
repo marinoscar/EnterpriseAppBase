@@ -13,11 +13,12 @@ export {
   OAUTH_SCOPE_ID_MAX_LENGTH,
   OAUTH_SCOPE_ID_PATTERN,
   OFFLINE_ACCESS_SCOPE,
+  availableScopes,
   oauthScopeRegistry,
   permissionsOfScopes,
   registerOAuthScope,
 } from './oauth-scope.registry';
-export type { OAuthScopeDefinition, OAuthScopeRisk } from './oauth-scope.registry';
+export type { OAuthScopeAvailabilityContext, OAuthScopeDefinition, OAuthScopeRisk } from './oauth-scope.registry';
 export { OAUTH_CREDENTIAL_KIND } from './oauth-credential-kind';
 export { OAuthGrant, oauthGrantOf } from './oauth-grant.decorator';
 export { oauthAccessDecision, userPermissionsOf } from './oauth-access-decision';

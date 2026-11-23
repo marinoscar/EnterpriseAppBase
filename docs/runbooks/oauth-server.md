@@ -101,6 +101,8 @@ appctl api DELETE /api/admin/oauth/grants/<grant id>
 
 **One user:** the user disconnects each app in `/settings/connected-apps`. To cut a user off at once, deactivate the user (`/admin/settings/users`): every `oat_` token re-checks the user on every request and is refused. Leaving an organization is also enforced: a token whose grant is for an organization the user no longer belongs to is refused. Offboarding an organization revokes its grants (`offboarding`).
 
+**A scope hidden by its feature:** an app can tie a scope to a feature switch. While the feature is off, the scope is left out of discovery and the consent page and confers no permission on tokens that carry it, but existing grants still hold it and it works again when the feature is switched back on. Nothing is revoked by hiding it; to cut access off, revoke the grants as above.
+
 **Everything:** switch the server off ("Let other apps connect with OAuth"). Every `oat_` token is `401` and every OAuth route is `404` at once; grants and clients are kept, so switching it on again restores them (tokens that expired meanwhile need a refresh).
 
 You should see the connections vanish from Connected apps (disable and delete) and the next call with an old token answer `401`.

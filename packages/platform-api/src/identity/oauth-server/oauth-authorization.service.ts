@@ -51,7 +51,7 @@ import {
   OAUTH_STATE_MAX_LENGTH,
 } from './oauth-server.constants';
 import { OAUTH_AUDIT_ACTIONS, OAuthGrantService, type OAuthGrantRef } from './oauth-grant.service';
-import { oauthScopeRegistry, OFFLINE_ACCESS_SCOPE, type OAuthScopeDefinition } from './oauth-scope.registry';
+import { availableScopes, oauthScopeRegistry, OFFLINE_ACCESS_SCOPE, type OAuthScopeDefinition } from './oauth-scope.registry';
 import type { OAuthProtectedResourceDefinition } from './oauth-resource.registry';
 import { OAuthServerContext } from './oauth-server-context';
 import { OAuthServerSettingsReader } from './oauth-server-settings.reader';
@@ -156,7 +156,7 @@ export class OAuthAuthorizationService {
     trace.getActiveSpan()?.setAttribute('oauth.resource.id', resource.id);
 
     // 7. The scopes.
-    const scopes = this.resolveScopes(single(query, 'scope'), resource);
+    const scopes = await this.resolveScopes(single(query, 'scope'), resource);
     if (!scopes) return fail('invalid_scope', 'One or more requested scopes are not supported by this resource.');
 
     const now = Date.now();
@@ -183,19 +183,24 @@ export class OAuthAuthorizationService {
    * The scope ids a request asks for, or `null` when one is not registered or
    * not accepted by the resource. None requested: the resource's default scopes.
    */
-  private resolveScopes(raw: string | undefined | null, resource: OAuthProtectedResourceDefinition): string[] | null {
+  private async resolveScopes(raw: string | undefined | null, resource: OAuthProtectedResourceDefinition): Promise<string[] | null> {
     if (raw === null) return null;
     const requested = [...new Set((raw ?? '').split(/[ ]+/).filter((scope) => scope !== ''))];
     if (requested.length > OAUTH_SCOPES_MAX) return null;
     if (requested.length === 0) {
       const defaults = resource.scopes.filter((id) => oauthScopeRegistry.get(id)?.default === true);
-      return defaults.length > 0 ? [...defaults] : null;
+      // No user is signed in at /authorize: availability is judged with an empty context.
+      const available = await availableScopes(defaults, {});
+      return available.length > 0 ? available : null;
     }
     for (const scope of requested) {
       if (!oauthScopeRegistry.has(scope)) return null;
       if (scope !== OFFLINE_ACCESS_SCOPE && !resource.scopes.includes(scope)) return null;
     }
-    return requested;
+    // An unavailable scope is dropped; if that leaves nothing tickable, invalid_scope.
+    const available = await availableScopes(requested, {});
+    if (available.length === requested.length) return requested;
+    return available.some((scope) => scope !== OFFLINE_ACCESS_SCOPE) ? available : null;
   }
 
   /** The client's redirect URI carrying an error, `state` (when sent) and `iss`. */
@@ -236,7 +241,9 @@ export class OAuthAuthorizationService {
     const held = new Set(existing?.scopes ?? []);
 
     const requested = row.scope.split(' ').filter((scope) => scope !== '');
+    const shown = new Set(await availableScopes(requested, { userId: principal.userId, orgId: principal.activeOrgId ?? null }));
     const scopes = requested
+      .filter((scope) => shown.has(scope))
       .filter((scope) => scope !== OFFLINE_ACCESS_SCOPE)
       .flatMap((scope) => {
         const def = oauthScopeRegistry.get(scope);
@@ -354,11 +361,15 @@ export class OAuthAuthorizationService {
 
     // What the user may grant IN THAT ORGANIZATION: a scope never grants a permission.
     const permissions = await this.permissionsIn(orgId, principal);
+    // A scope unavailable to this user in this organization is never granted, ticked or required.
+    const available = new Set(await availableScopes(requestedTickable, { userId: principal.userId, orgId }));
     const grantable = ticked.filter((scope) => {
+      if (!available.has(scope)) return false;
       const def = oauthScopeRegistry.get(scope);
       return def !== undefined && isGrantable(def, permissions);
     });
     const required = requestedTickable.filter((scope) => {
+      if (!available.has(scope)) return false;
       const def = oauthScopeRegistry.get(scope);
       return def !== undefined && def.default === true && isGrantable(def, permissions);
     });

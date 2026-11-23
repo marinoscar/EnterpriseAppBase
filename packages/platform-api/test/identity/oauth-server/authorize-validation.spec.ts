@@ -1,10 +1,17 @@
 // The authorize endpoint's validation ORDER and its error shapes (PP-15.4, #1182),
 // against a stubbed store: a bad client or redirect URI never redirects to the
 // redirect URI; from response_type on, errors do, with state and iss.
+import { withTemporaryEntries } from '../../../src/core/index';
 import { OAuthAuthorizationService } from '../../../src/identity/oauth-server/oauth-authorization.service';
 import { OAuthServerContext } from '../../../src/identity/oauth-server/oauth-server-context';
 import type { ClientResolution, ClientResolver, OAuthClientRecord } from '../../../src/identity/oauth-server/client-resolver';
-import { oauthResourceRegistry, oauthScopeRegistry, registerOAuthProtectedResource, registerOAuthScope } from '../../../src/identity/index';
+import {
+  oauthResourceRegistry,
+  oauthScopeRegistry,
+  registerOAuthProtectedResource,
+  registerOAuthScope,
+  type OAuthScopeDefinition,
+} from '../../../src/identity/index';
 import { createOAuthTestPkce } from '../../../src/identity/testing/oauth';
 import { APP_URL, NOTES_RESOURCE, NOTES_SCOPES, OTHER_RESOURCE } from './support';
 
@@ -201,5 +208,113 @@ describe('authorize validation order', () => {
     const { params } = parse(await service.authorize(valid({ state: 's'.repeat(3000) })));
     expect(params.error).toBe('invalid_request');
     expect(params.state).toBeUndefined();
+  });
+});
+
+describe('authorize: scope availability (#1215)', () => {
+  const BETA_RESOURCE = { id: 'beta', path: '/api/beta-agent', routePrefixes: ['/api/beta-agent'], scopes: ['beta:read', 'beta:write'], name: 'Beta agent' };
+  const betaScope = (id: string, over: Partial<OAuthScopeDefinition> = {}): OAuthScopeDefinition => ({
+    id,
+    title: id,
+    description: id,
+    permissions: ['beta:read'],
+    risk: 'low',
+    ...over,
+  });
+  const betaAt = (over: Record<string, unknown> = {}) => valid({ resource: `${APP_URL}/api/beta-agent`, ...over });
+
+  /** Registers beta:read (default) and beta:write with the given predicates for the duration of `fn`. */
+  const withBeta = <T>(read: OAuthScopeDefinition['available'], write: OAuthScopeDefinition['available'], fn: () => Promise<T>) =>
+    withTemporaryEntries(oauthScopeRegistry, [betaScope('beta:read', { default: true, available: read }), betaScope('beta:write', { available: write })], () =>
+      withTemporaryEntries(oauthResourceRegistry, [BETA_RESOURCE], fn),
+    ) as Promise<T>;
+
+  it('drops an unavailable requested scope from the stored request', async () => {
+    await withBeta(() => true, () => false, async () => {
+      const { service, created } = build();
+      const location = await service.authorize(betaAt({ scope: 'beta:read beta:write' }));
+      expect(location).toContain('/oauth/consent');
+      expect(created[0]!.scope).toBe('beta:read');
+    });
+  });
+
+  it('keeps every scope, in order, when all are available', async () => {
+    await withBeta(() => true, async () => true, async () => {
+      const { service, created } = build();
+      await service.authorize(betaAt({ scope: 'beta:write beta:read' }));
+      expect(created[0]!.scope).toBe('beta:write beta:read');
+    });
+  });
+
+  it('keeps offline_access when something tickable is left', async () => {
+    await withBeta(() => true, () => false, async () => {
+      const { service, created } = build();
+      await service.authorize(betaAt({ scope: 'beta:write offline_access beta:read' }));
+      expect(created[0]!.scope).toBe('offline_access beta:read');
+    });
+  });
+
+  it.each([
+    ['only unavailable scopes requested', 'beta:write'],
+    ['an unavailable scope with offline_access', 'beta:write offline_access'],
+  ])('redirects invalid_scope when %s', async (_label, scope) => {
+    await withBeta(() => true, () => false, async () => {
+      const { service, created } = build();
+      const { params } = parse(await service.authorize(betaAt({ scope })));
+      expect(params).toMatchObject({ error: 'invalid_scope', state: 'st-1', iss: APP_URL });
+      expect(created).toHaveLength(0);
+    });
+  });
+
+  it('filters the default scopes the same way, and invalid_scope when none is left', async () => {
+    await withBeta(() => false, () => true, async () => {
+      const { service, created } = build();
+      const { params } = parse(await service.authorize(betaAt({ scope: undefined })));
+      expect(params).toMatchObject({ error: 'invalid_scope' });
+      expect(created).toHaveLength(0);
+    });
+    await withBeta(() => true, () => false, async () => {
+      const { service, created } = build();
+      await service.authorize(betaAt({ scope: undefined }));
+      expect(created[0]!.scope).toBe('beta:read');
+    });
+  });
+
+  it('leaves offline_access alone as the only requested scope unchanged', async () => {
+    // offline_access has no predicate: the pre-existing behaviour holds (it is accepted by any resource).
+    const { service, created } = build();
+    await service.authorize(valid({ scope: 'offline_access' }));
+    expect(created[0]!.scope).toBe('offline_access');
+  });
+
+  it('judges availability with an empty context', async () => {
+    const read = jest.fn(() => true);
+    const write = jest.fn(() => true);
+    await withBeta(read, write, async () => {
+      const { service } = build();
+      await service.authorize(betaAt({ scope: 'beta:read beta:write' }));
+      expect(read).toHaveBeenCalledWith({});
+      expect(write).toHaveBeenCalledWith({});
+      await service.authorize(betaAt({ scope: undefined }));
+      for (const call of [...read.mock.calls, ...write.mock.calls] as unknown[][]) expect(call).toEqual([{}]);
+    });
+  });
+
+  it('treats a throwing predicate as unavailable', async () => {
+    await withBeta(() => true, () => { throw new Error('boom'); }, async () => {
+      const { service, created } = build();
+      await service.authorize(betaAt({ scope: 'beta:read beta:write' }));
+      expect(created[0]!.scope).toBe('beta:read');
+    });
+  });
+
+  it('still rejects an unregistered scope before availability is consulted', async () => {
+    const read = jest.fn(() => true);
+    await withBeta(read, () => true, async () => {
+      const { service } = build();
+      const { params } = parse(await service.authorize(betaAt({ scope: 'beta:read nope' })));
+      expect(params.error).toBe('invalid_scope');
+      expect(read).not.toHaveBeenCalled();
+    });
   });
 });
