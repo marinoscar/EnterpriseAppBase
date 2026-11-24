@@ -114,6 +114,51 @@ describe('renderVhost with app stream paths', () => {
   });
 });
 
+describe('websocket stream paths', () => {
+  const runtime = proxyRuntimeFor('container', root);
+
+  it('forwards the upgrade handshake and keeps buffering off and the long timeout', () => {
+    registerProxyStreamPath({ path: '/api/terminal/ws', websocket: true });
+    const location = block(renderVhost(target, runtime), '/api/terminal/ws');
+
+    expect(location).toContain('proxy_set_header Upgrade           $http_upgrade;');
+    expect(location).toContain('proxy_set_header Connection        "upgrade";');
+    expect(location).not.toContain("Connection        ''");
+    expect(location).toContain('proxy_http_version 1.1;');
+    expect(location).toContain('proxy_buffering off;');
+    expect(location).toContain(`proxy_read_timeout ${DEFAULT_STREAM_TIMEOUT_SECONDS}s;`);
+    expect(location).toContain(`proxy_send_timeout ${DEFAULT_STREAM_TIMEOUT_SECONDS}s;`);
+  });
+
+  it('honours a per-route timeout on a websocket route', () => {
+    registerProxyStreamPath({ path: '/api/terminal/ws', websocket: true, timeoutSeconds: 7200 });
+    const location = block(renderVhost(target, runtime), '/api/terminal/ws');
+    expect(location).toContain('proxy_read_timeout 7200s;');
+    expect(location).toContain('proxy_send_timeout 7200s;');
+  });
+
+  it('leaves a plain string path and websocket: false unchanged', () => {
+    registerProxyStreamPath('/api/coach/chat/stream');
+    registerProxyStreamPath({ path: '/api/coach/other/stream', websocket: false });
+    const vhost = renderVhost(target, runtime);
+    for (const path of ['/api/coach/chat/stream', '/api/coach/other/stream']) {
+      const location = block(vhost, path);
+      expect(location).toContain("proxy_set_header Connection        '';");
+      expect(location).not.toContain('Upgrade');
+    }
+    expect(vhost.match(/\$http_upgrade/g)).toBeNull();
+  });
+
+  it('refuses a non-boolean websocket value', () => {
+    const bad = 'yes' as unknown as boolean;
+    expect(() => registerProxyStreamPath({ path: '/api/terminal/ws', websocket: bad })).toThrow(UsageError);
+    expect(listRegisteredProxyStreamPaths()).toHaveLength(0);
+    expect(() =>
+      renderVhost({ ...target, extraLocations: [{ path: '/api/x', timeoutSeconds: 60, buffering: false, websocket: bad }] }, runtime),
+    ).toThrow(/websocket must be true or false/);
+  });
+});
+
 describe('registerProxyStreamPath', () => {
   it('throws on a duplicate and on a platform path', () => {
     registerProxyStreamPath('/api/coach/chat/stream');

@@ -47,6 +47,12 @@ export interface ProxyExtraLocation {
   timeoutSeconds: number;
   /** `false` renders `proxy_buffering off` (a stream); `true` keeps the proxy's buffering. */
   buffering: boolean;
+  /**
+   * `true` forwards the WebSocket handshake: `Upgrade $http_upgrade` and
+   * `Connection "upgrade"` replace `Connection ''`. Applies to an unbuffered
+   * (`buffering: false`) location. Default `false`.
+   */
+  websocket?: boolean | undefined;
 }
 
 /**
@@ -59,6 +65,13 @@ export interface ProxyStreamPathRegistration {
   path: string;
   /** Read and send timeout in seconds. Default {@link DEFAULT_STREAM_TIMEOUT_SECONDS}. */
   timeoutSeconds?: number | undefined;
+  /**
+   * The route carries a WebSocket. Its location forwards the upgrade
+   * handshake (`proxy_set_header Upgrade $http_upgrade;` and
+   * `proxy_set_header Connection "upgrade";`) and keeps buffering off and the
+   * long timeout. Must be a boolean. Default `false`: a plain SSE stream.
+   */
+  websocket?: boolean | undefined;
 }
 
 /** A path nginx can carry verbatim: a leading `/`, then URL-safe characters only. */
@@ -126,6 +139,9 @@ export function assertValidExtraLocation(location: ProxyExtraLocation): void {
   if (typeof location.buffering !== 'boolean') {
     throw new UsageError(`Proxy path ${JSON.stringify(location.path)}: buffering must be true or false.`);
   }
+  if (location.websocket !== undefined && typeof location.websocket !== 'boolean') {
+    throw new UsageError(`Proxy path ${JSON.stringify(location.path)}: websocket must be true or false.`);
+  }
 }
 
 /** Normalises a registration (a bare string or an object) to an extra location. */
@@ -135,6 +151,8 @@ export function streamPathToLocation(entry: string | ProxyStreamPathRegistration
     path: registration.path,
     timeoutSeconds: registration.timeoutSeconds ?? DEFAULT_STREAM_TIMEOUT_SECONDS,
     buffering: false,
+    // Passed through unchecked so `assertValidExtraLocation` rejects a non-boolean.
+    ...(registration.websocket === undefined ? {} : { websocket: registration.websocket }),
   };
 }
 
@@ -160,7 +178,7 @@ const registry = createCliRegistry<ProxyExtraLocation>({
  * target; a caller building a `ProxyTarget` itself can add more with
  * `streamPaths` / `extraLocations`.
  *
- * @param entry - The path prefix, or the path with a `timeoutSeconds` (default one hour).
+ * @param entry - The path prefix, or the path with a `timeoutSeconds` (default one hour) and `websocket: true` for a WebSocket route.
  * @throws UsageError on an invalid path or timeout, a path the platform already streams.
  * @throws Error on a duplicate path, or after `createCli` built the CLI.
  * @stability experimental
@@ -169,6 +187,7 @@ const registry = createCliRegistry<ProxyExtraLocation>({
  * ```ts
  * registerProxyStreamPath('/api/coach/chat/stream');
  * registerProxyStreamPath({ path: '/api/coach/report/stream', timeoutSeconds: 600 });
+ * registerProxyStreamPath({ path: '/api/terminal/ws', websocket: true });
  * ```
  */
 export function registerProxyStreamPath(entry: string | ProxyStreamPathRegistration): void {
@@ -219,7 +238,12 @@ export function resolveExtraLocations(target: {
     assertValidExtraLocation(location);
     if (seen.has(location.path)) continue;
     seen.add(location.path);
-    out.push({ path: location.path, timeoutSeconds: location.timeoutSeconds, buffering: location.buffering });
+    out.push({
+      path: location.path,
+      timeoutSeconds: location.timeoutSeconds,
+      buffering: location.buffering,
+      ...(location.websocket === undefined ? {} : { websocket: location.websocket }),
+    });
   }
   return out;
 }
@@ -231,7 +255,7 @@ export function resolveExtraLocations(target: {
  * @internal
  */
 export function renderExtraLocation(location: ProxyExtraLocation, bindPort: number): string {
-  const { path, timeoutSeconds, buffering } = location;
+  const { path, timeoutSeconds, buffering, websocket } = location;
   const lines = [
     `    # App route ${buffering ? '(buffered)' : '(streamed: unbuffered, long-lived)'}, declared by the application.`,
     `    location ${path} {`,
@@ -253,7 +277,9 @@ export function renderExtraLocation(location: ProxyExtraLocation, bindPort: numb
     );
   } else {
     lines.push(
-      "        proxy_set_header Connection        '';",
+      ...(websocket
+        ? ['        proxy_set_header Upgrade           $http_upgrade;', '        proxy_set_header Connection        "upgrade";']
+        : ["        proxy_set_header Connection        '';"]),
       '',
       '        proxy_buffering off;',
       '        proxy_cache off;',
