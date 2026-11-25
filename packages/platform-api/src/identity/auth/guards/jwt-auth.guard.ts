@@ -1,0 +1,398 @@
+import {
+  ExecutionContext,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  Optional,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { AuthGuard } from '@nestjs/passport';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { PatService } from '../../pat/pat.service';
+import { IDENTITY_NODE_CREDENTIALS, type IdentityNodeCredentials } from '../../ports';
+import type { AuthCredentialInfo } from '../decorators/auth-credential.decorator';
+import { withResponseHeaders, type CredentialKind } from '../../../core/index';
+import { toPrincipal } from '../principal.factory';
+import type { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
+import { isUnderRoutePrefix, requestPathOf } from '../route-prefix';
+import '../../oauth-server/oauth-credential-kind';
+import { IPD_BEARER_PREFIX, InProcessDelegation } from '../../oauth-server/in-process-delegation.service';
+import { resourceForPath } from '../../oauth-server/oauth-resource.registry';
+import { buildBearerChallenge } from '../../oauth-server/oauth-challenge';
+import { OAuthServerSettingsReader } from '../../oauth-server/oauth-server-settings.reader';
+import { OAuthTokenResolver } from '../../oauth-server/oauth-token.resolver';
+
+// =============================================================================
+// The `nod_` route allowlist (issue #267, epic #254)
+// =============================================================================
+//
+// A worker-node credential authenticates AS ITS OWNING USER — `validateToken`
+// returns the same `AuthenticatedUser` the JWT strategy would, carrying that
+// user's real roles and permissions, because `RolesGuard` and
+// `PermissionsGuard` downstream need something they can actually evaluate.
+// And the owner of a node credential is an admin: `nodes:write` is granted to
+// Admin only in `prisma/seed-data.ts`.
+//
+// So without this allowlist, a `nod_` token WOULD BE AN ADMIN TOKEN. That is
+// not a hypothetical — it is the direct consequence of resolving it to a real
+// user, and it is exactly the property that makes a leaked worker credential
+// catastrophic rather than merely bad. A node credential lives in a config
+// file on a machine nobody is watching; it must not be able to call
+// `PATCH /api/users/:id`.
+//
+// -----------------------------------------------------------------------------
+// WHY THE ALLOWLIST LIVES HERE AND NOT IN `NodeCredentialService`
+// -----------------------------------------------------------------------------
+// Because THIS is where route identity exists. `validateToken` answers "is
+// this string a live credential, and whose" and has more than one caller by
+// design; it has no request, no URL, and no business making an authorization
+// decision about a route it cannot see. Pushing the check into the service
+// would mean either passing a URL into a function whose job is credential
+// liveness, or duplicating the rule at each caller — and a security rule that
+// exists in two places is a security rule that will disagree with itself.
+// Recorded as a rejected alternative in docs/specs/worker-nodes.md.
+//
+// -----------------------------------------------------------------------------
+// WHY THE PREFIX MATCH IS EXACT AND NOT `startsWith('/api/nodes')`
+// -----------------------------------------------------------------------------
+// A bare `startsWith` would also admit `/api/nodesX`, `/api/nodes-other` and —
+// the one that actually matters — any future `/api/nodes…`-shaped route
+// somebody adds without thinking about this file. The rule is therefore
+// "exactly the collection, or something UNDER it": `/api/nodes` itself, or a
+// path beginning `/api/nodes/`. `/api/node-credentials` is not under it and
+// is not admitted, which is deliberate and is the subject of its own comment
+// in `nodes/node-credential.controller.ts`.
+// =============================================================================
+
+/**
+ * The one route prefix a `nod_` credential may reach. No trailing slash.
+ *
+ * @stability stable
+ */
+export const NODE_ROUTE_PREFIX = '/api/nodes';
+
+/** The `Authorization` value prefixes each token family is recognized by. */
+const PAT_BEARER_PREFIX = 'Bearer pat_';
+const NODE_BEARER_PREFIX = 'Bearer nod_';
+const OAUTH_BEARER_PREFIX = 'Bearer oat_';
+
+/**
+ * The one message every `oat_` refusal that concerns the token answers with:
+ * not mounted, switched off, unknown, revoked, expired, grant revoked, client
+ * disabled, user inactive, membership lost. No oracle for which one held.
+ */
+const OAUTH_UNAUTHORIZED_MESSAGE = 'Invalid or expired access token';
+
+/** Length of `'Bearer '`, i.e. where the raw token starts in the header. */
+const BEARER_OFFSET = 'Bearer '.length;
+
+/**
+ * JWT authentication guard.
+ *
+ * Validates JWT tokens on protected routes. Routes marked `@Public()` are
+ * skipped. Two opaque bearer families are recognized before Passport is ever
+ * reached:
+ *
+ *   * `Bearer pat_…` — a personal access token, accepted on EVERY
+ *     authenticated route with the owner's full authority. That universality
+ *     is a documented promise of this API (`openapi/description.ts`) and is
+ *     proven by `test/auth/pat-universality.integration.spec.ts`.
+ *
+ *   * `Bearer nod_…` — a worker-node credential, confined to
+ *     {@link NODE_ROUTE_PREFIX}. Everything else is a 403. See the block
+ *     comment above and docs/specs/worker-nodes.md.
+ *
+ *   * `Bearer oat_…` — an OAuth access token a user granted to a third-party
+ *     client (PP-15.3, docs/specs/oauth-server.md §2.14). Confined to the route
+ *     prefixes of ONE registered protected resource, and narrowed to the
+ *     permissions of its scopes. Without the OAuth server mounted and enabled
+ *     it is a 401. `Bearer ipd_…` is an in-process delegation a protected
+ *     resource obtained for its own request; it never works from the network.
+ *
+ * Existing credentials are unaffected by the `oat_` and `ipd_` branches: a
+ * session JWT, a `pat_` and a `nod_` take exactly the paths they always did.
+ *
+ * The two branches are intentionally asymmetric, and the asymmetry IS the
+ * security model: a PAT is a human deliberately delegating their own
+ * authority to a script they control, while a node credential is authority
+ * handed to an unattended process on a machine the deployment may not own.
+ *
+ * @stability stable
+ */
+@Injectable()
+export class JwtAuthGuard extends AuthGuard('jwt') {
+  constructor(
+    private reflector: Reflector,
+    private patService: PatService,
+    @Inject(IDENTITY_NODE_CREDENTIALS) private nodeCredentialService: IdentityNodeCredentials,
+    // The OAuth server's resource-server half (PP-15.3): present only when
+    // `IdentityModule.forRoot({ oauthServer })` mounted it. Optional, so a
+    // graph without it (and every existing unit test) behaves as before.
+    @Optional() private oauthResolver?: OAuthTokenResolver,
+    @Optional() private oauthSettings?: OAuthServerSettingsReader,
+    @Optional() private delegation?: InProcessDelegation,
+  ) {
+    super();
+  }
+
+  /**
+   * Determines if the route requires authentication.
+   *
+   * Order: `@Public()` first, then the two opaque bearer families, then
+   * Passport. Note that a `@Public()` route short-circuits BEFORE either
+   * opaque branch, so a public endpoint never pays for a credential lookup
+   * and a `nod_` token is never 403'd on a route that needs no
+   * authentication at all.
+   */
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    try {
+      return await this.authenticate(context);
+    } catch (failure) {
+      throw await this.withDiscoveryChallenge(failure, context);
+    }
+  }
+
+  /**
+   * The `WWW-Authenticate` challenge of a `401` on a protected resource's
+   * routes (RFC 9728 §5.1, PP-15.6): the failed request is how a hosted client
+   * learns where to sign in. Applied to EVERY `401` the authentication above
+   * produced (no credential, a bad session or PAT, an invalid or expired
+   * `oat_`), keyed on the route prefix, so a resource needs no code of its own.
+   * `error="invalid_token"` only when a credential was presented. A route
+   * outside every resource, and a deployment without the OAuth server enabled,
+   * keep the `401` exactly as it was.
+   */
+  private async withDiscoveryChallenge(failure: unknown, context: ExecutionContext): Promise<unknown> {
+    if (!(failure instanceof UnauthorizedException) || !this.oauthSettings) return failure;
+    const request = context.switchToHttp().getRequest();
+    const path = requestPathOf(request);
+    const resource = path === null ? undefined : resourceForPath(path);
+    if (!resource) return failure;
+    try {
+      if (!(await this.oauthSettings.isEnabled())) return failure;
+      const presented = typeof request.headers?.authorization === 'string' && request.headers.authorization.trim() !== '';
+      const challenge = buildBearerChallenge({
+        resourceId: resource.id,
+        ...(presented ? { error: 'invalid_token' as const, errorDescription: 'The access token is invalid or expired' } : {}),
+      });
+      return withResponseHeaders(failure, { 'WWW-Authenticate': challenge });
+    } catch {
+      // A challenge that cannot be built (no APP_URL) must not hide the 401.
+      return failure;
+    }
+  }
+
+  private async authenticate(context: ExecutionContext): Promise<boolean> {
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    if (isPublic) {
+      return true;
+    }
+
+    const request = context.switchToHttp().getRequest();
+    const authHeader = request.headers?.authorization;
+
+    if (authHeader?.startsWith(PAT_BEARER_PREFIX)) {
+      const token = authHeader.slice(BEARER_OFFSET);
+      const resolved = await this.patService.resolveToken(token);
+      if (!resolved) {
+        throw new UnauthorizedException('Invalid or expired personal access token');
+      }
+      // Set the full AuthenticatedUser on request.user so RolesGuard/PermissionsGuard
+      // can call toRequestUser() on it (same format as JWT strategy validate() returns)
+      request.user = resolved.user;
+      // Which PAT it was (its id, never the token): `@AuthCredential()`.
+      request.authCredential = { kind: 'pat', tokenId: resolved.tokenId } satisfies AuthCredentialInfo;
+      this.attachPrincipal(request, 'pat');
+      return true;
+    }
+
+    if (authHeader?.startsWith(NODE_BEARER_PREFIX)) {
+      // -----------------------------------------------------------------
+      // THE ROUTE ALLOWLIST RUNS FIRST. THIS ORDER IS NOT NEGOTIABLE.
+      // -----------------------------------------------------------------
+      // Validating first and checking the route second would produce the
+      // same status code and be wrong in two ways at once:
+      //
+      //   1. `validateToken` stamps `lastUsedAt` fire-and-forget on every
+      //      success. A stolen credential probed against `/api/users` would
+      //      therefore leave a fresh `lastUsedAt` in the operator's own
+      //      listing — a LIVENESS ORACLE handed to the attacker (the
+      //      request was refused, so they learn nothing from the response;
+      //      but a confederate who can read the list learns the token is
+      //      still good) and, worse, a corrupted signal for the operator,
+      //      whose "is this node still alive?" column now reflects an
+      //      attacker's probes rather than a working node.
+      //
+      //   2. It spends a database round trip — an indexed lookup plus the
+      //      `include` of roles and permissions, plus a write — on a request
+      //      that was never going to be allowed. That turns a refused
+      //      request into a cheap way to generate load, on the
+      //      authentication path, for an unauthenticated caller.
+      //
+      // Rejecting on route identity alone needs no I/O and leaks nothing:
+      // the answer is the same for a real credential, a revoked one and a
+      // string somebody made up.
+      // -----------------------------------------------------------------
+      if (!this.isNodeRoute(request)) {
+        throw new ForbiddenException(
+          'Worker node credentials may only be used on node endpoints',
+        );
+      }
+
+      const token = authHeader.slice(BEARER_OFFSET);
+      const user = await this.nodeCredentialService.validateToken(token);
+      if (!user) {
+        // Deliberately one message for unknown, revoked, expired and
+        // inactive-owner alike — see `NodeCredentialService.validateToken`.
+        throw new UnauthorizedException('Invalid or expired node credential');
+      }
+      request.user = user;
+      request.authCredential = { kind: 'node' } satisfies AuthCredentialInfo;
+      this.attachPrincipal(request, 'node');
+      return true;
+    }
+
+    if (authHeader?.startsWith(IPD_BEARER_PREFIX)) {
+      // In-process delegation (PP-15.3): honoured ONLY for a request that
+      // `InProcessDelegation.inject` made inside this process (its raw socket
+      // carries the process's marker address). A network request carrying an
+      // `ipd_` header is refused and logged, never redeemed.
+      if (!this.delegation || !this.delegation.isInProcess(request)) {
+        this.delegation?.warnNetworkAttempt();
+        throw new UnauthorizedException(OAUTH_UNAUTHORIZED_MESSAGE);
+      }
+      const entry = this.delegation.redeem(authHeader);
+      if (!entry) throw new UnauthorizedException(OAUTH_UNAUTHORIZED_MESSAGE);
+      // The same user graph (with any OAuth narrowing), credential and
+      // principal as the originating request. Route confinement is skipped:
+      // that is what the delegation is for.
+      request.user = entry.user;
+      request.authCredential = entry.authCredential;
+      request.principal = entry.principal;
+      return true;
+    }
+
+    if (authHeader?.startsWith(OAUTH_BEARER_PREFIX)) {
+      // -----------------------------------------------------------------
+      // ORDER (docs/specs/oauth-server.md §2.14): the cheap local checks
+      // first, so a refused request causes no database load and gives no
+      // hint whether a token exists.
+      //
+      //   a. the feature gate (a cached read, never a query per request),
+      //   b. ROUTE CONFINEMENT: pure, no I/O,
+      //   c. only then the token lookup, which `resolve` follows with a
+      //      write (`last_used_at`).
+      //
+      // WHY (b) PRECEDES (c): the same two reasons as the `nod_` branch
+      // above. A stolen token probed against `/api/users` must not stamp a
+      // fresh `last_used_at` (a liveness oracle for a confederate, and a
+      // corrupted "is this app still connected?" signal for its owner), and a
+      // request that was never going to be allowed must not cost an
+      // authentication-path database round trip for an unauthenticated
+      // caller. The answer is the same for a real token, a revoked one and
+      // a made-up string.
+      // -----------------------------------------------------------------
+      if (!this.oauthResolver || !this.oauthSettings || !(await this.oauthSettings.isEnabled())) {
+        throw new UnauthorizedException(OAUTH_UNAUTHORIZED_MESSAGE);
+      }
+
+      const path = requestPathOf(request);
+      const matched = path === null ? undefined : resourceForPath(path);
+      if (!matched) {
+        throw new ForbiddenException('OAuth access tokens may only be used on the resource they were issued for');
+      }
+
+      const resolved = await this.oauthResolver.resolve(authHeader.slice(BEARER_OFFSET));
+      if (!resolved) {
+        throw new UnauthorizedException(OAUTH_UNAUTHORIZED_MESSAGE);
+      }
+      // Audience binding: a token for resource A is no token for resource B.
+      if (resolved.resource.id !== matched.id) {
+        throw new ForbiddenException('OAuth access tokens may only be used on the resource they were issued for');
+      }
+
+      request.user = resolved.user;
+      request.authCredential = {
+        kind: 'oauth',
+        tokenId: resolved.tokenId,
+        grantId: resolved.grantId,
+        clientId: resolved.clientId,
+        resourceId: resolved.resource.id,
+        scopes: [...resolved.scopes],
+      } satisfies AuthCredentialInfo;
+      // The permission set is narrowed where the principal is built
+      // (`resolveEffectiveAccess`), on this request's copy of the graph.
+      this.attachPrincipal(request, 'oauth');
+      return true;
+    }
+
+    const admitted = await (super.canActivate(context) as Promise<boolean>);
+    if (admitted) {
+      request.authCredential = { kind: 'jwt' } satisfies AuthCredentialInfo;
+      // `session` or `device`: stamped by `AuthService.validateJwtPayload`.
+      this.attachPrincipal(request, request.user?.tokenKind ?? 'session');
+    }
+    return admitted;
+  }
+
+  /**
+   * Sets `request.principal` (ADR 0001, #724) beside `request.user`: the
+   * same graph, bound to the org the credential path validated, with the
+   * credential kind this branch admitted. A node principal has no
+   * `activeOrgId`. Skipped for a `request.user` that is not a loaded graph
+   * (a unit test's stub), which then has no principal.
+   */
+  private attachPrincipal(
+    request: { user?: AuthenticatedUser; principal?: unknown },
+    kind: CredentialKind,
+  ): void {
+    const user = request.user;
+    if (!user || !Array.isArray(user.userRoles)) return;
+    request.principal = toPrincipal(user, kind);
+  }
+
+  /**
+   * Whether this request targets a route a `nod_` credential may reach.
+   *
+   * READS THE RAW URL, NOT NEST'S ROUTE METADATA. `context.getHandler()` /
+   * `getClass()` would tell us which controller Nest matched, and gating on
+   * "is this the nodes controller" is the tempting version. It is the wrong
+   * version: the answer would then depend on decorators #268 has not written
+   * yet, and any new controller that forgot the marker would silently be
+   * either open or closed depending on which default we picked. A path is a
+   * fact about the request that exists before routing and cannot be
+   * accidentally omitted.
+   *
+   * `originalUrl ?? url` covers both adapters: Fastify (this application's)
+   * exposes the full path on `url`, Express rewrites `url` when a router is
+   * mounted and preserves the real path on `originalUrl`. Taking
+   * `originalUrl` first means a future adapter change cannot quietly narrow
+   * what this function is looking at.
+   *
+   * The query string is stripped because it is not part of route identity:
+   * `/api/nodes?x=1` is the nodes collection and must match, while nothing
+   * after `?` may be allowed to influence the decision — a caller who could
+   * append `?/api/nodes` to a forbidden path and pass would have found a
+   * complete bypass.
+   */
+  private isNodeRoute(request: { originalUrl?: unknown; url?: unknown }): boolean {
+    // The prefix match is shared with the `oat_` confinement (`route-prefix.ts`).
+    const path = requestPathOf(request);
+    if (path === null) {
+      // No URL to reason about. Refuse rather than assume: this function's
+      // `false` is a 403, and failing closed on a request we cannot classify
+      // is the only safe default for an allowlist.
+      return false;
+    }
+
+    // Exactly the collection, or something beneath it. NOT `startsWith` on
+    // the bare prefix — see the block comment at the top of this file for the
+    // paths that would wrongly admit.
+    return isUnderRoutePrefix(path, NODE_ROUTE_PREFIX);
+  }
+}

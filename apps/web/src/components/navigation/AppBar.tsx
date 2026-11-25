@@ -1,79 +1,39 @@
-import {
-  AppBar as MuiAppBar,
-  Toolbar,
-  Typography,
-  Box,
-  IconButton,
-  useTheme,
-} from '@mui/material';
-import {
-  Brightness4 as DarkModeIcon,
-  Brightness7 as LightModeIcon,
-  Menu as MenuIcon,
-} from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
-import { useThemeContext } from '../../contexts/ThemeContext';
+/**
+ * The top bar — this app's binding of the packaged `ShellAppBar`
+ * (`@marinoscar/platform-web/shell/ui`, issue #868).
+ *
+ * The bar itself (both treatments, the compact drill-down of #95 with its
+ * structural "up" arrow, and breakpoint gate 5) lives in the package; this
+ * file fills its slots:
+ *
+ *   - `brand`: the app's name (`APP_NAME`), which routes home;
+ *   - `actions`: the notification centre's bell (#127), in BOTH treatments,
+ *     because it is the only way into the centre anywhere in the app. It
+ *     renders nothing without a `NotificationProvider`;
+ *   - `wideActions`: the organization switcher (#726), dropped in the
+ *     drill-down for the theme toggle's reason (the treatment is sized for
+ *     three icon buttons). It renders nothing unless the deployment is
+ *     multi-org and the user has two or more memberships;
+ *   - `userMenu`: `UserMenu`, the app's menu binding.
+ *
+ * Takes NO props (#55): the hamburger callback went away with the drawer.
+ */
+import { APP_NAME } from '@app/shared';
+import { NotificationBell } from '@marinoscar/platform-web/notifications/ui';
+import { OrgSwitcher } from '@marinoscar/platform-web/identity/ui';
+import { ShellAppBar } from '@marinoscar/platform-web/shell/ui';
+
+import { APP_NAVIGATION } from '../../config/shell';
 import { UserMenu } from './UserMenu';
 
-interface AppBarProps {
-  onMenuClick?: () => void;
-}
-
-export function AppBar({ onMenuClick }: AppBarProps) {
-  const theme = useTheme();
-  const navigate = useNavigate();
-  const { isDarkMode, toggleMode } = useThemeContext();
-
+export function AppBar() {
   return (
-    <MuiAppBar
-      position="sticky"
-      color="default"
-      elevation={0}
-      sx={{
-        backgroundColor: theme.palette.background.paper,
-      }}
-    >
-      <Toolbar>
-        {/* Hamburger Menu (Always Visible) */}
-        <IconButton
-          color="inherit"
-          aria-label="toggle drawer"
-          edge="start"
-          onClick={onMenuClick}
-          sx={{ mr: 2 }}
-        >
-          <MenuIcon />
-        </IconButton>
-
-        {/* Logo/Title */}
-        <Typography
-          variant="h6"
-          component="div"
-          sx={{
-            cursor: 'pointer',
-            fontWeight: 600,
-          }}
-          onClick={() => navigate('/')}
-        >
-          Enterprise App
-        </Typography>
-
-        {/* Spacer */}
-        <Box sx={{ flexGrow: 1 }} />
-
-        {/* Theme Toggle */}
-        <IconButton
-          onClick={toggleMode}
-          color="inherit"
-          aria-label="toggle theme"
-          sx={{ mr: 1 }}
-        >
-          {isDarkMode ? <LightModeIcon /> : <DarkModeIcon />}
-        </IconButton>
-
-        {/* User Menu */}
-        <UserMenu />
-      </Toolbar>
-    </MuiAppBar>
+    <ShellAppBar
+      navigation={APP_NAVIGATION}
+      brand={APP_NAME}
+      actions={<NotificationBell />}
+      wideActions={<OrgSwitcher />}
+      userMenu={<UserMenu />}
+    />
   );
 }

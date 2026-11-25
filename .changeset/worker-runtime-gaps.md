@@ -1,0 +1,5 @@
+---
+"@marinoscar/platform-cli": minor
+---
+
+Worker runtime: `registerWorkerRuntimeHook` runs app steps (for example capping libvips threads) once after the heap re-exec and before the first claim, in daemon and foreground mode, with a new `<PREFIX>NATIVE_THREADS` knob (default half the cores, 1 to 4); a throwing hook aborts the start with `WorkerRuntimeHookError`. `registerWorkerEnvAlias` / `createCli({ node: { envAliases } })` keep legacy variable names working (canonical wins, one deprecation line per alias, never the token or the re-exec latch; a legacy valve fraction of `0` disables the valve while sampling continues). `createCli({ node: { memoryValveExitCode } })` (64 to 113, default 71) sets the valve exit code and the generated unit's `RestartForceExitStatus=`. The valve drain is bounded (60 s) so a drain that never settles still exits, an explicit heap limit above 8192 MB is honoured, and the startup log line reports the heap limit, thread cap, valve state and exit code, and aliases in use.

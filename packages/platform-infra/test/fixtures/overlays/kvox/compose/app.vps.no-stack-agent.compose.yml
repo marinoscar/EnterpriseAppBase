@@ -1,0 +1,6 @@
+# kvox runs without the stack agent (#714): an overlay that puts the service
+# in a profile nobody enables, instead of deleting it from vps.compose.yml.
+# `docker compose up` then never creates it, and `config` omits it.
+services:
+  stack-agent:
+    profiles: ["disabled"]

@@ -4,8 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
 import { render } from '../utils/test-utils';
-import ActivateDevicePage from '../../pages/ActivateDevicePage';
-import type { DeviceActivationInfo, DeviceAuthorizationResponse } from '../../types';
+import { ActivateDevicePage } from '@marinoscar/platform-web/identity/ui';
+import type { DeviceActivationInfo, DeviceAuthorizationResponse } from '@marinoscar/platform-web/identity/headless';
 
 // Use wildcard pattern to match API requests
 const API_BASE = '*/api';
@@ -364,6 +364,34 @@ describe('ActivateDevicePage', () => {
         expect(screen.getByRole('heading', { name: /authorization complete/i })).toBeInTheDocument();
         expect(screen.getByText(/device authorized successfully!/i)).toBeInTheDocument();
       });
+    });
+
+    it('follows an https returnUri after approval and not before', async () => {
+      const user = userEvent.setup({ delay: null });
+      const assign = vi.fn();
+      const original = window.location;
+      Object.defineProperty(window, 'location', { configurable: true, value: { ...original, assign } });
+      try {
+        server.use(
+          http.get(`${API_BASE}/auth/device/activate`, () =>
+            HttpResponse.json({
+              data: {
+                ...mockDeviceInfo,
+                clientInfo: { ...mockDeviceInfo.clientInfo, returnUri: 'https://app.example.test/paired' },
+              },
+            }),
+          ),
+        );
+        render(<ActivateDevicePage />, { wrapperOptions: { route: '/activate-device?code=ABCD-1234' } });
+        await waitFor(() => expect(screen.getByRole('button', { name: /approve/i })).toBeInTheDocument());
+        expect(assign).not.toHaveBeenCalled();
+        await user.click(screen.getByRole('button', { name: /approve/i }));
+        await waitFor(() => expect(screen.getByRole('button', { name: /return to my smart tv/i })).toBeInTheDocument());
+        await user.click(screen.getByRole('button', { name: /return to my smart tv/i }));
+        expect(assign).toHaveBeenCalledWith('https://app.example.test/paired');
+      } finally {
+        Object.defineProperty(window, 'location', { configurable: true, value: original });
+      }
     });
 
     it('should show loading state while approving', async () => {

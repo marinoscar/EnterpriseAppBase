@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Placeholder only: TwaLauncher computes the real URL from the configured server. -->
+    <string name="twa_default_url" translatable="false">https://localhost/?source=twa</string>
+</resources>

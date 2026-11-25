@@ -1,0 +1,430 @@
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { configDirName, configFileName } from '../identity.js';
+import type { HeartbeatRequest, NodeApi } from './node-api.js';
+import { createHash } from 'node:crypto';
+import { registerModelArtifact, resetModelRegistryForTests } from './models.js';
+import { EXIT_MISSING_CAPABILITY, startNode } from './start.js';
+import { registerWorkerRuntimeHook, resetRuntimeTuningForTests, WorkerRuntimeHookError } from './runtime-tuning.js';
+import { workerEnv } from './worker-env.js';
+
+// =============================================================================
+// `node start` wiring  (issue #275, epic #254)
+// =============================================================================
+//
+// One property is asserted here above all others: `--headless` drains on
+// SIGTERM WITHOUT deregistering. A container that deregistered on every
+// SIGTERM would leak a node row per restart, and a crash-looping replica would
+// fill the fleet page with corpses.
+// =============================================================================
+
+let home: string;
+let started: Array<{ stop: () => Promise<void> }>;
+
+function writeConfig(body: unknown): void {
+  const dir = join(home, configDirName());
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writeFileSync(join(dir, configFileName()), JSON.stringify(body), { mode: 0o600 });
+}
+
+function api(record: { deregisters: number; claims: number }): NodeApi {
+  return {
+    async claim() {
+      record.claims += 1;
+      return [];
+    },
+    async heartbeat() {
+      return {} as never;
+    },
+    async deregister() {
+      record.deregisters += 1;
+    },
+    register: async () => ({
+      node: {
+        id: 'node-new',
+        name: 'worker-1',
+        hostname: 'box',
+        platform: 'linux',
+        cliVersion: '1.0.0',
+        eligibleTypes: [],
+        concurrency: 1,
+        status: 'online',
+        capabilities: {},
+        registeredAt: '2026-01-01T00:00:00.000Z',
+        lastHeartbeatAt: null,
+      },
+      reattached: false,
+    }),
+    jobTypes: async () => [],
+    listNodes: async () => [],
+    getNode: async () => {
+      throw new Error('unexpected');
+    },
+    renewLease: async () => {
+      throw new Error('unexpected');
+    },
+    downloadUrl: async () => {
+      throw new Error('unexpected');
+    },
+    uploadUrl: async () => {
+      throw new Error('unexpected');
+    },
+    jobSecret: async () => {
+      throw new Error('unexpected');
+    },
+    submitResult: async () => {
+      throw new Error('unexpected');
+    },
+    reportJobFailure: async () => {
+      throw new Error('unexpected');
+    },
+  } as NodeApi;
+}
+
+beforeEach(() => {
+  home = mkdtempSync(join(tmpdir(), 'appctl-start-'));
+  started = [];
+});
+
+afterEach(async () => {
+  resetRuntimeTuningForTests();
+  for (const handle of started) await handle.stop();
+  rmSync(home, { recursive: true, force: true });
+});
+
+describe('startNode runtime hooks (issue #1072)', () => {
+  const stderr = { write: () => true };
+
+  it('runs each hook exactly once, before the first claim, with the resolved concurrency and thread cap', async () => {
+    writeConfig({ serverUrl: 'https://app.example.com', token: 'nod_x' });
+    const record = { deregisters: 0, claims: 0 };
+    const seen: Array<{ concurrency: number; nativeThreads: number; claimsAtRun: number }> = [];
+    registerWorkerRuntimeHook({
+      id: 'probe',
+      beforeFirstJob: (ctx) => {
+        seen.push({ concurrency: ctx.concurrency, nativeThreads: ctx.nativeThreads, claimsAtRun: record.claims });
+      },
+    });
+
+    const node = await startNode({
+      home,
+      env: {
+        [workerEnv().stateDir]: join(home, 'state'),
+        [workerEnv().pollMs]: '250',
+        [workerEnv().concurrency]: '3',
+        [workerEnv().nativeThreads]: '2',
+      },
+      stderr,
+      createApi: () => api(record),
+      installSignalHandlers: () => {},
+    });
+    started.push({ stop: async () => { await node.engine.stop({ deregister: false }); await node.finished; } });
+
+    expect(seen).toEqual([{ concurrency: 3, nativeThreads: 2, claimsAtRun: 0 }]);
+  });
+
+  it('aborts the start with a named error when a hook throws, before registering', async () => {
+    writeConfig({ serverUrl: 'https://app.example.com', token: 'nod_x' });
+    const record = { deregisters: 0, claims: 0 };
+    const register = vi.fn();
+    registerWorkerRuntimeHook({
+      id: 'bad',
+      beforeFirstJob: () => {
+        throw new Error('cannot tune');
+      },
+    });
+
+    await expect(
+      startNode({
+        home,
+        env: { [workerEnv().stateDir]: join(home, 'state') },
+        stderr,
+        createApi: () => ({ ...api(record), register }) as NodeApi,
+        installSignalHandlers: () => {},
+      }),
+    ).rejects.toBeInstanceOf(WorkerRuntimeHookError);
+    expect(register).not.toHaveBeenCalled();
+    expect(record.claims).toBe(0);
+  });
+});
+
+describe('startNode', () => {
+  it('registers on first start, hosts the socket, and persists the node id', async () => {
+    writeConfig({ serverUrl: 'https://app.example.com', token: 'nod_x' });
+    const record = { deregisters: 0, claims: 0 };
+    const stderr = { lines: [] as string[], write(chunk: string) { this.lines.push(chunk); return true; } };
+
+    const node = await startNode({
+      home,
+      env: { [workerEnv().stateDir]: join(home, 'state'), [workerEnv().pollMs]: '250' },
+      stderr,
+      createApi: () => api(record),
+      installSignalHandlers: () => {},
+    });
+    started.push({ stop: async () => { await node.engine.stop({ deregister: false }); await node.finished; } });
+
+    expect(node.engine.nodeId).toBe('node-new');
+    expect(stderr.lines.join('')).toContain('node-new');
+  });
+
+  it('sends vitals on the heartbeat, with watchdog trips once the watchdog is up (#605)', async () => {
+    writeConfig({ serverUrl: 'https://app.example.com', token: 'nod_x', nodeId: 'node-1', node: { concurrency: 3 } });
+    const record = { deregisters: 0, claims: 0 };
+    const bodies: HeartbeatRequest[] = [];
+    const base = api(record);
+
+    const node = await startNode({
+      home,
+      env: { [workerEnv().stateDir]: join(home, 'state-vitals'), [workerEnv().pollMs]: '250' },
+      stderr: { write: () => true },
+      createApi: () => ({
+        ...base,
+        async heartbeat(_nodeId: string, body: HeartbeatRequest) {
+          bodies.push(body);
+          return {} as never;
+        },
+      }),
+      installSignalHandlers: () => {},
+    });
+    started.push({ stop: async () => { await node.engine.stop({ deregister: false }); await node.finished; } });
+
+    await vi.waitFor(() => expect(bodies.length).toBeGreaterThan(0));
+    const vitals = bodies[0]?.vitals;
+    expect(vitals).toMatchObject({ slotsUsed: 0, slotsTotal: 3, nodeVersion: process.versions.node });
+    expect(vitals?.cliVersion).toMatch(/^[0-9A-Za-z .+\-_()~]+$/);
+    expect(vitals?.stateDirTotalBytes).toBeGreaterThan(0);
+    // The watchdog is built after the engine; it is on by default, so it is
+    // bound by the time the first beat is collected.
+    expect(vitals?.counters?.watchdogTrips).toBe(node.watchdog === undefined ? undefined : 0);
+  });
+
+  it('sends no vitals when they are disabled for the run', async () => {
+    writeConfig({ serverUrl: 'https://app.example.com', token: 'nod_x', nodeId: 'node-1' });
+    const record = { deregisters: 0, claims: 0 };
+    const bodies: HeartbeatRequest[] = [];
+    const base = api(record);
+
+    const node = await startNode({
+      home,
+      env: { [workerEnv().stateDir]: join(home, 'state-novitals'), [workerEnv().pollMs]: '250' },
+      stderr: { write: () => true },
+      vitals: false,
+      createApi: () => ({
+        ...base,
+        async heartbeat(_nodeId: string, body: HeartbeatRequest) {
+          bodies.push(body);
+          return {} as never;
+        },
+      }),
+      installSignalHandlers: () => {},
+    });
+    started.push({ stop: async () => { await node.engine.stop({ deregister: false }); await node.finished; } });
+
+    await vi.waitFor(() => expect(bodies.length).toBeGreaterThan(0));
+    expect(bodies[0]).not.toHaveProperty('vitals');
+  });
+
+  it('headless: SIGTERM drains WITHOUT deregistering', async () => {
+    writeConfig({ serverUrl: 'https://app.example.com', token: 'nod_x', nodeId: 'node-1' });
+    const record = { deregisters: 0, claims: 0 };
+    let fire: ((signal: NodeJS.Signals) => void) | undefined;
+
+    const node = await startNode({
+      home,
+      env: { [workerEnv().stateDir]: join(home, 'state'), [workerEnv().pollMs]: '250' },
+      headless: true,
+      createApi: () => api(record),
+      installSignalHandlers: (handler) => {
+        fire = handler;
+      },
+    });
+
+    fire?.('SIGTERM');
+    await node.finished;
+
+    // The node row survives, so a restarting replica re-attaches instead of
+    // leaking a second one.
+    expect(record.deregisters).toBe(0);
+    expect(node.engine.getSnapshot().status).toBe('stopped');
+  });
+
+  it('interactive: SIGINT stops AND deregisters', async () => {
+    writeConfig({ serverUrl: 'https://app.example.com', token: 'nod_x', nodeId: 'node-1' });
+    const record = { deregisters: 0, claims: 0 };
+    let fire: ((signal: NodeJS.Signals) => void) | undefined;
+
+    const node = await startNode({
+      home,
+      env: { [workerEnv().stateDir]: join(home, 'state2'), [workerEnv().pollMs]: '250' },
+      stderr: { write: () => true },
+      createApi: () => api(record),
+      installSignalHandlers: (handler) => {
+        fire = handler;
+      },
+    });
+
+    fire?.('SIGINT');
+    await node.finished;
+
+    // A human stopping a worker on their laptop means it is going away.
+    expect(record.deregisters).toBe(1);
+  });
+
+  it('hard-exits when an advertised type is missing a REQUIRED capability', async () => {
+    // The worst failure a worker has is starting successfully and then failing
+    // every job it claims — it looks healthy while draining the queue into the
+    // failed pile, charging each job an attempt on the way.
+    writeConfig({
+      serverUrl: 'https://app.example.com',
+      token: 'nod_x',
+      nodeId: 'node-1',
+      node: { eligibleTypes: ['video.transcode'] },
+    });
+
+    const exits: number[] = [];
+    const stderr = { lines: [] as string[], write(chunk: string) { this.lines.push(chunk); return true; } };
+
+    await expect(
+      startNode({
+        home,
+        env: { [workerEnv().stateDir]: join(home, 'state-fail') },
+        headless: true,
+        stderr,
+        createApi: () => api({ deregisters: 0, claims: 0 }),
+        installSignalHandlers: () => {},
+        requirements: { 'video.transcode': { required: ['binary:ffmpeg'], degradable: [] } },
+        probe: {
+          platform: 'linux',
+          arch: 'x64',
+          nodeVersion: process.version,
+          cpus: 1,
+          totalMemoryMb: 1024,
+          freeMemoryMb: 512,
+          binaries: {},
+          capabilities: [],
+        },
+        exit: ((code: number) => {
+          exits.push(code);
+          throw new Error(`exit ${code}`);
+        }) as never,
+      }),
+    ).rejects.toThrow(/exit 70/);
+
+    expect(exits).toEqual([EXIT_MISSING_CAPABILITY]);
+    expect(stderr.lines.join('')).toContain('video.transcode');
+  });
+
+  it('hard-exits when a required module is installed but not operational, naming that state', async () => {
+    writeConfig({ serverUrl: 'https://app.example.com', token: 'nod_x', nodeId: 'node-1', node: { eligibleTypes: ['app.ocr'] } });
+    const stderr = { lines: [] as string[], write(chunk: string) { this.lines.push(chunk); return true; } };
+
+    await expect(
+      startNode({
+        home,
+        env: { [workerEnv().stateDir]: join(home, 'state-installed') },
+        headless: true,
+        stderr,
+        createApi: () => api({ deregisters: 0, claims: 0 }),
+        installSignalHandlers: () => {},
+        requirements: { 'app.ocr': { required: ['module:native'], degradable: [] } },
+        probe: {
+          platform: 'linux',
+          arch: 'x64',
+          nodeVersion: process.version,
+          cpus: 1,
+          totalMemoryMb: 1024,
+          freeMemoryMb: 512,
+          binaries: {},
+          probes: { 'module:native': { label: 'Native', status: 'installed', detail: 'binding failed to load' } },
+          capabilities: [],
+        },
+        exit: ((code: number) => {
+          throw new Error(`exit ${code}`);
+        }) as never,
+      }),
+    ).rejects.toThrow(/exit 70/);
+
+    expect(stderr.lines.join('')).toContain('installed but not operational (binding failed to load)');
+  });
+
+  describe('model artifacts', () => {
+    const CONTENT = Buffer.from('weights'.repeat(100));
+    const declare = () =>
+      registerModelArtifact({
+        id: 'weights',
+        fileName: 'weights.bin',
+        sha256: createHash('sha256').update(CONTENT).digest('hex'),
+        bytes: CONTENT.length,
+        url: 'https://models.example.test/weights.bin',
+        requiredBy: ['example.checksum'],
+      });
+    afterEach(() => resetModelRegistryForTests());
+
+    async function start(modelsDir: string) {
+      writeConfig({ serverUrl: 'https://app.example.com', token: 'nod_x', nodeId: 'node-1' });
+      const node = await startNode({
+        home,
+        env: { [workerEnv().stateDir]: join(home, 'state-models'), [workerEnv().modelsDir]: modelsDir, [workerEnv().pollMs]: '250' },
+        headless: true,
+        createApi: () => api({ deregisters: 0, claims: 0 }),
+        installSignalHandlers: () => {},
+        probe: { platform: 'linux', arch: 'x64', nodeVersion: process.version, cpus: 1, totalMemoryMb: 1024, freeMemoryMb: 512, binaries: {}, capabilities: [] },
+      });
+      started.push({ stop: () => node.engine.stop({ deregister: false }) });
+      return node;
+    }
+
+    it('does not advertise a type whose required model is missing, and logs why', async () => {
+      declare();
+      const node = await start(join(home, 'empty-models'));
+
+      expect(node.engine.claimableTypes()).not.toContain('example.checksum');
+      expect(readFileSync(join(home, 'state-models', 'logs', 'node.log'), 'utf8')).toMatch(/model \\"weights\\" is missing.*not advertising example\.checksum.*models pull/);
+    });
+
+    it('does not advertise it for a corrupt model either, and advertises it once the model is valid', async () => {
+      declare();
+      const modelsDir = join(home, 'present-models');
+      mkdirSync(modelsDir, { recursive: true });
+      writeFileSync(join(modelsDir, 'weights.bin'), Buffer.alloc(CONTENT.length, 1));
+      const corrupt = await start(modelsDir);
+      expect(corrupt.engine.claimableTypes()).not.toContain('example.checksum');
+      await corrupt.engine.stop({ deregister: false });
+      await corrupt.finished;
+
+      writeFileSync(join(modelsDir, 'weights.bin'), CONTENT);
+      expect((await start(modelsDir)).engine.claimableTypes()).toContain('example.checksum');
+    });
+
+    it('is unchanged with no model declared', async () => {
+      expect((await start(join(home, 'none'))).engine.claimableTypes()).toContain('example.checksum');
+    });
+  });
+
+  it('reads headless from the environment, not only from the flag', async () => {
+    writeConfig({ serverUrl: 'https://app.example.com', token: 'nod_x', nodeId: 'node-1' });
+    const record = { deregisters: 0, claims: 0 };
+    let fire: ((signal: NodeJS.Signals) => void) | undefined;
+
+    const node = await startNode({
+      home,
+      env: {
+        [workerEnv().stateDir]: join(home, 'state3'),
+        [workerEnv().pollMs]: '250',
+        [workerEnv().headless]: 'true',
+      },
+      createApi: () => api(record),
+      installSignalHandlers: (handler) => {
+        fire = handler;
+      },
+    });
+
+    fire?.('SIGTERM');
+    await node.finished;
+    expect(record.deregisters).toBe(0);
+  });
+});

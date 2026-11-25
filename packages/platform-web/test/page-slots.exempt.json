@@ -1,0 +1,4 @@
+{
+  "$comment": "Packaged pages that do not take the slot contract (src/core/page-slots.tsx). Each entry names an exported *Page and why it is exempt. The list is EMPTY (every packaged page conforms since PP-14.24b, #974) and is kept empty: a new *Page takes `slots` typed to PageSlotsBase instead of being listed here. test/page-slots.contract.test.ts still fails on an entry whose page now conforms or no longer exists.",
+  "exempt": []
+}

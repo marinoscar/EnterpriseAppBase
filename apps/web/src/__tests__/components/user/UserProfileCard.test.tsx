@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { setPreferredTimeZone } from '@marinoscar/platform-web/timezone/headless';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render, mockUser, mockAdminUser } from '../../utils/test-utils';
@@ -14,10 +15,16 @@ vi.mock('react-router-dom', async (importOriginal) => {
   };
 });
 
+// "Member since" renders in the user's display zone; pin it so the expected
+// dates do not depend on the machine's zone.
+const utcDate = (date: Date) => date.toLocaleDateString(undefined, { timeZone: 'UTC' });
+
 describe('UserProfileCard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    setPreferredTimeZone('UTC');
   });
+  afterEach(() => setPreferredTimeZone(null));
 
   describe('Rendering', () => {
     it('should render card with user profile', () => {
@@ -46,7 +53,7 @@ describe('UserProfileCard', () => {
       render(<UserProfileCard />);
 
       expect(screen.getByText('Member since')).toBeInTheDocument();
-      const expectedDate = new Date(mockUser.createdAt).toLocaleDateString();
+      const expectedDate = utcDate(new Date(mockUser.createdAt));
       expect(screen.getByText(expectedDate)).toBeInTheDocument();
     });
   });
@@ -389,7 +396,7 @@ describe('UserProfileCard', () => {
       });
 
       expect(screen.getByText('Member since')).toBeInTheDocument();
-      const expectedDate = testDate.toLocaleDateString();
+      const expectedDate = utcDate(testDate);
       expect(screen.getByText(expectedDate)).toBeInTheDocument();
     });
 
@@ -404,7 +411,7 @@ describe('UserProfileCard', () => {
         },
       });
 
-      const expectedDate = recentDate.toLocaleDateString();
+      const expectedDate = utcDate(recentDate);
       expect(screen.getByText(expectedDate)).toBeInTheDocument();
     });
 
@@ -419,8 +426,20 @@ describe('UserProfileCard', () => {
         },
       });
 
-      const expectedDate = oldDate.toLocaleDateString();
+      const expectedDate = utcDate(oldDate);
       expect(screen.getByText(expectedDate)).toBeInTheDocument();
+    });
+
+    it("renders the date in the user's chosen zone", () => {
+      // 2020-05-10 20:30 UTC is already May 11 in Tokyo.
+      setPreferredTimeZone('Asia/Tokyo');
+      const lateDate = new Date('2020-05-10T20:30:00Z');
+      render(<UserProfileCard />, {
+        wrapperOptions: { user: { ...mockUser, createdAt: lateDate.toISOString() } },
+      });
+
+      expect(screen.getByText(lateDate.toLocaleDateString(undefined, { timeZone: 'Asia/Tokyo' }))).toBeInTheDocument();
+      expect(screen.queryByText(utcDate(lateDate))).not.toBeInTheDocument();
     });
   });
 

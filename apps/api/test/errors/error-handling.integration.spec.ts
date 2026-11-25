@@ -232,7 +232,7 @@ describe('Error Handling (Integration)', () => {
       const response = await request(context.app.getHttpServer())
         .patch('/api/system-settings')
         .set(authHeader(viewer.accessToken))
-        .send({ ui: { allowUserThemeOverride: false } })
+        .send({ notifications: { browserEnabled: false } })
         .expect(403);
 
       expect(response.body).toHaveProperty('statusCode', 403);
@@ -409,6 +409,41 @@ describe('Error Handling (Integration)', () => {
       expect(response.body.message).toBeTruthy();
     });
 
+    it('names each failing field under details.issues and never echoes the submitted value', async () => {
+      const admin = await createMockAdminUser(context);
+      const sentinel = 'zz-sentinel-value-7f3a';
+
+      const response = await request(context.app.getHttpServer())
+        .post('/api/allowlist')
+        .set(authHeader(admin.accessToken))
+        .send({ email: sentinel, notes: 42 })
+        .expect(400);
+
+      expect(response.body).toMatchObject({ statusCode: 400, code: 'BAD_REQUEST' });
+      const issues = response.body.details?.issues as Array<{ path: string; message: string }>;
+      expect(Array.isArray(issues)).toBe(true);
+      expect(issues.map((issue) => issue.path)).toContain('email');
+      for (const issue of issues) {
+        expect(typeof issue.path).toBe('string');
+        expect(typeof issue.message).toBe('string');
+        expect(Object.keys(issue).sort()).toEqual(['message', 'path']);
+      }
+      expect(JSON.stringify(response.body)).not.toContain(sentinel);
+    });
+
+    it('names failing query parameters under details.issues', async () => {
+      const admin = await createMockAdminUser(context);
+
+      const response = await request(context.app.getHttpServer())
+        .get('/api/users?page=-1&pageSize=9999')
+        .set(authHeader(admin.accessToken))
+        .expect(400);
+
+      const paths = (response.body.details?.issues as Array<{ path: string }>).map((issue) => issue.path);
+      expect(paths).toEqual(expect.arrayContaining(['page', 'pageSize']));
+      expect(JSON.stringify(response.body.details)).not.toContain('9999');
+    });
+
     it('should handle multiple validation errors', async () => {
       const admin = await createMockAdminUser(context);
 
@@ -451,7 +486,7 @@ describe('Error Handling (Integration)', () => {
       const response2 = await request(context.app.getHttpServer())
         .patch('/api/system-settings')
         .set(authHeader(viewer.accessToken))
-        .send({ ui: { theme: 'dark' } })
+        .send({ notifications: { browserEnabled: false } })
         .expect(403);
 
       // Both should have same structure

@@ -66,9 +66,7 @@ describe('RBAC System (Integration)', () => {
           id: 'settings-id',
           key: 'default',
           value: {
-            ui: { allowUserThemeOverride: false },
-            security: { jwtAccessTtlMinutes: 15, refreshTtlDays: 14 },
-            features: {},
+            notifications: { browserEnabled: false, disabledEvents: [] },
           },
           version: 2,
           updatedAt: new Date(),
@@ -79,11 +77,11 @@ describe('RBAC System (Integration)', () => {
         const response = await request(context.app.getHttpServer())
           .patch('/api/system-settings')
           .set(authHeader(admin.accessToken))
-          .send({ ui: { allowUserThemeOverride: false } })
+          .send({ notifications: { browserEnabled: false } })
           .expect(200);
 
         expect(response.body.data).toBeDefined();
-        expect(response.body.data.ui.allowUserThemeOverride).toBe(false);
+        expect(response.body.data.notifications.browserEnabled).toBe(false);
       });
     });
 
@@ -106,7 +104,7 @@ describe('RBAC System (Integration)', () => {
         const response = await request(context.app.getHttpServer())
           .patch('/api/system-settings')
           .set(authHeader(contributor.accessToken))
-          .send({ ui: { allowUserThemeOverride: false } })
+          .send({ notifications: { browserEnabled: false } })
           .expect(403);
 
         expect(response.body.code).toBe('FORBIDDEN');
@@ -159,7 +157,7 @@ describe('RBAC System (Integration)', () => {
         const response = await request(context.app.getHttpServer())
           .patch('/api/system-settings')
           .set(authHeader(viewer.accessToken))
-          .send({ ui: { allowUserThemeOverride: false } })
+          .send({ notifications: { browserEnabled: false } })
           .expect(403);
 
         expect(response.body.code).toBe('FORBIDDEN');
@@ -192,6 +190,58 @@ describe('RBAC System (Integration)', () => {
 
         expect(response.body.data.email).toBe(viewer.email);
       });
+    });
+  });
+
+  describe('OAuth clients admin routes (PP-15.5, #1183)', () => {
+    const ID = '11111111-1111-4111-8111-111111111111';
+    const routes: Array<{ method: 'get' | 'post' | 'patch' | 'delete'; path: string; write: boolean }> = [
+      { method: 'get', path: '/api/admin/oauth/clients', write: false },
+      { method: 'post', path: '/api/admin/oauth/clients', write: true },
+      { method: 'patch', path: `/api/admin/oauth/clients/${ID}`, write: true },
+      { method: 'post', path: `/api/admin/oauth/clients/${ID}/rotate-secret`, write: true },
+      { method: 'delete', path: `/api/admin/oauth/clients/${ID}`, write: true },
+      { method: 'get', path: '/api/admin/oauth/grants', write: false },
+      { method: 'delete', path: `/api/admin/oauth/grants/${ID}`, write: true },
+    ];
+
+    it('is refused to a contributor and a viewer on every route (403)', async () => {
+      for (const make of [createMockContributorUser, createMockViewerUser]) {
+        const user = await make(context);
+        for (const route of routes) {
+          const response = await request(context.app.getHttpServer())[route.method](route.path).set(authHeader(user.accessToken)).send({});
+          expect([route.method, route.path, response.status]).toEqual([route.method, route.path, 403]);
+        }
+      }
+    });
+
+    it('is refused without a credential (401)', async () => {
+      for (const route of routes) {
+        const response = await request(context.app.getHttpServer())[route.method](route.path).send({});
+        expect([route.method, route.path, response.status]).toEqual([route.method, route.path, 401]);
+      }
+    });
+
+    it('lets an administrator list clients (oauth_clients:read)', async () => {
+      const admin = await createMockAdminUser(context);
+      context.prismaMock.oAuthClient.findMany.mockResolvedValue([]);
+      context.prismaMock.oAuthClient.count.mockResolvedValue(0);
+      const response = await request(context.app.getHttpServer()).get('/api/admin/oauth/clients').set(authHeader(admin.accessToken)).expect(200);
+      expect(response.body.data.items).toEqual([]);
+    });
+  });
+
+  describe('OAuth grants admin routes (#1195)', () => {
+    const ID = '11111111-1111-4111-8111-111111111111';
+
+    it('lets an administrator list grants and 404s an unknown grant on revoke', async () => {
+      const admin = await createMockAdminUser(context);
+      context.prismaMock.oAuthGrant.findMany.mockResolvedValue([]);
+      context.prismaMock.oAuthGrant.count.mockResolvedValue(0);
+      const list = await request(context.app.getHttpServer()).get('/api/admin/oauth/grants').set(authHeader(admin.accessToken)).expect(200);
+      expect(list.body.data.items).toEqual([]);
+      context.prismaMock.oAuthGrant.findUnique.mockResolvedValue(null);
+      await request(context.app.getHttpServer()).delete(`/api/admin/oauth/grants/${ID}`).set(authHeader(admin.accessToken)).expect(404);
     });
   });
 
@@ -228,7 +278,7 @@ describe('RBAC System (Integration)', () => {
       const response = await request(context.app.getHttpServer())
         .patch('/api/system-settings')
         .set(authHeader(viewer.accessToken))
-        .send({ ui: { allowUserThemeOverride: true } })
+        .send({ notifications: { browserEnabled: true } })
         .expect(403);
 
       expect(response.body.code).toBe('FORBIDDEN');

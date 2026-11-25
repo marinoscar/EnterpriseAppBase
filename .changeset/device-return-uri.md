@@ -1,0 +1,7 @@
+---
+"@marinoscar/platform-api": minor
+"@marinoscar/platform-web": minor
+"@marinoscar/platform-contract": minor
+---
+
+Device flow `clientInfo.returnUri` and bounded client labels (RETRO-SEAM-DEVICE-RETURNURI). Contract: `deviceClientInfoSchema` gains `returnUri` (at most 512 characters, an absolute URI), the informational `hostname` and `platform`, and the deprecated alias `name` of `deviceName`; `deviceName` is now trimmed and at most 100 characters and `userAgent` at most 1024 (both were unbounded, so a client that sent more now gets a 400); new zod-free `isAllowedReturnUri`, `parseReturnUriScheme`, `DEVICE_NAME_MAX_LENGTH`, `DEVICE_USER_AGENT_MAX_LENGTH`, `DEVICE_RETURN_URI_MAX_LENGTH` and `INVALID_RETURN_URI_CODE`. API: `IdentityModule.forRoot({ deviceFlow: { returnUriSchemes } })` lists the custom schemes accepted besides `https:` (default none; `http`, `javascript`, `data` and similar are a boot error); `POST /api/auth/device/code` refuses any other `returnUri` with a 400 `code: 'INVALID_RETURN_URI'`, maps `name` onto `deviceName` when that is absent, and `GET /api/auth/device/activate` echoes a `returnUri` only while it is still allowed. Web: `ActivateDevicePage` takes `returnUriSchemes`; after a successful approval (never a denial) `ActivationSuccess` re-checks the URI and sends the user back with `window.location.assign`, automatically and through a "Return to <device>" button, never appending the code or a token. Back-compat: requests without the new fields behave as before.

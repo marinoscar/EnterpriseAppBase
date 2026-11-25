@@ -1,0 +1,153 @@
+
+=== q3-install-lock ===
+package migrations: platform:0001_initial, platform:0002_add_personal_access_tokens, platform:0003_add_credentials
+
+## 1. install (sync) two package migrations into an empty app history
+--- installed
+    platform:0001_initial -> 20261006100000_initial
+    platform:0002_add_personal_access_tokens -> 20261006100001_add_personal_access_tokens
+PASS  two migrations installed under app-local timestamps, in package order
+PASS  timestamps are 1 second apart from "now" for an empty history
+PASS  the second sync is a no-op (idempotent)
+--- platform.lock after the first sync
+    {
+      "lockVersion": 1,
+      "platformVersion": "1.0.0",
+      "migrations": [
+        {
+          "originId": "platform:0001_initial",
+          "localDir": "20261006100000_initial",
+          "sha256": "755688a7d01e70c97f497efdbd5a72adecf9404ba20fc5fc15c748c2bb7d0d2e",
+          "since": "1.0.0"
+        },
+        {
+          "originId": "platform:0002_add_personal_access_tokens",
+          "localDir": "20261006100001_add_personal_access_tokens",
+          "sha256": "696a7bc4a974a2b0142f7183fe795d98b21a353f402ad21b3d5a5e79c06800cd",
+          "since": "1.0.0"
+        }
+      ],
+      "deviations": []
+    }
+--- migrate deploy
+    Datasource "db": PostgreSQL database "pp_5_1_q3", schema "public" at "127.0.0.1:5433"
+    
+    2 migrations found in prisma/migrations
+    
+    Applying migration `20261006100000_initial`
+    Applying migration `20261006100001_add_personal_access_tokens`
+    
+    The following migration(s) have been applied:
+    
+    migrations/
+      └─ 20261006100000_initial/
+        └─ migration.sql
+      └─ 20261006100001_add_personal_access_tokens/
+        └─ migration.sql
+    
+    All migrations have been successfully applied.
+PASS  migrate deploy applies the installed migrations
+PASS  _prisma_migrations.migration_name is the app-local directory name
+PASS  _prisma_migrations.checksum EQUALS sha256 of the package file (Prisma checksums the raw file; a copy keeps it)
+PASS  and equals the checksum the BASE app recorded for the same bytes
+
+## 2. an app migration lands, then a later package migration is installed
+PASS  the app migration applies after the installed ones
+--- sync with a clock BEHIND the newest app migration (skew)
+    platform:0003_add_credentials -> 20261006120001_add_credentials
+PASS  the naming rule still sorts the new package migration AFTER the app migration (max(now, latest+1s))  (20261006120001_add_credentials > 20261006120000_add_workouts)
+--- migrate deploy
+    Datasource "db": PostgreSQL database "pp_5_1_q3", schema "public" at "127.0.0.1:5433"
+    
+    4 migrations found in prisma/migrations
+    
+    Applying migration `20261006120001_add_credentials`
+    
+    The following migration(s) have been applied:
+    
+    migrations/
+      └─ 20261006120001_add_credentials/
+        └─ migration.sql
+    
+    All migrations have been successfully applied.
+PASS  the later package migration applies
+PASS  apply order == lexicographic directory order == package-then-app-then-package intent  (initial -> add_personal_access_tokens -> add_workouts -> add_credentials)
+
+## 3. negative control: what if the package migration kept a fixed name that sorts BEFORE an applied app migration?
+--- migrate status with an un-applied dir OLDER than applied ones
+    exit 1
+    Datasource "db": PostgreSQL database "pp_5_1_q3", schema "public" at "127.0.0.1:5433"
+    
+    5 migrations found in prisma/migrations
+    Following migration have not yet been applied:
+    20260601000000_package_fixed_name
+    
+    To apply migrations in development run prisma migrate dev.
+    To apply migrations in production run prisma migrate deploy.
+    Prisma schema loaded from prisma/schema.prisma.
+--- migrate deploy
+    exit 0
+    Datasource "db": PostgreSQL database "pp_5_1_q3", schema "public" at "127.0.0.1:5433"
+    
+    5 migrations found in prisma/migrations
+    
+    Applying migration `20260601000000_package_fixed_name`
+    
+    The following migration(s) have been applied:
+    
+    migrations/
+      └─ 20260601000000_package_fixed_name/
+        └─ migration.sql
+    
+    All migrations have been successfully applied.
+    Prisma schema loaded from prisma/schema.prisma.
+late_pkg_table created by deploy: true
+PASS  Prisma migrate deploy applies an out-of-order (older) directory silently, as the LAST migration of this database
+--- apply order on a FRESH database vs the deployed one
+    fresh:    package_fixed_name -> initial -> add_personal_access_tokens -> add_workouts -> add_credentials
+    deployed: initial -> add_personal_access_tokens -> add_workouts -> add_credentials -> package_fixed_name
+PASS  ...but a FRESH database applies it FIRST: the two histories diverge. Hence the naming rule orders by construction
+
+## 4. lock verification
+PASS  clean state: `check` reports no problems
+--- check after a comment-only edit of an installed file
+    platform:0002_add_personal_access_tokens: local 20261006100001_add_personal_access_tokens/migration.sql differs from the lock (bbdf354e72eb != 696a7bc4a974)
+PASS  a comment-only edit of an installed migration is detected by the lock
+--- prisma migrate status with the edited, already-applied file
+    exit 0
+    Datasource "db": PostgreSQL database "pp_5_1_q3", schema "public" at "127.0.0.1:5433"
+    
+    4 migrations found in prisma/migrations
+    
+    Database schema is up to date!
+    Prisma schema loaded from prisma/schema.prisma.
+--- prisma migrate deploy with the edited, already-applied file
+    exit 0
+    Datasource "db": PostgreSQL database "pp_5_1_q3", schema "public" at "127.0.0.1:5433"
+    
+    4 migrations found in prisma/migrations
+    
+    
+    No pending migrations to apply.
+    Prisma schema loaded from prisma/schema.prisma.
+  observed: Prisma migrate status/deploy does NOT complain about an edited applied file (so the lock is the only guard in CI).
+PASS  the DB still holds the ORIGINAL checksum (the lock can also compare file vs `_prisma_migrations`)
+PASS  restoring the bytes makes `check` clean again
+--- check after the PACKAGE rewrote a released migration
+    platform:0001_initial: PACKAGE file changed after release (lock 755688a7d01e, package e5c6a8a2b00b)
+PASS  rewriting a released package migration is detected (immutability)
+
+## 5. a fork whose local copy differs from the package ONLY in comments (EvoPath add_job_trace_context)
+PASS  with `localSha256` recorded the comment-only difference is accepted knowingly
+PASS  and any FURTHER edit is still caught
+--- final shape: lock entries
+    {
+      "originId": "platform:0001_initial",
+      "localDir": "20261006100000_initial",
+      "sha256": "755688a7d01e70c97f497efdbd5a72adecf9404ba20fc5fc15c748c2bb7d0d2e",
+      "since": "1.0.0",
+      "localSha256": "e4f34f27004d2f276cf5df0d5dd9722b8bf397e86cddf83746e54ed6f87488f7",
+      "note": "comment-only difference (issue references renumbered per repository)"
+    }
+
+20/20 checks passed
